@@ -22,15 +22,19 @@ document.addEventListener('DOMContentLoaded', () => {
         'btn-nav-eliminatorias': initPlayoffsView
     };
     const render = buttonId => {
-        try { renderers[buttonId]?.(); }
+        try {
+            renderers[buttonId]?.();
+        }
         catch (error) {
             console.error(error);
-            alert('No se pudo cargar esta sección. Actualice la página e intente nuevamente.');
+            alert('No se pudo cargar esta sección. Revise los datos del torneo e intente nuevamente.');
         }
     };
-    document.addEventListener('click', event => {
-        const button = event.target.closest('button.nav-btn[id^="btn-nav-"]');
-        if (button) render(button.id);
+
+    Object.keys(renderers).forEach(buttonId => {
+        const button = document.getElementById(buttonId);
+        if (button) button.addEventListener('click', () => render(buttonId));
     });
+
     render('btn-nav-torneos');
 });
