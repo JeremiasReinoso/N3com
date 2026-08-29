@@ -317,3 +317,28 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
     .result-row-meta { grid-template-columns: auto 1fr auto; align-items: center; }
     .result-row-schedule { display: block; }
 }
+
+/* Selector visual de categorías */
+.category-picker-form { display: grid; gap: 16px; }
+.category-picker { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.category-picker-group { overflow: hidden; border: 1px solid #dbe6f5; border-radius: 13px; background: #f9fbff; }
+.category-picker-group header { display: flex; align-items: baseline; justify-content: space-between; padding: 10px 12px; background: linear-gradient(120deg, #eaf3ff, #f5fbff); border-bottom: 1px solid #dbe6f5; }
+.category-picker-group header span { color: #6b7d98; font-size: .72rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.category-picker-group header strong { color: #0757b8; font-size: 1rem; }
+.category-picker-group > div { display: grid; gap: 7px; padding: 9px; }
+.category-choice { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 7px; padding: 10px 11px; color: #2e4568; background: #fff; border: 1px solid #d5e1f1; border-radius: 9px; text-align: left; box-shadow: none; }
+.category-choice b { font-size: .88rem; }
+.category-choice small { color: #7c8ca4; font-size: .68rem; font-weight: 700; }
+.category-choice:hover:not(:disabled) { border-color: #5f9ce1; background: #f2f8ff; transform: translateY(-1px); }
+.category-choice.selected { color: #fff; background: linear-gradient(120deg, #0757b8, #0989bd); border-color: #0757b8; box-shadow: 0 7px 14px rgba(7, 87, 184, .2); }
+.category-choice.selected small { color: #dcefff; }
+.category-choice:disabled { color: #8b98aa; background: #f0f3f8; border-color: #e1e7ef; opacity: .8; }
+.category-choice:disabled small { color: #a2adbd; }
+.category-picker-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 4px; }
+.category-picker-footer p { max-width: 620px; }
+@media (max-width: 980px) { .category-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) {
+    .category-picker { grid-template-columns: 1fr; }
+    .category-picker-footer { align-items: stretch; flex-direction: column; }
+    .category-picker-footer button { width: 100%; }
+}
