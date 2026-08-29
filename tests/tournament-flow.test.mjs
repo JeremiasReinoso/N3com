@@ -30,6 +30,8 @@ const scenario = `
     let duplicateCategoryBlocked = false;
     try { DataManager.createCategory('+50', tournament.id); } catch { duplicateCategoryBlocked = true; }
     if (!duplicateCategoryBlocked) throw new Error('Se permitió duplicar una categoría dentro del mismo torneo.');
+    const batchCategories = DataManager.createCategories(['+40 Femenino', '+60 Mixto'], tournament.id);
+    if (batchCategories.length !== 2 || DataManager.getCategoriesByTournament(tournament.id).length !== 3) throw new Error('No se pudieron crear varias categorías en una sola acción.');
     const zone = DataManager.createZone('Zona A', category.id, tournament.id);
     for (const name of ['A', 'B', 'C', 'D']) {
         const team = DataManager.createTeam('Equipo ' + name, category.id, tournament.id);
@@ -204,6 +206,23 @@ const scenario = `
     const cappedMatches = DataManager.getMatchesByTournamentAndCategory(cappedTournament.id, cappedCategory.id);
     const cappedCheck = SchedulerService.verificarPartidosAsegurados(cappedTournament.id, cappedCategory.id);
     if (cappedCreated !== 6 || cappedMatches.length !== 6 || !cappedCheck.ok) throw new Error('Una cantidad de partidos superior a los rivales disponibles bloqueó el fixture.');
+
+    const drawTournament = DataManager.createTournament('Sorteo con líderes', 2);
+    const drawCategory = DataManager.createCategory('+40 Mixto', drawTournament.id);
+    const drawZoneA = DataManager.createZone('Zona A', drawCategory.id, drawTournament.id);
+    const drawZoneB = DataManager.createZone('Zona B', drawCategory.id, drawTournament.id);
+    const drawTeams = [];
+    for (const name of ['A', 'B', 'C', 'D', 'E', 'F']) drawTeams.push(DataManager.createTeam('Sorteo ' + name, drawCategory.id, drawTournament.id));
+    let duplicateLeaderBlocked = false;
+    try { DataManager.drawZones(drawTournament.id, drawCategory.id, { [drawZoneA.id]: drawTeams[0].id, [drawZoneB.id]: drawTeams[0].id }); } catch { duplicateLeaderBlocked = true; }
+    if (!duplicateLeaderBlocked) throw new Error('Un equipo pudo ser cabeza de serie de dos zonas.');
+    DataManager.drawZones(drawTournament.id, drawCategory.id, { [drawZoneA.id]: drawTeams[0].id, [drawZoneB.id]: drawTeams[1].id });
+    const seededZones = DataManager.getZonesByTournamentAndCategory(drawTournament.id, drawCategory.id);
+    const seededTeams = DataManager.getTeamsByTournamentAndCategory(drawTournament.id, drawCategory.id);
+    const seededSizes = seededZones.map(zone => seededTeams.filter(team => team.zonaId === zone.id).length);
+    if (seededZones.find(zone => zone.id === drawZoneA.id).liderEquipoId !== drawTeams[0].id || seededZones.find(zone => zone.id === drawZoneB.id).liderEquipoId !== drawTeams[1].id || seededTeams.find(team => team.id === drawTeams[0].id).zonaId !== drawZoneA.id || seededTeams.find(team => team.id === drawTeams[1].id).zonaId !== drawZoneB.id || Math.max(...seededSizes) - Math.min(...seededSizes) > 1) throw new Error('El sorteo con cabezas de serie no respetó líderes o equilibrio.');
+    DataManager.drawZones(drawTournament.id, drawCategory.id);
+    if (DataManager.getZonesByTournamentAndCategory(drawTournament.id, drawCategory.id).some(zone => zone.liderEquipoId)) throw new Error('El sorteo aleatorio conservó líderes que no fueron seleccionados.');
     console.log(JSON.stringify({ created, confirmed, scheduled, matchesPerTeam: Object.values(counts), dates, playoffsDate: playoffsInfo.date }));
 `;
 
