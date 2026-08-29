@@ -30,18 +30,20 @@ export const initEquiposView = () => {
     const zones = categoryId ? DataManager.getZonesByTournamentAndCategory(tournamentId, categoryId) : [];
     const teams = categoryId ? DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId) : [];
     const existingNames = new Set(categories.map(item => item.nombre.trim().toLocaleLowerCase('es')));
-    const categoryOptions = Object.entries(CATEGORY_GROUPS).map(([age, names]) => `<optgroup label="Categoría ${age}">${names.map(name => {
+    const categoryPicker = Object.entries(CATEGORY_GROUPS).map(([age, names]) => `<section class="category-picker-group"><header><span>Edad</span><strong>${age}</strong></header><div>${names.map(name => {
         const exists = existingNames.has(name.toLocaleLowerCase('es'));
-        return `<option value="${name}" ${exists ? 'disabled' : ''}>${name}${exists ? ' (ya agregada)' : ''}</option>`;
-    }).join('')}</optgroup>`).join('');
+        const mode = name.replace(`${age} `, '');
+        return `<button type="button" class="category-choice" data-category="${name}" ${exists ? 'disabled' : ''} aria-pressed="false"><b>${mode}</b><small>${exists ? 'Ya agregada' : `Categoría ${age}`}</small></button>`;
+    }).join('')}</div></section>`).join('');
     const allCategoriesAdded = CATEGORY_OPTIONS.every(name => existingNames.has(name.toLocaleLowerCase('es')));
     view.innerHTML = `
         <h2>Equipos</h2>
         <section class="form-card panel-control">
             <div class="form-title"><div><h3>Nueva categoría</h3><p>Las categorías funcionan como subpáginas dentro de este torneo.</p></div><span class="calendar-chip">${tournament.nombre}</span></div>
-            <form id="form-nueva-categoria" class="form-grid">
-                <label class="form-field">Categoría<select id="categoria-nombre" required ${allCategoriesAdded ? 'disabled' : ''}><option value="">Elegí una categoría</option>${categoryOptions}</select></label>
-                <div class="form-actions"><button class="btn-primary" type="submit" ${allCategoriesAdded ? 'disabled' : ''}>Agregar categoría</button></div>
+            <form id="form-nueva-categoria" class="category-picker-form">
+                <input id="categoria-nombre" type="hidden" required>
+                <div class="category-picker" role="group" aria-label="Elegí una categoría">${categoryPicker}</div>
+                <div class="category-picker-footer"><p class="helper-text">Elegí la edad y modalidad para crear su espacio de equipos, zonas y fixture.</p><button id="agregar-categoria" class="btn-primary" type="submit" disabled ${allCategoriesAdded ? 'disabled' : ''}>Agregar categoría</button></div>
             </form>
         </section>
         <section class="category-workspace">
@@ -70,6 +72,15 @@ export const initEquiposView = () => {
             initEquiposView();
         } catch (error) { alert(error.message); }
     });
+    view.querySelectorAll('.category-choice').forEach(choice => choice.addEventListener('click', () => {
+        if (choice.disabled) return;
+        view.querySelectorAll('.category-choice').forEach(item => {
+            item.classList.toggle('selected', item === choice);
+            item.setAttribute('aria-pressed', item === choice ? 'true' : 'false');
+        });
+        view.querySelector('#categoria-nombre').value = choice.dataset.category;
+        view.querySelector('#agregar-categoria').disabled = false;
+    }));
     view.querySelectorAll('.categoria-tab').forEach(tab => tab.addEventListener('click', () => {
         AppState.setCategory(tab.dataset.id);
         initEquiposView();
