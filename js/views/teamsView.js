@@ -1,7 +1,13 @@
 import { AppState } from '../core/state.js';
 import { DataManager } from '../data/dataManager.js';
 
-const CATEGORY_OPTIONS = ['+40 Masculino', '+40 Femenino', '+40 Mixto', '+50', '+60', '+68'];
+const CATEGORY_GROUPS = {
+    '+40': ['+40 Masculino', '+40 Femenino', '+40 Mixto'],
+    '+50': ['+50 Masculino', '+50 Femenino', '+50 Mixto'],
+    '+60': ['+60 Masculino', '+60 Femenino', '+60 Mixto'],
+    '+68': ['+68 Masculino', '+68 Femenino', '+68 Mixto']
+};
+const CATEGORY_OPTIONS = Object.values(CATEGORY_GROUPS).flat();
 const categoryTabs = (categories, activeId) => categories.map(category =>
     `<button type="button" class="btn-tab categoria-tab ${category.id === activeId ? 'active' : ''}" data-id="${category.id}">${category.nombre}</button>`).join('');
 
@@ -24,7 +30,10 @@ export const initEquiposView = () => {
     const zones = categoryId ? DataManager.getZonesByTournamentAndCategory(tournamentId, categoryId) : [];
     const teams = categoryId ? DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId) : [];
     const existingNames = new Set(categories.map(item => item.nombre.trim().toLocaleLowerCase('es')));
-    const categoryOptions = CATEGORY_OPTIONS.map(name => `<option value="${name}" ${existingNames.has(name.toLocaleLowerCase('es')) ? 'disabled' : ''}>${name}${existingNames.has(name.toLocaleLowerCase('es')) ? ' (ya agregada)' : ''}</option>`).join('');
+    const categoryOptions = Object.entries(CATEGORY_GROUPS).map(([age, names]) => `<optgroup label="Categoría ${age}">${names.map(name => {
+        const exists = existingNames.has(name.toLocaleLowerCase('es'));
+        return `<option value="${name}" ${exists ? 'disabled' : ''}>${name}${exists ? ' (ya agregada)' : ''}</option>`;
+    }).join('')}</optgroup>`).join('');
     const allCategoriesAdded = CATEGORY_OPTIONS.every(name => existingNames.has(name.toLocaleLowerCase('es')));
     view.innerHTML = `
         <h2>Equipos</h2>
