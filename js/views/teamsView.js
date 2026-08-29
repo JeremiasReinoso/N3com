@@ -1,6 +1,7 @@
 import { AppState } from '../core/state.js';
 import { DataManager } from '../data/dataManager.js';
 
+const CATEGORY_OPTIONS = ['+40 Masculino', '+40 Femenino', '+40 Mixto', '+50', '+60', '+68'];
 const categoryTabs = (categories, activeId) => categories.map(category =>
     `<button type="button" class="btn-tab categoria-tab ${category.id === activeId ? 'active' : ''}" data-id="${category.id}">${category.nombre}</button>`).join('');
 
@@ -22,13 +23,16 @@ export const initEquiposView = () => {
     const category = categoryId ? DataManager.getCategory(categoryId) : null;
     const zones = categoryId ? DataManager.getZonesByTournamentAndCategory(tournamentId, categoryId) : [];
     const teams = categoryId ? DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId) : [];
+    const existingNames = new Set(categories.map(item => item.nombre.trim().toLocaleLowerCase('es')));
+    const categoryOptions = CATEGORY_OPTIONS.map(name => `<option value="${name}" ${existingNames.has(name.toLocaleLowerCase('es')) ? 'disabled' : ''}>${name}${existingNames.has(name.toLocaleLowerCase('es')) ? ' (ya agregada)' : ''}</option>`).join('');
+    const allCategoriesAdded = CATEGORY_OPTIONS.every(name => existingNames.has(name.toLocaleLowerCase('es')));
     view.innerHTML = `
         <h2>Equipos</h2>
         <section class="form-card panel-control">
             <div class="form-title"><div><h3>Nueva categoría</h3><p>Las categorías funcionan como subpáginas dentro de este torneo.</p></div><span class="calendar-chip">${tournament.nombre}</span></div>
             <form id="form-nueva-categoria" class="form-grid">
-                <label class="form-field">Nombre de categoría<input id="categoria-nombre" type="text" maxlength="40" required placeholder="Ej.: +50, Femenino"></label>
-                <div class="form-actions"><button class="btn-primary" type="submit">Agregar categoría</button></div>
+                <label class="form-field">Categoría<select id="categoria-nombre" required ${allCategoriesAdded ? 'disabled' : ''}><option value="">Elegí una categoría</option>${categoryOptions}</select></label>
+                <div class="form-actions"><button class="btn-primary" type="submit" ${allCategoriesAdded ? 'disabled' : ''}>Agregar categoría</button></div>
             </form>
         </section>
         <section class="category-workspace">
@@ -49,11 +53,13 @@ export const initEquiposView = () => {
 
     view.querySelector('#form-nueva-categoria').addEventListener('submit', event => {
         event.preventDefault();
-        const name = view.querySelector('#categoria-nombre').value.trim();
+        const name = view.querySelector('#categoria-nombre').value;
         if (!name) return;
-        const created = DataManager.createCategory(name, tournamentId);
-        AppState.setCategory(created.id);
-        initEquiposView();
+        try {
+            const created = DataManager.createCategory(name, tournamentId);
+            AppState.setCategory(created.id);
+            initEquiposView();
+        } catch (error) { alert(error.message); }
     });
     view.querySelectorAll('.categoria-tab').forEach(tab => tab.addEventListener('click', () => {
         AppState.setCategory(tab.dataset.id);
