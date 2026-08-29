@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NEWCOM - Administración de Clientes</title>
+    <link rel="stylesheet" href="css/main.css" />
+    <link rel="stylesheet" href="css/layout.css" />
+</head>
+<body>
+    <header class="app-header">
+        <div class="logo">🏐 NEW.COM</div>
+        <nav aria-label="Navegación de administración">
+            <a href="index.html" class="nav-btn">← Volver al inicio</a>
+            <span class="nav-btn active" style="cursor: default;">Gestión de Clientes</span>
+        </nav>
+    </header>
+
+    <main id="admin-container" class="container">
+        <section id="view-admin" class="view-section active">
+            <h2>Gestión de Clientes / Licencias</h2>
+            <div class="panel-control">
+                <button id="btn-nuevo-cliente" class="btn-primary">+ Nuevo Cliente</button>
+                <button id="btn-actualizar-licencias" class="btn-secondary">Actualizar Licencias</button>
+            </div>
+            <div id="admin-list" class="grid-cards">
+                <!-- Las licencias se cargan aquí -->
+                <p>Cargando clientes...</p>
+            </div>
+        </section>
+    </main>
+
+    <!-- Script específico de administración -->
+    <script type="module" src="js/views/adminView.js"></script>
+    <!-- Opcional: también podría necesitar db.js, licenseRepo.js, etc. -->
+</body>
+</html>
