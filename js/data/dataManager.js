@@ -20,6 +20,21 @@ const minutesFromTime = time => {
     return hour * 60 + minute;
 };
 const validHours = (start, end) => /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end) && minutesFromTime(start) < minutesFromTime(end);
+const isZonePhaseMatch = match => !match.tipo || match.tipo === 'fase_zonas';
+const groupPairKey = match => [
+    match.torneoId,
+    match.categoriaId,
+    match.zonaId,
+    ...[String(match.equipoLocalId), String(match.equipoVisitanteId)].sort()
+].join(':');
+const assertUniqueGroupPairs = matches => {
+    const seen = new Set();
+    matches.filter(match => isZonePhaseMatch(match) && match.equipoLocalId && match.equipoVisitanteId).forEach(match => {
+        const key = groupPairKey(match);
+        if (seen.has(key)) throw new Error('No se puede repetir un enfrentamiento dentro de la misma zona.');
+        seen.add(key);
+    });
+};
 // El marcador es el único dato que ingresa la interfaz. A partir de él se
 // construye el resultado interno que usan tabla y eliminatorias.
 const scoreFromMarker = (setsLocal, setsVisitante) => {
@@ -133,6 +148,7 @@ export const DataManager = {
     addMatches(matches) {
         const data = this._getStorage();
         matches.forEach(match => { this._validateMatchPair(match); this._validateMatchDate(match); });
+        assertUniqueGroupPairs([...data.matches, ...matches]);
         data.matches.push(...matches.map(match => ({
             id: makeId('partido'), ...match,
             puntosLocal: null,
@@ -145,7 +161,9 @@ export const DataManager = {
         const data = this._getStorage();
         matches.forEach(match => { this._validateMatchPair(match); this._validateMatchDate(match); });
         const byId = new Map(matches.map(match => [match.id, match]));
-        data.matches = data.matches.map(match => byId.get(match.id) || match);
+        const updated = data.matches.map(match => byId.get(match.id) || match);
+        assertUniqueGroupPairs(updated);
+        data.matches = updated;
         this._setStorage(data);
     },
     _validateMatchDate(match) {
@@ -162,6 +180,17 @@ export const DataManager = {
         if (!match) throw new Error('No se encontró el partido.');
         if (match.confirmado || match.estado !== 'borrador') throw new Error('Sólo se pueden eliminar emparejamientos en borrador.');
         data.matches = data.matches.filter(item => item.id !== matchId);
+        this._setStorage(data);
+    },
+    removeDraftGroupMatches(torneoId, categoriaId) {
+        const data = this._getStorage();
+        data.matches = data.matches.filter(match => !(
+            match.torneoId === torneoId
+            && match.categoriaId === categoriaId
+            && isZonePhaseMatch(match)
+            && !match.confirmado
+            && match.estado === 'borrador'
+        ));
         this._setStorage(data);
     },
     updateMatchResult(matchId, setsLocal, setsVisitante) {
