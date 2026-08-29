@@ -41,9 +41,8 @@ export const initEquiposView = () => {
         <section class="form-card panel-control">
             <div class="form-title"><div><h3>Nueva categoría</h3><p>Las categorías funcionan como subpáginas dentro de este torneo.</p></div><span class="calendar-chip">${tournament.nombre}</span></div>
             <form id="form-nueva-categoria" class="category-picker-form">
-                <input id="categoria-nombre" type="hidden" required>
                 <div class="category-picker" role="group" aria-label="Elegí una categoría">${categoryPicker}</div>
-                <div class="category-picker-footer"><p class="helper-text">Elegí la edad y modalidad para crear su espacio de equipos, zonas y fixture.</p><button id="agregar-categoria" class="btn-primary" type="submit" disabled ${allCategoriesAdded ? 'disabled' : ''}>Agregar categoría</button></div>
+                <div class="category-picker-footer"><p id="categoria-seleccionadas" class="helper-text">Podés elegir varias categorías para crearlas juntas.</p><button id="agregar-categoria" class="btn-primary" type="submit" disabled ${allCategoriesAdded ? 'disabled' : ''}>Agregar categorías</button></div>
             </form>
         </section>
         <section class="category-workspace">
@@ -64,22 +63,21 @@ export const initEquiposView = () => {
 
     view.querySelector('#form-nueva-categoria').addEventListener('submit', event => {
         event.preventDefault();
-        const name = view.querySelector('#categoria-nombre').value;
-        if (!name) return;
+        const names = [...view.querySelectorAll('.category-choice.selected')].map(choice => choice.dataset.category);
+        if (!names.length) return;
         try {
-            const created = DataManager.createCategory(name, tournamentId);
-            AppState.setCategory(created.id);
+            const created = DataManager.createCategories(names, tournamentId);
+            AppState.setCategory(created[0].id);
             initEquiposView();
         } catch (error) { alert(error.message); }
     });
     view.querySelectorAll('.category-choice').forEach(choice => choice.addEventListener('click', () => {
         if (choice.disabled) return;
-        view.querySelectorAll('.category-choice').forEach(item => {
-            item.classList.toggle('selected', item === choice);
-            item.setAttribute('aria-pressed', item === choice ? 'true' : 'false');
-        });
-        view.querySelector('#categoria-nombre').value = choice.dataset.category;
-        view.querySelector('#agregar-categoria').disabled = false;
+        choice.classList.toggle('selected');
+        choice.setAttribute('aria-pressed', choice.classList.contains('selected') ? 'true' : 'false');
+        const selected = [...view.querySelectorAll('.category-choice.selected')];
+        view.querySelector('#agregar-categoria').disabled = selected.length === 0;
+        view.querySelector('#categoria-seleccionadas').textContent = selected.length ? `${selected.length} categoría${selected.length === 1 ? '' : 's'} seleccionada${selected.length === 1 ? '' : 's'}: ${selected.map(item => item.dataset.category).join(', ')}.` : 'Podés elegir varias categorías para crearlas juntas.';
     }));
     view.querySelectorAll('.categoria-tab').forEach(tab => tab.addEventListener('click', () => {
         AppState.setCategory(tab.dataset.id);
