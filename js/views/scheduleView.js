@@ -29,11 +29,12 @@ export const initScheduleView = () => {
     controls.innerHTML = `
         <div class="form-title"><div><h3>${tournament.nombre} · ${category.nombre}</h3><p>${tournament.partidos_asegurados} partidos por equipo. ${period ? `Período: ${period.startDate} a ${period.endDate}.` : 'Defina el período en Calendario antes de programar.'}</p></div><span class="calendar-chip">PROGRAMACIÓN</span></div>
         <div class="form-grid"><label class="form-field">Canchas disponibles<input id="cantidad-canchas" type="number" min="1" max="20" value="${courtCount}"></label>
-        <div class="form-actions"><button id="guardar-canchas" class="btn-secondary">Guardar canchas</button><button id="btn-generar-emparejamientos" class="btn-primary">1. Generar fixture</button><button id="btn-confirmar-emparejamientos" class="btn-primary">2. Confirmar</button><button id="btn-programar-emparejamientos" class="btn-primary">3. Programar</button></div></div>`;
+        <div class="form-actions"><button type="button" id="guardar-canchas" class="btn-secondary">Guardar canchas</button><button type="button" id="btn-generar-emparejamientos" class="btn-primary">1. Generar fixture</button><button type="button" id="btn-recrear-emparejamientos" class="btn-secondary">Rehacer borradores</button><button type="button" id="btn-confirmar-emparejamientos" class="btn-primary">2. Confirmar</button><button type="button" id="btn-programar-emparejamientos" class="btn-primary">3. Programar</button></div></div>`;
 
-    const draftHtml = drafts.length ? drafts.map(match => `<li>${zoneName(match.zonaId)} · ${teamName(match.equipoLocalId)} vs ${teamName(match.equipoVisitanteId)} <button class="eliminar-borrador" data-id="${match.id}">Eliminar</button></li>`).join('') : '<li>No hay borradores por revisar.</li>';
-    const officialHtml = official.length ? official.map(match => `<article class="card"><strong>${match.estado === 'finalizado' ? 'FINALIZADO' : 'PENDIENTE'}</strong><p>${match.fecha ? `${match.fecha} · ${match.hora} · ${match.cancha}` : 'Pendiente de programación: presione “3. Programar partidos confirmados”.'}</p><p>${zoneName(match.zonaId)} · ${teamName(match.equipoLocalId)} vs ${teamName(match.equipoVisitanteId)}</p>${match.estado === 'finalizado' ? `<p>Resultado: ${match.setsLocal}-${match.setsVisitante}</p>` : ''}</article>`).join('') : '<p>Aún no hay partidos oficiales.</p>';
-    box.innerHTML = `<section class="category-workspace"><h3>Borradores para revisar</h3><p class="helper-text">Los borradores no aparecen en Resultados.</p><ul>${draftHtml}</ul></section><h3>Partidos confirmados</h3><div class="grid-cards">${officialHtml}</div>`;
+    const roundLabel = match => match.ronda ? `Ronda ${match.ronda} · ` : '';
+    const draftHtml = drafts.length ? drafts.map(match => `<li><strong>${roundLabel(match)}${zoneName(match.zonaId)}</strong> · ${teamName(match.equipoLocalId)} vs ${teamName(match.equipoVisitanteId)} <button type="button" class="eliminar-borrador" data-id="${match.id}">Eliminar</button></li>`).join('') : '<li>No hay borradores por revisar.</li>';
+    const officialHtml = official.length ? official.map(match => `<article class="card"><strong>${match.estado === 'finalizado' ? 'FINALIZADO' : 'PENDIENTE'}</strong><p>${match.fecha ? `${match.fecha} · ${match.hora} · ${match.cancha}` : 'Pendiente de programación: presione “3. Programar partidos confirmados”.'}</p><p>${roundLabel(match)}${zoneName(match.zonaId)} · ${teamName(match.equipoLocalId)} vs ${teamName(match.equipoVisitanteId)}</p>${match.estado === 'finalizado' ? `<p>Resultado: ${match.setsLocal}-${match.setsVisitante}</p>` : ''}</article>`).join('') : '<p>Aún no hay partidos oficiales.</p>';
+    box.innerHTML = `<section class="category-workspace"><h3>Borradores para revisar</h3><p class="helper-text">Los cruces se generan por rondas: un equipo sólo juega una vez por ronda y no se repiten rivales.</p><ul>${draftHtml}</ul></section><h3>Partidos confirmados</h3><div class="grid-cards">${officialHtml}</div>`;
 
     document.querySelectorAll('.eliminar-borrador').forEach(button => button.addEventListener('click', () => {
         try { DataManager.removeMatch(button.dataset.id); initScheduleView(); } catch (error) { alert(error.message); }
@@ -46,6 +47,14 @@ export const initScheduleView = () => {
             const created = SchedulerService.generarEmparejamientos(tournamentId, categoryId);
             const check = SchedulerService.verificarPartidosAsegurados(tournamentId, categoryId);
             alert(`${created} borradores creados. ${check.mensaje}`);
+            initScheduleView();
+        } catch (error) { alert(error.message); }
+    });
+    document.getElementById('btn-recrear-emparejamientos').addEventListener('click', () => {
+        if (!confirm('Se reemplazarán únicamente los borradores de esta categoría. ¿Desea continuar?')) return;
+        try {
+            const created = SchedulerService.recrearBorradores(tournamentId, categoryId);
+            alert(`${created} borradores nuevos creados por rondas, sin repetir rivales.`);
             initScheduleView();
         } catch (error) { alert(error.message); }
     });
