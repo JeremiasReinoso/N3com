@@ -172,7 +172,7 @@ const scenario = `
     }
     if (oddCreated !== 6 || oddPairs.size !== oddMatches.length || [...oddCounts.values()].some(count => count < 2) || [...oddRoundAppearances.values()].some(count => count > 1)) throw new Error('La zona impar no generó rondas equilibradas y sin repetir cruces.');
 
-    const repairTournament = DataManager.createTournament('Reparación de borradores', 2);
+    const repairTournament = DataManager.createTournament('Reparación de borradores', 3);
     const repairCategory = DataManager.createCategory('+70', repairTournament.id);
     const repairZone = DataManager.createZone('Zona a reparar', repairCategory.id, repairTournament.id);
     for (const name of ['A', 'B', 'C', 'D']) {
@@ -182,11 +182,25 @@ const scenario = `
     SchedulerService.generarEmparejamientos(repairTournament.id, repairCategory.id);
     const stored = JSON.parse(localStorage.getItem('newcom_data'));
     const legacyMatch = stored.matches.find(match => match.torneoId === repairTournament.id && match.categoriaId === repairCategory.id);
+    const missingMatch = stored.matches.find(match => match.torneoId === repairTournament.id && match.categoriaId === repairCategory.id && match.id !== legacyMatch.id);
+    stored.matches = stored.matches.filter(match => match.id !== missingMatch.id);
     stored.matches.push({ ...legacyMatch, id: 'partido_duplicado_antiguo' });
     localStorage.setItem('newcom_data', JSON.stringify(stored));
     const repaired = SchedulerService.generarEmparejamientos(repairTournament.id, repairCategory.id);
     const repairedMatches = DataManager.getMatchesByTournamentAndCategory(repairTournament.id, repairCategory.id);
-    if (repaired !== 4 || repairedMatches.length !== 4 || new Set(repairedMatches.map(match => [match.equipoLocalId, match.equipoVisitanteId].sort().join(':'))).size !== 4) throw new Error('Los borradores duplicados heredados no se recuperaron automáticamente.');
+    if (repaired !== 1 || repairedMatches.length !== 6 || new Set(repairedMatches.map(match => [match.equipoLocalId, match.equipoVisitanteId].sort().join(':'))).size !== 6) throw new Error('Los borradores duplicados heredados no se recuperaron automáticamente.');
+
+    const cappedTournament = DataManager.createTournament('Máximo posible', 8);
+    const cappedCategory = DataManager.createCategory('+75', cappedTournament.id);
+    const cappedZone = DataManager.createZone('Zona limitada', cappedCategory.id, cappedTournament.id);
+    for (const name of ['A', 'B', 'C', 'D']) {
+        const team = DataManager.createTeam('Límite ' + name, cappedCategory.id, cappedTournament.id);
+        DataManager.assignTeamToZone(team.id, cappedZone.id);
+    }
+    const cappedCreated = SchedulerService.generarEmparejamientos(cappedTournament.id, cappedCategory.id);
+    const cappedMatches = DataManager.getMatchesByTournamentAndCategory(cappedTournament.id, cappedCategory.id);
+    const cappedCheck = SchedulerService.verificarPartidosAsegurados(cappedTournament.id, cappedCategory.id);
+    if (cappedCreated !== 6 || cappedMatches.length !== 6 || !cappedCheck.ok) throw new Error('Una cantidad de partidos superior a los rivales disponibles bloqueó el fixture.');
     console.log(JSON.stringify({ created, confirmed, scheduled, matchesPerTeam: Object.values(counts), dates, playoffsDate: playoffsInfo.date }));
 `;
 
