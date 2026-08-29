@@ -171,6 +171,22 @@ const scenario = `
         }
     }
     if (oddCreated !== 6 || oddPairs.size !== oddMatches.length || [...oddCounts.values()].some(count => count < 2) || [...oddRoundAppearances.values()].some(count => count > 1)) throw new Error('La zona impar no generó rondas equilibradas y sin repetir cruces.');
+
+    const repairTournament = DataManager.createTournament('Reparación de borradores', 2);
+    const repairCategory = DataManager.createCategory('+70', repairTournament.id);
+    const repairZone = DataManager.createZone('Zona a reparar', repairCategory.id, repairTournament.id);
+    for (const name of ['A', 'B', 'C', 'D']) {
+        const team = DataManager.createTeam('Reparar ' + name, repairCategory.id, repairTournament.id);
+        DataManager.assignTeamToZone(team.id, repairZone.id);
+    }
+    SchedulerService.generarEmparejamientos(repairTournament.id, repairCategory.id);
+    const stored = JSON.parse(localStorage.getItem('newcom_data'));
+    const legacyMatch = stored.matches.find(match => match.torneoId === repairTournament.id && match.categoriaId === repairCategory.id);
+    stored.matches.push({ ...legacyMatch, id: 'partido_duplicado_antiguo' });
+    localStorage.setItem('newcom_data', JSON.stringify(stored));
+    const repaired = SchedulerService.generarEmparejamientos(repairTournament.id, repairCategory.id);
+    const repairedMatches = DataManager.getMatchesByTournamentAndCategory(repairTournament.id, repairCategory.id);
+    if (repaired !== 4 || repairedMatches.length !== 4 || new Set(repairedMatches.map(match => [match.equipoLocalId, match.equipoVisitanteId].sort().join(':'))).size !== 4) throw new Error('Los borradores duplicados heredados no se recuperaron automáticamente.');
     console.log(JSON.stringify({ created, confirmed, scheduled, matchesPerTeam: Object.values(counts), dates, playoffsDate: playoffsInfo.date }));
 `;
 
