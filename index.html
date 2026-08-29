@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NEWCOM - Gestión de Torneos</title>
+    <link rel="stylesheet" href="css/main.css" />
+    <link rel="stylesheet" href="css/layout.css" />
+    <script type="module" src="js/main.js"></script>
+</head>
+<body>
+    <header class="app-header">
+        <div class="logo">🏐 NEWCOM</div>
+        <nav id="main-nav" aria-label="Navegación principal">
+            <button id="btn-nav-torneos" class="nav-btn active">Torneos</button>
+            <button id="btn-nav-equipos" class="nav-btn">Equipos</button>
+            <button id="btn-nav-zonas" class="nav-btn">Zonas</button>
+            <button id="btn-nav-calendario" class="nav-btn">Calendario</button>
+            <button id="btn-nav-programacion" class="nav-btn">Programación</button>
+            <button id="btn-nav-resultados" class="nav-btn">Resultados</button>
+            <button id="btn-nav-posiciones" class="nav-btn">Posiciones</button>
+            <button id="btn-nav-eliminatorias" class="nav-btn">Eliminatorias</button>
+            <!-- Enlace a la administración (abre en nueva pestaña o misma) -->
+            <a href="admin.html" class="nav-btn admin-link">Administración</a>
+        </nav>
+    </header>
+
+    <main id="app-container" class="container">
+        <!-- Vista Torneos -->
+        <section id="view-torneos" class="view-section active">
+            <h2>Mis Torneos</h2>
+            <div id="torneos-list" class="grid-cards">
+                <p>Cargando torneos...</p>
+            </div>
+            <button id="btn-nuevo-torneo" class="btn-primary btn-large">+ Crear Nuevo Torneo</button>
+        </section>
+
+        <!-- Vista Equipos -->
+        <section id="view-equipos" class="view-section">
+            <h2>Gestión de Equipos</h2>
+            <div class="panel-control">
+                <button id="btn-nueva-categoria" class="btn-primary">Añadir Categoría</button>
+            </div>
+            <div id="selector-categorias" class="tabs-container">
+                <!-- Se inyectan las categorías aquí -->
+            </div>
+            <div id="panel-categoria-activa" style="display: none; margin-top: 20px;">
+                <h3 id="titulo-categoria-activa">Categoría Seleccionada</h3>
+                <button id="btn-nuevo-equipo" class="btn-primary" style="margin-bottom: 20px;">+ Añadir Equipo</button>
+                <div id="equipos-list" class="grid-cards">
+                    <!-- Se inyectan los equipos aquí -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Vista Zonas -->
+        <section id="view-zonas" class="view-section">
+            <h2>Distribución de Zonas</h2>
+            <div id="alerta-zonas" class="panel-control">
+                <p>Seleccione una categoría activa desde la pestaña "Equipos" para gestionar sus zonas.</p>
+            </div>
+            <div id="panel-zonas-activo" style="display: none;">
+                <h3 id="titulo-categoria-zonas"></h3>
+                <button id="btn-nueva-zona" class="btn-primary">+ Crear Zona</button>
+                <div style="margin-top: 20px;">
+                    <h3>Equipos sin zona asignada</h3>
+                    <div id="equipos-libres-list" class="grid-cards">
+                        <!-- Equipos libres -->
+                    </div>
+                </div>
+                <div style="margin-top: 30px;">
+                    <h3>Zonas Creadas</h3>
+                    <div id="zonas-list" class="grid-cards">
+                        <!-- Zonas y sus equipos -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Vista Calendario -->
+        <section id="view-calendario" class="view-section">
+            <h2>Calendario del Torneo</h2>
+            <div class="panel-control">
+                <p>Seleccione los días de competencia.</p>
+                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                    <button id="btn-mes-ant" class="btn-primary">Mes Anterior</button>
+                    <h3 id="mes-actual-label" style="flex-grow: 1; text-align: center;"></h3>
+                    <button id="btn-mes-sig" class="btn-primary">Mes Siguiente</button>
+                </div>
+            </div>
+            <div id="calendario-grid" class="calendar-grid">
+                <!-- Los días se generan dinámicamente -->
+            </div>
+            <button id="btn-guardar-calendario" class="btn-primary btn-large">Guardar Calendario</button>
+        </section>
+
+        <!-- Vista Programación -->
+        <section id="view-programacion" class="view-section">
+            <h2>Programación del Torneo</h2>
+            <div class="panel-control">
+                <button id="btn-generar-programacion" class="btn-primary btn-large">Generar Programación Automática</button>
+            </div>
+            <div id="programacion-list" style="margin-top: 20px;">
+                <!-- Se inyectan los partidos programados aquí -->
+            </div>
+        </section>
+
+        <!-- Vista Resultados -->
+        <section id="view-resultados" class="view-section">
+            <h2>Carga de Resultados</h2>
+            <div id="resultados-list" class="grid-cards">
+                <!-- Los partidos se inyectan aquí -->
+            </div>
+        </section>
+
+        <!-- Vista Posiciones -->
+        <section id="view-posiciones" class="view-section">
+            <h2>Tabla de Posiciones</h2>
+            <div id="posiciones-list">
+                <!-- Las tablas se generan aquí -->
+            </div>
+        </section>
+
+        <!-- Vista Eliminatorias -->
+        <section id="view-eliminatorias" class="view-section">
+            <h2>Eliminatorias</h2>
+            <div class="panel-control">
+                <button id="btn-generar-eliminatorias" class="btn-primary btn-large">Generar Cruces</button>
+            </div>
+            <div id="eliminatorias-list" class="grid-cards" style="margin-top: 20px;">
+                <!-- Los cruces se inyectan aquí -->
+            </div>
+        </section>
+    </main>
+
+</body>
+</html>
