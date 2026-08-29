@@ -27,6 +27,9 @@ const playoffs = load('js/services/playoffs.js')
 const scenario = `
     const tournament = DataManager.createTournament('Prueba +50', 3);
     const category = DataManager.createCategory('+50', tournament.id);
+    let duplicateCategoryBlocked = false;
+    try { DataManager.createCategory('+50', tournament.id); } catch { duplicateCategoryBlocked = true; }
+    if (!duplicateCategoryBlocked) throw new Error('Se permitió duplicar una categoría dentro del mismo torneo.');
     const zone = DataManager.createZone('Zona A', category.id, tournament.id);
     for (const name of ['A', 'B', 'C', 'D']) {
         const team = DataManager.createTeam('Equipo ' + name, category.id, tournament.id);
