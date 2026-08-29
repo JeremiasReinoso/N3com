@@ -122,14 +122,18 @@ export const DataManager = {
     getCategoriesByTournament(torneoId) { return this._getStorage().categories.filter(category => category.torneoId === torneoId); },
     getCategory(id) { return this._getStorage().categories.find(category => category.id === id) || null; },
     createCategory(nombre, torneoId) {
+        return this.createCategories([nombre], torneoId)[0];
+    },
+    createCategories(nombres, torneoId) {
         const data = this._getStorage();
-        const normalizedName = nombre.trim();
-        if (!normalizedName) throw new Error('Seleccione una categoría válida.');
-        if (data.categories.some(category => category.torneoId === torneoId && category.nombre.trim().toLocaleLowerCase('es') === normalizedName.toLocaleLowerCase('es'))) throw new Error('Esta categoría ya fue agregada al torneo.');
-        const category = { id: makeId('categoria'), nombre: normalizedName, torneoId };
-        data.categories.push(category);
+        const names = [...new Set((nombres || []).map(name => String(name).trim()).filter(Boolean))];
+        if (!names.length) throw new Error('Seleccione al menos una categoría válida.');
+        const existing = new Set(data.categories.filter(category => category.torneoId === torneoId).map(category => category.nombre.trim().toLocaleLowerCase('es')));
+        if (names.some(name => existing.has(name.toLocaleLowerCase('es')))) throw new Error('Una de las categorías seleccionadas ya fue agregada al torneo.');
+        const categories = names.map(nombre => ({ id: makeId('categoria'), nombre, torneoId }));
+        data.categories.push(...categories);
         this._setStorage(data);
-        return category;
+        return categories;
     },
 
     getTeamsByCategory(categoriaId) { return this._getStorage().teams.filter(team => team.categoriaId === categoriaId); },
@@ -146,6 +150,9 @@ export const DataManager = {
         const team = data.teams.find(item => item.id === equipoId);
         const zone = data.zones.find(item => item.id === zonaId);
         if (!team || !zone || team.categoriaId !== zone.categoriaId || team.torneoId !== zone.torneoId) throw new Error('El equipo y la zona deben pertenecer a la misma categoría del torneo.');
+        data.zones.forEach(item => {
+            if (item.liderEquipoId === team.id && item.id !== zone.id) item.liderEquipoId = null;
+        });
         team.zonaId = zonaId;
         this._setStorage(data);
     },
@@ -154,17 +161,45 @@ export const DataManager = {
     getZonesByCategory(categoriaId) { return this._getStorage().zones.filter(zone => zone.categoriaId === categoriaId); },
     createZone(nombre, categoriaId, torneoId) {
         const data = this._getStorage();
-        const zone = { id: makeId('zona'), nombre: nombre.trim(), categoriaId, torneoId };
+        const zone = { id: makeId('zona'), nombre: nombre.trim(), categoriaId, torneoId, liderEquipoId: null };
         data.zones.push(zone);
         this._setStorage(data);
         return zone;
     },
-    drawZones(torneoId, categoriaId) {
+    drawZones(torneoId, categoriaId, leadersByZone = {}) {
         const data = this._getStorage();
         const zones = data.zones.filter(zone => zone.torneoId === torneoId && zone.categoriaId === categoriaId);
-        const teams = data.teams.filter(team => team.torneoId === torneoId && team.categoriaId === categoriaId).slice().sort(() => Math.random() - 0.5);
+        const teams = data.teams.filter(team => team.torneoId === torneoId && team.categoriaId === categoriaId);
         if (!zones.length) throw new Error('Cree al menos una zona antes del sorteo.');
-        teams.forEach((team, index) => { team.zonaId = zones[index % zones.length].id; });
+        const leaders = Object.entries(leadersByZone || {}).filter(([, teamId]) => teamId);
+        const selectedTeamIds = leaders.map(([, teamId]) => teamId);
+        if (new Set(selectedTeamIds).size !== selectedTeamIds.length) throw new Error('Un equipo sólo puede ser cabeza de serie de una zona.');
+        leaders.forEach(([zoneId, teamId]) => {
+            const zone = zones.find(item => item.id === zoneId);
+            const team = teams.find(item => item.id === teamId);
+            if (!zone || !team) throw new Error('La cabeza de serie debe pertenecer a esta categoría y a una de sus zonas.');
+        });
+
+        zones.forEach(zone => { zone.liderEquipoId = null; });
+        teams.forEach(team => { team.zonaId = null; });
+        leaders.forEach(([zoneId, teamId]) => {
+            const zone = zones.find(item => item.id === zoneId);
+            const team = teams.find(item => item.id === teamId);
+            zone.liderEquipoId = team.id;
+            team.zonaId = zone.id;
+        });
+
+        const remaining = teams.filter(team => !team.zonaId);
+        for (let index = remaining.length - 1; index > 0; index -= 1) {
+            const swapIndex = Math.floor(Math.random() * (index + 1));
+            [remaining[index], remaining[swapIndex]] = [remaining[swapIndex], remaining[index]];
+        }
+        remaining.forEach(team => {
+            const sizes = zones.map(zone => ({ zone, count: teams.filter(item => item.zonaId === zone.id).length }));
+            const minimum = Math.min(...sizes.map(item => item.count));
+            const candidates = sizes.filter(item => item.count === minimum);
+            team.zonaId = candidates[Math.floor(Math.random() * candidates.length)].zone.id;
+        });
         this._setStorage(data);
     },
 
