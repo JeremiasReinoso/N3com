@@ -35,6 +35,28 @@ const assertUniqueGroupPairs = matches => {
         seen.add(key);
     });
 };
+const matchPriority = match => (match.estado === 'finalizado' ? 3 : (match.confirmado ? 2 : 1));
+// Compatibilidad con fixtures creados por versiones anteriores: conserva un
+// único partido por cruce y da prioridad al que ya tiene un resultado cargado.
+const deduplicateGroupPairs = matches => {
+    const result = [];
+    const positions = new Map();
+    matches.forEach(match => {
+        if (!isZonePhaseMatch(match) || !match.equipoLocalId || !match.equipoVisitanteId) {
+            result.push(match);
+            return;
+        }
+        const key = groupPairKey(match);
+        const existingPosition = positions.get(key);
+        if (existingPosition === undefined) {
+            positions.set(key, result.length);
+            result.push(match);
+        } else if (matchPriority(match) > matchPriority(result[existingPosition])) {
+            result[existingPosition] = match;
+        }
+    });
+    return result;
+};
 // El marcador es el único dato que ingresa la interfaz. A partir de él se
 // construye el resultado interno que usan tabla y eliminatorias.
 const scoreFromMarker = (setsLocal, setsVisitante) => {
@@ -145,9 +167,20 @@ export const DataManager = {
 
     getMatchesByTournamentAndCategory(torneoId, categoriaId) { return this._getStorage().matches.filter(match => match.torneoId === torneoId && match.categoriaId === categoriaId); },
     getMatchesByScope(torneoId, categoriaId, zonaId) { return this.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => !zonaId || match.zonaId === zonaId); },
+    deduplicateGroupMatches(torneoId, categoriaId) {
+        const data = this._getStorage();
+        const normalized = deduplicateGroupPairs(data.matches);
+        const removed = data.matches.length - normalized.length;
+        if (removed) {
+            data.matches = normalized;
+            this._setStorage(data);
+        }
+        return removed;
+    },
     addMatches(matches) {
         const data = this._getStorage();
         matches.forEach(match => { this._validateMatchPair(match); this._validateMatchDate(match); });
+        data.matches = deduplicateGroupPairs(data.matches);
         assertUniqueGroupPairs([...data.matches, ...matches]);
         data.matches.push(...matches.map(match => ({
             id: makeId('partido'), ...match,
@@ -161,7 +194,7 @@ export const DataManager = {
         const data = this._getStorage();
         matches.forEach(match => { this._validateMatchPair(match); this._validateMatchDate(match); });
         const byId = new Map(matches.map(match => [match.id, match]));
-        const updated = data.matches.map(match => byId.get(match.id) || match);
+        const updated = deduplicateGroupPairs(data.matches.map(match => byId.get(match.id) || match));
         assertUniqueGroupPairs(updated);
         data.matches = updated;
         this._setStorage(data);
