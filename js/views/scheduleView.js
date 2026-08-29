@@ -27,19 +27,6 @@ export const initScheduleView = () => {
     const courtCount = DataManager.getTournamentCourtCount(tournamentId);
 
     controls.innerHTML = `
-<<<<<<< Updated upstream
-        <h3>${tournament.nombre} · ${category.nombre}</h3>
-        <p>${tournament.partidos_asegurados} partidos asegurados por equipo. ${period ? `Período: ${period.startDate} a ${period.endDate}.` : 'Defina el período en Calendario antes de programar.'}</p>
-        <label>Canchas disponibles <input id="cantidad-canchas" type="number" min="1" max="20" value="${courtCount}"></label>
-        <button id="guardar-canchas" class="btn-primary">Guardar canchas</button>
-        <button id="btn-generar-emparejamientos" class="btn-primary">1. Generar emparejamientos</button>
-        <button id="btn-confirmar-emparejamientos" class="btn-primary">2. Confirmar emparejamientos</button>
-        <button id="btn-programar-emparejamientos" class="btn-primary">3. Programar partidos confirmados</button>`;
-
-    const draftHtml = drafts.length ? drafts.map(match => `<li>${zoneName(match.zonaId)} · ${teamName(match.equipoLocalId)} vs ${teamName(match.equipoVisitanteId)} <button class="eliminar-borrador" data-id="${match.id}">Eliminar</button></li>`).join('') : '<li>No hay borradores por revisar.</li>';
-    const officialHtml = official.length ? official.map(match => `<article class="card"><strong>${match.estado === 'finalizado' ? 'FINALIZADO' : 'PENDIENTE'}</strong><p>${match.fecha ? `${match.fecha} · ${match.hora} · ${match.cancha}` : 'Pendiente de programación: presione “3. Programar partidos confirmados”.'}</p><p>${zoneName(match.zonaId)} · ${teamName(match.equipoLocalId)} vs ${teamName(match.equipoVisitanteId)}</p>${match.estado === 'finalizado' ? `<p>Resultado: ${match.setsLocal}-${match.setsVisitante}</p>` : ''}</article>`).join('') : '<p>Aún no hay partidos oficiales.</p>';
-    box.innerHTML = `<h3>Borradores para revisar</h3><p>Los borradores no aparecen en Resultados.</p><ul>${draftHtml}</ul><h3>Partidos confirmados</h3>${officialHtml}`;
-=======
         <div class="form-title"><div><h3>${tournament.nombre} · ${category.nombre}</h3><p>${tournament.partidos_asegurados} partidos por equipo. ${period ? `Período: ${period.startDate} a ${period.endDate}.` : 'Defina el período en Calendario antes de programar.'}</p></div><span class="calendar-chip">PROGRAMACIÓN</span></div>
         <div class="form-grid"><label class="form-field">Canchas disponibles<input id="cantidad-canchas" type="number" min="1" max="20" value="${courtCount}"></label>
         <div class="form-actions"><button id="guardar-canchas" class="btn-secondary">Guardar canchas</button><button id="btn-generar-emparejamientos" class="btn-primary">1. Generar fixture</button><button id="btn-confirmar-emparejamientos" class="btn-primary">2. Confirmar</button><button id="btn-programar-emparejamientos" class="btn-primary">3. Programar</button></div></div>`;
@@ -47,7 +34,6 @@ export const initScheduleView = () => {
     const draftHtml = drafts.length ? drafts.map(match => `<li>${zoneName(match.zonaId)} · ${teamName(match.equipoLocalId)} vs ${teamName(match.equipoVisitanteId)} <button class="eliminar-borrador" data-id="${match.id}">Eliminar</button></li>`).join('') : '<li>No hay borradores por revisar.</li>';
     const officialHtml = official.length ? official.map(match => `<article class="card"><strong>${match.estado === 'finalizado' ? 'FINALIZADO' : 'PENDIENTE'}</strong><p>${match.fecha ? `${match.fecha} · ${match.hora} · ${match.cancha}` : 'Pendiente de programación: presione “3. Programar partidos confirmados”.'}</p><p>${zoneName(match.zonaId)} · ${teamName(match.equipoLocalId)} vs ${teamName(match.equipoVisitanteId)}</p>${match.estado === 'finalizado' ? `<p>Resultado: ${match.setsLocal}-${match.setsVisitante}</p>` : ''}</article>`).join('') : '<p>Aún no hay partidos oficiales.</p>';
     box.innerHTML = `<section class="category-workspace"><h3>Borradores para revisar</h3><p class="helper-text">Los borradores no aparecen en Resultados.</p><ul>${draftHtml}</ul></section><h3>Partidos confirmados</h3><div class="grid-cards">${officialHtml}</div>`;
->>>>>>> Stashed changes
 
     document.querySelectorAll('.eliminar-borrador').forEach(button => button.addEventListener('click', () => {
         try { DataManager.removeMatch(button.dataset.id); initScheduleView(); } catch (error) { alert(error.message); }
