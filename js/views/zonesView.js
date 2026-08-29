@@ -31,13 +31,6 @@ export const initZonasView = () => {
         initZonasView();
     }));
 
-<<<<<<< Updated upstream
-    const zoneButton = document.getElementById('btn-nueva-zona');
-    zoneButton.replaceWith(zoneButton.cloneNode(true));
-    document.getElementById('btn-nueva-zona').addEventListener('click', () => {
-        const name = prompt('Nombre de zona (ej.: Zona A):');
-        if (!name?.trim()) return;
-=======
     const zoneControl = document.getElementById('form-nueva-zona') || document.getElementById('btn-nueva-zona');
     zoneControl.replaceWith(Object.assign(document.createElement('form'), {
         id: 'form-nueva-zona',
@@ -48,18 +41,13 @@ export const initZonasView = () => {
         event.preventDefault();
         const name = document.getElementById('zona-nombre').value.trim();
         if (!name) return;
->>>>>>> Stashed changes
         DataManager.createZone(name, categoryId, tournamentId);
         initZonasView();
     });
     document.getElementById('btn-sortear-zonas')?.remove();
     const draw = document.createElement('button');
     draw.id = 'btn-sortear-zonas'; draw.className = 'btn-primary'; draw.textContent = 'Sortear equipos en zonas'; draw.style.marginLeft = '10px';
-<<<<<<< Updated upstream
-    document.getElementById('btn-nueva-zona').after(draw);
-=======
     document.getElementById('form-nueva-zona').after(draw);
->>>>>>> Stashed changes
     draw.addEventListener('click', () => {
         try { DataManager.drawZones(tournamentId, categoryId); initZonasView(); } catch (error) { alert(error.message); }
     });
