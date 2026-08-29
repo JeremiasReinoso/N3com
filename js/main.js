@@ -10,23 +10,27 @@ import { initStandingsView } from './views/standingsView.js';
 import { initPlayoffsView } from './views/playoffsView.js';
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Inicializar navegación (cambia clases active y muestra/oculta vistas)
     Navigation.init();
-
-    // Cargar la vista de Torneos por defecto
-    initTorneosVer();
-
-    // Asignar cada botón a su función de carga
-    document.getElementById('btn-nav-torneos').addEventListener('click', initTorneosVer);
-    document.getElementById('btn-nav-equipos').addEventListener('click', initEquiposView);
-    document.getElementById('btn-nav-zonas').addEventListener('click', initZonasView);
-    document.getElementById('btn-nav-calendario').addEventListener('click', initCalendarView);
-    document.getElementById('btn-nav-programacion').addEventListener('click', initScheduleView);
-    document.getElementById('btn-nav-resultados').addEventListener('click', initResultadosView);
-    document.getElementById('btn-nav-posiciones').addEventListener('click', initStandingsView);
-    
-    const btnEliminatorias = document.getElementById('btn-nav-eliminatorias');
-    if (btnEliminatorias) {
-        btnEliminatorias.addEventListener('click', initPlayoffsView);
-    }
+    const renderers = {
+        'btn-nav-torneos': initTorneosVer,
+        'btn-nav-equipos': initEquiposView,
+        'btn-nav-zonas': initZonasView,
+        'btn-nav-calendario': initCalendarView,
+        'btn-nav-programacion': initScheduleView,
+        'btn-nav-resultados': initResultadosView,
+        'btn-nav-posiciones': initStandingsView,
+        'btn-nav-eliminatorias': initPlayoffsView
+    };
+    const render = buttonId => {
+        try { renderers[buttonId]?.(); }
+        catch (error) {
+            console.error(error);
+            alert('No se pudo cargar esta sección. Actualice la página e intente nuevamente.');
+        }
+    };
+    document.addEventListener('click', event => {
+        const button = event.target.closest('button.nav-btn[id^="btn-nav-"]');
+        if (button) render(button.id);
+    });
+    render('btn-nav-torneos');
 });
