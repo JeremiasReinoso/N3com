@@ -48,28 +48,17 @@ export const SchedulerService = {
         if (!teams.length) throw new Error('La categoría seleccionada no tiene equipos.');
         if (teams.some(team => !team.zonaId)) throw new Error('Asigne una zona a todos los equipos antes de emparejar.');
 
+        // Repara datos heredados antes de calcular. Los duplicados dejan de
+        // ser un bloqueo y el fixture nuevo sigue sin permitirlos.
+        DataManager.deduplicateGroupMatches(torneoId, categoriaId);
         const existingFixture = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(isGroupMatch);
-        const fixturePairs = new Set();
-        let hasDuplicateDraft = false;
-        existingFixture.forEach(match => {
-            const key = pairKey(match.equipoLocalId, match.equipoVisitanteId);
-            if (fixturePairs.has(key)) hasDuplicateDraft = true;
-            fixturePairs.add(key);
-        });
-        if (hasDuplicateDraft) {
-            if (existingFixture.some(isOfficialMatch)) throw new Error('Hay enfrentamientos duplicados ya confirmados. No se pueden reemplazar automáticamente.');
-            // Recupera los borradores que pudieron guardarse antes de que la
-            // validación de duplicados existiera, sin afectar partidos oficiales.
-            DataManager.removeDraftGroupMatches(torneoId, categoriaId);
-            return this.generarEmparejamientos(torneoId, categoriaId);
-        }
 
         const pending = [];
         for (const zone of zones) {
             const zoneTeams = teams.filter(team => team.zonaId === zone.id);
             if (!zoneTeams.length) continue;
             if (zoneTeams.length < 2) throw new Error(`${zone.nombre} necesita al menos dos equipos.`);
-            if (assured > zoneTeams.length - 1) throw new Error(`${zone.nombre} permite como máximo ${zoneTeams.length - 1} partidos por equipo sin repetir rivales.`);
+            const requiredMatches = Math.min(assured, zoneTeams.length - 1);
 
             const existing = existingFixture.filter(match => match.zonaId === zone.id);
             const counts = new Map(zoneTeams.map(team => [team.id, 0]));
@@ -82,28 +71,28 @@ export const SchedulerService = {
                 counts.set(match.equipoVisitanteId, (counts.get(match.equipoVisitanteId) || 0) + 1);
             });
 
-            if ([...counts.values()].every(count => count >= assured)) continue;
+            if ([...counts.values()].every(count => count >= requiredMatches)) continue;
 
             const { rounds, hasBye } = buildRoundRobin(zoneTeams);
             // Con cantidad impar hay un descanso por ronda. La ronda extra
             // permite cumplir los partidos asegurados sin duplicar cruces.
             const roundLimit = existing.length
                 ? rounds.length
-                : Math.min(rounds.length, assured + (hasBye && assured < rounds.length ? 1 : 0));
+                : Math.min(rounds.length, requiredMatches + (hasBye && requiredMatches < rounds.length ? 1 : 0));
 
             rounds.slice(0, roundLimit).forEach((round, roundIndex) => {
                 round.forEach(({ local, visitante, key }) => {
                     if (pairsSeen.has(key)) return;
                     // Si ya hay borradores/manuales válidos, sólo completamos
                     // los equipos que aún adeudan partidos.
-                    if (existing.length && counts.get(local.id) >= assured && counts.get(visitante.id) >= assured) return;
+                    if (existing.length && counts.get(local.id) >= requiredMatches && counts.get(visitante.id) >= requiredMatches) return;
                     pending.push({ torneoId, categoriaId, zonaId: zone.id, tipo: 'fase_zonas', ronda: roundIndex + 1, equipoLocalId: local.id, equipoVisitanteId: visitante.id, fecha: null, hora: null, cancha: null, estado: 'borrador', confirmado: false, setsLocal: null, setsVisitante: null });
                     counts.set(local.id, counts.get(local.id) + 1);
                     counts.set(visitante.id, counts.get(visitante.id) + 1);
                     pairsSeen.add(key);
                 });
             });
-            if ([...counts.values()].some(count => count < assured)) throw new Error(`No se pudo completar ${zone.nombre} sin repetir enfrentamientos.`);
+            if ([...counts.values()].some(count => count < requiredMatches)) throw new Error(`No se pudo completar ${zone.nombre} sin repetir enfrentamientos.`);
         }
         if (pending.length) DataManager.addMatches(pending);
         this.redistribuirFechas(torneoId, categoriaId);
@@ -190,10 +179,21 @@ export const SchedulerService = {
     verificarPartidosAsegurados(torneoId, categoriaId, onlyOfficial = false) {
         const tournament = DataManager.getTournament(torneoId);
         const teams = DataManager.getTeamsByTournamentAndCategory(torneoId, categoriaId);
+        const zones = DataManager.getZonesByTournamentAndCategory(torneoId, categoriaId);
         const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
             .filter(match => isGroupMatch(match) && (!onlyOfficial || isOfficialMatch(match)));
-        const missing = teams.filter(team => matches.filter(match => match.equipoLocalId === team.id || match.equipoVisitanteId === team.id).length < tournament.partidos_asegurados);
-        return missing.length ? { ok: false, mensaje: `Faltan partidos asegurados para: ${missing.map(team => team.nombre).join(', ')}.` } : { ok: true, mensaje: 'Todos los equipos cumplen los partidos asegurados.' };
+        const requiredFor = team => {
+            const zoneSize = teams.filter(otherTeam => otherTeam.zonaId === team.zonaId).length;
+            return Math.min(Number(tournament.partidos_asegurados), Math.max(0, zoneSize - 1));
+        };
+        const missing = teams.filter(team => matches.filter(match => match.equipoLocalId === team.id || match.equipoVisitanteId === team.id).length < requiredFor(team));
+        const cappedZones = zones.filter(zone => {
+            const teamCount = teams.filter(team => team.zonaId === zone.id).length;
+            return Number(tournament.partidos_asegurados) > teamCount - 1;
+        });
+        if (missing.length) return { ok: false, mensaje: `Faltan partidos asegurados para: ${missing.map(team => team.nombre).join(', ')}.` };
+        const adjustment = cappedZones.length ? ` Se usó el máximo sin repetir rivales en: ${cappedZones.map(zone => zone.nombre).join(', ')}.` : '';
+        return { ok: true, mensaje: `Todos los equipos cumplen los partidos posibles.${adjustment}` };
     },
 
     // Programa el fixture confirmado con fecha, hora y cancha. Ejecutarlo de
