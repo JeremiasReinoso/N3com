@@ -2,17 +2,6 @@ import { AppState } from '../core/state.js';
 import { DataManager } from '../data/dataManager.js';
 import { SchedulerService } from '../services/scheduler.js';
 
-<<<<<<< Updated upstream
-export function initCalendarView() {
-    let tournamentId;
-    try { tournamentId = AppState.getTournament(); } catch { tournamentId = null; }
-    const section = document.getElementById('view-calendario');
-    const controls = section.querySelector('.panel-control');
-    const grid = document.getElementById('calendario-grid');
-    if (!tournamentId) {
-        controls.innerHTML = '<p>Seleccione un torneo desde Torneos.</p>';
-        grid.innerHTML = '';
-=======
 const displayDate = date => new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'short' })
     .format(new Date(`${date}T12:00:00`));
 
@@ -22,7 +11,6 @@ export function initCalendarView() {
     const view = document.getElementById('view-calendario');
     if (!tournamentId) {
         view.innerHTML = '<h2>Calendario</h2><div class="empty-state">Seleccione un torneo desde Torneos para configurar las fechas de juego.</div>';
->>>>>>> Stashed changes
         return;
     }
     const tournament = DataManager.getTournament(tournamentId);
@@ -30,24 +18,6 @@ export function initCalendarView() {
     const defaultStart = tournament.horaInicio || '09:00';
     const defaultEnd = tournament.horaFin || '21:00';
     const daySchedules = DataManager.getDaySchedules(tournamentId);
-<<<<<<< Updated upstream
-    controls.innerHTML = `
-        <p>Defina el período y el horario predeterminado. Luego puede cambiar libremente la franja de cada día.</p>
-        <label>Fecha de inicio <input id="fecha-inicio" type="date" value="${period?.startDate || ''}"></label>
-        <label>Fecha de finalización <input id="fecha-fin" type="date" value="${period?.endDate || ''}"></label>
-        <label>Horario predeterminado: desde <input id="hora-inicio" type="time" value="${defaultStart}"></label>
-        <label>hasta <input id="hora-fin" type="time" value="${defaultEnd}"></label>
-        <button id="guardar-periodo" class="btn-primary">Guardar calendario y horarios</button>`;
-    grid.innerHTML = daySchedules.length ? `
-        <p><strong>Disponibilidad por día</strong></p>
-        ${daySchedules.map(({ fecha, inicio, fin }) => `<article class="card"><strong>${fecha}</strong><label> Desde <input class="horario-dia-inicio" data-fecha="${fecha}" type="time" value="${inicio}"></label><label> Hasta <input class="horario-dia-fin" data-fecha="${fecha}" type="time" value="${fin}"></label></article>`).join('')}`
-        : '<p>Guarde el período para configurar los horarios particulares de cada día.</p>';
-    document.getElementById('guardar-periodo').addEventListener('click', () => {
-        const schedules = daySchedules.map(({ fecha }) => ({
-            fecha,
-            inicio: document.querySelector(`.horario-dia-inicio[data-fecha="${fecha}"]`)?.value,
-            fin: document.querySelector(`.horario-dia-fin[data-fecha="${fecha}"]`)?.value
-=======
     view.innerHTML = `
         <h2>Calendario del torneo</h2>
         <section class="form-card panel-control">
@@ -75,22 +45,14 @@ export function initCalendarView() {
             fecha,
             inicio: view.querySelector(`.horario-dia-inicio[data-fecha="${fecha}"]`)?.value,
             fin: view.querySelector(`.horario-dia-fin[data-fecha="${fecha}"]`)?.value
->>>>>>> Stashed changes
         })).filter(schedule => schedule.inicio && schedule.fin);
         try {
             DataManager.setTournamentCalendar(
                 tournamentId,
-<<<<<<< Updated upstream
-                document.getElementById('fecha-inicio').value,
-                document.getElementById('fecha-fin').value,
-                document.getElementById('hora-inicio').value,
-                document.getElementById('hora-fin').value,
-=======
                 view.querySelector('#fecha-inicio').value,
                 view.querySelector('#fecha-fin').value,
                 view.querySelector('#hora-inicio').value,
                 view.querySelector('#hora-fin').value,
->>>>>>> Stashed changes
                 schedules
             );
             const categoryId = AppState.getCategory();
@@ -98,5 +60,4 @@ export function initCalendarView() {
             initCalendarView();
         } catch (error) { alert(error.message); }
     });
-    document.getElementById('btn-guardar-calendario').style.display = 'none';
 }
