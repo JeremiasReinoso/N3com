@@ -1,22 +1,17 @@
 // Control de navegación entre vistas
 export const Navigation = {
     init: () => {
-        const buttons = document.querySelectorAll('button.nav-btn[id^="btn-nav-"]');
-        const views = document.querySelectorAll('.view-section');
-
-        buttons.forEach(btn => {
-            btn.addEventListener('click', () => {
-                if (btn.disabled) return;
-
-                buttons.forEach(b => b.classList.remove('active'));
-                views.forEach(v => v.classList.remove('active'));
-
-                btn.classList.add('active');
-                const targetId = btn.id.replace('btn-nav-', 'view-');
-                const target = document.getElementById(targetId);
-                if (target) target.classList.add('active');
-            });
+        document.addEventListener('click', event => {
+            const button = event.target.closest('button.nav-btn[id^="btn-nav-"]');
+            if (!button || button.disabled) return;
+            Navigation.activate(button.id);
         });
+    },
+    activate: buttonId => {
+        document.querySelectorAll('button.nav-btn[id^="btn-nav-"]').forEach(button => button.classList.toggle('active', button.id === buttonId));
+        document.querySelectorAll('.view-section').forEach(view => view.classList.remove('active'));
+        const target = document.getElementById(buttonId.replace('btn-nav-', 'view-'));
+        if (target) target.classList.add('active');
     },
     habilitarMenu: () => {
         document.querySelectorAll('.nav-btn').forEach(btn => btn.disabled = false);
