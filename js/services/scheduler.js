@@ -50,11 +50,19 @@ export const SchedulerService = {
 
         const existingFixture = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(isGroupMatch);
         const fixturePairs = new Set();
+        let hasDuplicateDraft = false;
         existingFixture.forEach(match => {
             const key = pairKey(match.equipoLocalId, match.equipoVisitanteId);
-            if (fixturePairs.has(key)) throw new Error('El fixture existente contiene un enfrentamiento duplicado. Elimínelo antes de regenerar.');
+            if (fixturePairs.has(key)) hasDuplicateDraft = true;
             fixturePairs.add(key);
         });
+        if (hasDuplicateDraft) {
+            if (existingFixture.some(isOfficialMatch)) throw new Error('Hay enfrentamientos duplicados ya confirmados. No se pueden reemplazar automáticamente.');
+            // Recupera los borradores que pudieron guardarse antes de que la
+            // validación de duplicados existiera, sin afectar partidos oficiales.
+            DataManager.removeDraftGroupMatches(torneoId, categoriaId);
+            return this.generarEmparejamientos(torneoId, categoriaId);
+        }
 
         const pending = [];
         for (const zone of zones) {
