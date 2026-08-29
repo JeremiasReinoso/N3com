@@ -12,6 +12,30 @@ const schedulerMinutesFromTime = time => {
 };
 const schedulerTimeFromMinutes = minutes => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
+// Método circular de todos contra todos. Cada ronda deja a cada equipo con un
+// único partido, salvo el descanso inevitable de las zonas impares.
+const buildRoundRobin = teams => {
+    const rotation = teams.slice().sort((left, right) => String(left.id).localeCompare(String(right.id)));
+    const hasBye = rotation.length % 2 !== 0;
+    if (hasBye) rotation.push(null);
+    const rounds = [];
+    const slotCount = rotation.length;
+
+    for (let roundIndex = 0; roundIndex < slotCount - 1; roundIndex += 1) {
+        const matches = [];
+        for (let slot = 0; slot < slotCount / 2; slot += 1) {
+            const first = rotation[slot];
+            const second = rotation[slotCount - 1 - slot];
+            if (!first || !second) continue;
+            const [local, visitante] = roundIndex % 2 === 0 ? [first, second] : [second, first];
+            matches.push({ local, visitante, key: pairKey(local.id, visitante.id) });
+        }
+        rounds.push(matches);
+        rotation.splice(1, 0, rotation.pop());
+    }
+    return { rounds, hasBye };
+};
+
 export const SchedulerService = {
     // Genera el fixture completo de una vez. Cada par usa una clave
     // normalizada, por lo que A-B y B-A son el mismo enfrentamiento.
@@ -50,40 +74,43 @@ export const SchedulerService = {
                 counts.set(match.equipoVisitanteId, (counts.get(match.equipoVisitanteId) || 0) + 1);
             });
 
-            const candidates = [];
-            for (let left = 0; left < zoneTeams.length; left += 1) {
-                for (let right = left + 1; right < zoneTeams.length; right += 1) {
-                    const local = zoneTeams[left];
-                    const visitante = zoneTeams[right];
-                    const key = pairKey(local.id, visitante.id);
-                    if (!pairsSeen.has(key)) candidates.push({ local, visitante, key });
-                }
-            }
-            while ([...counts.values()].some(count => count < assured)) {
-                const available = candidates.filter(candidate => !pairsSeen.has(candidate.key)
-                    && (counts.get(candidate.local.id) < assured || counts.get(candidate.visitante.id) < assured));
-                if (!available.length) throw new Error(`No se pudo completar ${zone.nombre} sin repetir enfrentamientos.`);
-                available.sort((left, right) => {
-                    const leftMax = Math.max(counts.get(left.local.id), counts.get(left.visitante.id));
-                    const rightMax = Math.max(counts.get(right.local.id), counts.get(right.visitante.id));
-                    const leftTotal = counts.get(left.local.id) + counts.get(left.visitante.id);
-                    const rightTotal = counts.get(right.local.id) + counts.get(right.visitante.id);
-                    return leftMax - rightMax || leftTotal - rightTotal || left.key.localeCompare(right.key);
+            if ([...counts.values()].every(count => count >= assured)) continue;
+
+            const { rounds, hasBye } = buildRoundRobin(zoneTeams);
+            // Con cantidad impar hay un descanso por ronda. La ronda extra
+            // permite cumplir los partidos asegurados sin duplicar cruces.
+            const roundLimit = existing.length
+                ? rounds.length
+                : Math.min(rounds.length, assured + (hasBye && assured < rounds.length ? 1 : 0));
+
+            rounds.slice(0, roundLimit).forEach((round, roundIndex) => {
+                round.forEach(({ local, visitante, key }) => {
+                    if (pairsSeen.has(key)) return;
+                    // Si ya hay borradores/manuales válidos, sólo completamos
+                    // los equipos que aún adeudan partidos.
+                    if (existing.length && counts.get(local.id) >= assured && counts.get(visitante.id) >= assured) return;
+                    pending.push({ torneoId, categoriaId, zonaId: zone.id, tipo: 'fase_zonas', ronda: roundIndex + 1, equipoLocalId: local.id, equipoVisitanteId: visitante.id, fecha: null, hora: null, cancha: null, estado: 'borrador', confirmado: false, setsLocal: null, setsVisitante: null });
+                    counts.set(local.id, counts.get(local.id) + 1);
+                    counts.set(visitante.id, counts.get(visitante.id) + 1);
+                    pairsSeen.add(key);
                 });
-                const { local, visitante, key } = available[0];
-                pending.push({ torneoId, categoriaId, zonaId: zone.id, tipo: 'fase_zonas', equipoLocalId: local.id, equipoVisitanteId: visitante.id, fecha: null, hora: null, cancha: null, estado: 'borrador', confirmado: false, setsLocal: null, setsVisitante: null });
-                counts.set(local.id, counts.get(local.id) + 1);
-                counts.set(visitante.id, counts.get(visitante.id) + 1);
-                pairsSeen.add(key);
-            }
+            });
+            if ([...counts.values()].some(count => count < assured)) throw new Error(`No se pudo completar ${zone.nombre} sin repetir enfrentamientos.`);
         }
         if (pending.length) DataManager.addMatches(pending);
         this.redistribuirFechas(torneoId, categoriaId);
         return pending.length;
     },
 
-    // Las fechas no son rondas: sólo distribuyen el fixture completo de forma
-    // equitativa. Al regenerar la programación se calcula nuevamente.
+    recrearBorradores(torneoId, categoriaId) {
+        const groupMatches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(isGroupMatch);
+        if (groupMatches.some(isOfficialMatch)) throw new Error('No se puede rehacer un fixture que ya tiene partidos confirmados.');
+        DataManager.removeDraftGroupMatches(torneoId, categoriaId);
+        return this.generarEmparejamientos(torneoId, categoriaId);
+    },
+
+    // Distribuye el fixture de forma equitativa, conservando una ronda completa
+    // en el mismo día cuando la capacidad lo permite.
     redistribuirFechas(torneoId, categoriaId) {
         const dates = DataManager.getCalendarDates(torneoId);
         if (!dates.length) return 0;
@@ -96,7 +123,7 @@ export const SchedulerService = {
             matches: [],
             teams: new Set()
         }));
-        matches.forEach(match => {
+        const assignMatch = match => {
             const possibleDays = dailyTargets.filter(day => day.matches.length < day.target);
             possibleDays.sort((left, right) => {
                 const leftTeamUse = Number(left.teams.has(match.equipoLocalId)) + Number(left.teams.has(match.equipoVisitanteId));
@@ -107,6 +134,31 @@ export const SchedulerService = {
             day.matches.push(match);
             day.teams.add(match.equipoLocalId);
             day.teams.add(match.equipoVisitanteId);
+        };
+        const roundGroups = new Map();
+        matches.forEach(match => {
+            const key = Number.isInteger(match.ronda) ? `ronda:${match.ronda}` : `partido:${match.id}`;
+            const group = roundGroups.get(key) || [];
+            group.push(match);
+            roundGroups.set(key, group);
+        });
+        [...roundGroups.values()].forEach(round => {
+            const roundTeams = new Set(round.flatMap(match => [match.equipoLocalId, match.equipoVisitanteId]));
+            const dayForWholeRound = dailyTargets.filter(day => (
+                day.target - day.matches.length >= round.length
+                && [...roundTeams].every(teamId => !day.teams.has(teamId))
+            ));
+            if (dayForWholeRound.length) {
+                dayForWholeRound.sort((left, right) => left.matches.length - right.matches.length || left.fecha.localeCompare(right.fecha));
+                const day = dayForWholeRound[0];
+                round.forEach(match => {
+                    day.matches.push(match);
+                    day.teams.add(match.equipoLocalId);
+                    day.teams.add(match.equipoVisitanteId);
+                });
+                return;
+            }
+            round.forEach(assignMatch);
         });
         const reassigned = dailyTargets.flatMap(day => day.matches.map(match => ({
             ...match,
