@@ -123,7 +123,10 @@ export const DataManager = {
     getCategory(id) { return this._getStorage().categories.find(category => category.id === id) || null; },
     createCategory(nombre, torneoId) {
         const data = this._getStorage();
-        const category = { id: makeId('categoria'), nombre: nombre.trim(), torneoId };
+        const normalizedName = nombre.trim();
+        if (!normalizedName) throw new Error('Seleccione una categoría válida.');
+        if (data.categories.some(category => category.torneoId === torneoId && category.nombre.trim().toLocaleLowerCase('es') === normalizedName.toLocaleLowerCase('es'))) throw new Error('Esta categoría ya fue agregada al torneo.');
+        const category = { id: makeId('categoria'), nombre: normalizedName, torneoId };
         data.categories.push(category);
         this._setStorage(data);
         return category;
