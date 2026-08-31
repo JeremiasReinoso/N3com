@@ -120,37 +120,42 @@ const scenario = `
     SchedulerService.programarEmparejamientos(tournament.id, category.id);
     matches = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id);
     blocked = false;
-    try { DataManager.updateMatchResult(matches[0].id, 1, 0); } catch { blocked = true; }
-    if (!blocked) throw new Error('Se permitió un resultado distinto de 2-0 o 2-1.');
-    DataManager.updateMatchResult(matches[0].id, 2, 0);
-    DataManager.updateMatchResult(matches[1].id, 2, 1);
+    try { DataManager.updateMatchResult(matches[0].id, [{ puntosLocal: 21, puntosVisitante: 21 }, { puntosLocal: 21, puntosVisitante: 18 }]); } catch { blocked = true; }
+    if (!blocked) throw new Error('Se permitió un set empatado.');
+    blocked = false;
+    try { DataManager.updateMatchResult(matches[0].id, [{ puntosLocal: 21, puntosVisitante: 18 }, { puntosLocal: 21, puntosVisitante: 16 }, { puntosLocal: 17, puntosVisitante: 21 }]); } catch { blocked = true; }
+    if (!blocked) throw new Error('Se permitió un tercer set después de cerrar 2-0.');
+    DataManager.updateMatchResult(matches[0].id, [{ puntosLocal: 21, puntosVisitante: 18 }, { puntosLocal: 21, puntosVisitante: 16 }]);
+    DataManager.updateMatchResult(matches[1].id, [{ puntosLocal: 21, puntosVisitante: 18 }, { puntosLocal: 18, puntosVisitante: 21 }, { puntosLocal: 21, puntosVisitante: 17 }]);
     let scoredMatches = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id);
     const firstScored = scoredMatches.find(match => match.id === matches[0].id);
     const secondScored = scoredMatches.find(match => match.id === matches[1].id);
-    if (firstScored.puntosLocal !== 3 || firstScored.puntosVisitante !== 1 || firstScored.ganadorId !== firstScored.equipoLocalId) throw new Error('El 2-0 no generó su puntuación interna.');
-    if (secondScored.puntosLocal !== 2 || secondScored.puntosVisitante !== 1 || secondScored.ganadorId !== secondScored.equipoLocalId) throw new Error('El 2-1 no generó su puntuación interna.');
+    if (firstScored.setsLocal !== 2 || firstScored.setsVisitante !== 0 || firstScored.ganadorId !== firstScored.equipoLocalId || firstScored.sets[0].puntosLocal !== 21) throw new Error('El 2-0 no se calculó a partir de los puntos de set.');
+    if (secondScored.setsLocal !== 2 || secondScored.setsVisitante !== 1 || secondScored.ganadorId !== secondScored.equipoLocalId || secondScored.sets.length !== 3) throw new Error('El 2-1 no se calculó a partir de tres sets.');
     const table = PosicionesService.calcularPosiciones(tournament.id, category.id);
-    if (!table.some(row => row.puntos === 3) || !table.some(row => row.puntos === 2) || !table.some(row => row.puntos === 1)) throw new Error('No se aplicó el puntaje 2-0 / 2-1.');
-    if (!table.every(row => Number.isInteger(row.setsFavor) && Number.isInteger(row.setsContra) && Number.isInteger(row.diferenciaSets))) throw new Error('No se calcularon los sets.');
-    DataManager.updateMatchResult(matches[0].id, 2, 1);
+    const firstLocal = table.find(row => row.id === firstScored.equipoLocalId);
+    if (!firstLocal || firstLocal.jugados !== 1 || firstLocal.ganados !== 1 || firstLocal.setsFavor !== 2 || firstLocal.setsContra !== 0 || firstLocal.puntosFavor !== 42 || firstLocal.puntosContra !== 34 || firstLocal.diferenciaPuntos !== 8) throw new Error('La tabla no se construyó con los puntos y sets reales.');
+    if (!table.every(row => Number.isInteger(row.setsFavor) && Number.isInteger(row.setsContra) && Number.isInteger(row.diferenciaSets) && Number.isInteger(row.puntosFavor) && Number.isInteger(row.puntosContra) && Number.isInteger(row.diferenciaPuntos))) throw new Error('No se calcularon las estadísticas internas completas.');
+    DataManager.updateMatchResult(matches[0].id, [{ puntosLocal: 21, puntosVisitante: 18 }, { puntosLocal: 18, puntosVisitante: 21 }, { puntosLocal: 21, puntosVisitante: 16 }]);
     scoredMatches = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id);
     const editedMatch = scoredMatches.find(match => match.id === matches[0].id);
-    if (editedMatch.puntosLocal !== 2 || editedMatch.puntosVisitante !== 1) throw new Error('La edición del marcador no recalculó la puntuación interna.');
+    if (editedMatch.setsLocal !== 2 || editedMatch.setsVisitante !== 1 || editedMatch.sets.length !== 3) throw new Error('La edición del marcador no recalculó el resultado interno.');
     const updatedTable = PosicionesService.calcularPosiciones(tournament.id, category.id);
-    if (updatedTable.reduce((total, row) => total + row.puntos, 0) !== 6) throw new Error('La edición duplicó puntos en la tabla.');
+    const editedLocal = updatedTable.find(row => row.id === editedMatch.equipoLocalId);
+    if (!editedLocal || editedLocal.jugados !== 1 || editedLocal.puntosFavor !== 60 || editedLocal.puntosContra !== 55 || updatedTable.reduce((total, row) => total + row.jugados, 0) !== 4) throw new Error('La edición duplicó o conservó estadísticas anteriores.');
     const playoffsInfo = PlayoffsService.generarSemifinales(tournament.id, category.id);
     let playoffs = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id).filter(match => match.tipo === 'semifinal');
     if (playoffs.length !== 2 || playoffs[0].equipoLocalId !== updatedTable[0].id || playoffs[0].equipoVisitanteId !== updatedTable[3].id || playoffs[1].equipoLocalId !== updatedTable[1].id || playoffs[1].equipoVisitanteId !== updatedTable[2].id) throw new Error('Las semifinales no usan los cuatro primeros de la tabla general.');
     const groupMatchesOnLastDay = matches.filter(match => match.fecha === '2026-09-14');
     if (playoffs.some(match => match.fecha !== '2026-09-14' || groupMatchesOnLastDay.some(groupMatch => groupMatch.hora === match.hora && (groupMatch.cancha === match.cancha || [groupMatch.equipoLocalId, groupMatch.equipoVisitanteId].includes(match.equipoLocalId) || [groupMatch.equipoLocalId, groupMatch.equipoVisitanteId].includes(match.equipoVisitanteId))))) throw new Error('Las semifinales no respetan una franja libre del último día.');
-    DataManager.updateMatchResult(playoffs[0].id, 2, 0);
-    DataManager.updateMatchResult(playoffs[1].id, 1, 2);
-    if (PosicionesService.calcularPosiciones(tournament.id, category.id).reduce((total, row) => total + row.puntos, 0) !== 6) throw new Error('Las eliminatorias alteraron la clasificación general.');
+    DataManager.updateMatchResult(playoffs[0].id, [{ puntosLocal: 21, puntosVisitante: 17 }, { puntosLocal: 21, puntosVisitante: 19 }]);
+    DataManager.updateMatchResult(playoffs[1].id, [{ puntosLocal: 17, puntosVisitante: 21 }, { puntosLocal: 21, puntosVisitante: 18 }, { puntosLocal: 15, puntosVisitante: 21 }]);
+    if (PosicionesService.calcularPosiciones(tournament.id, category.id).reduce((total, row) => total + row.jugados, 0) !== 4) throw new Error('Las eliminatorias alteraron la clasificación general.');
     PlayoffsService.generarFinal(tournament.id, category.id);
     const final = DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id).find(match => match.tipo === 'final');
     if (!final || final.equipoLocalId !== playoffs[0].equipoLocalId || final.equipoVisitanteId !== playoffs[1].equipoVisitanteId) throw new Error('La final no usa los ganadores de las semifinales.');
     if (final.fecha !== '2026-09-14' || final.hora <= Math.max(...playoffs.map(match => match.hora))) throw new Error('La final no respeta el horario posterior a las semifinales.');
-    DataManager.updateMatchResult(final.id, 2, 1);
+    DataManager.updateMatchResult(final.id, [{ puntosLocal: 21, puntosVisitante: 18 }, { puntosLocal: 18, puntosVisitante: 21 }, { puntosLocal: 21, puntosVisitante: 16 }]);
     const finalTable = PosicionesService.calcularClasificacionFinal(tournament.id, category.id);
     if (!finalTable || finalTable.length !== 4 || finalTable[0].id !== final.equipoLocalId || finalTable[1].id !== final.equipoVisitanteId) throw new Error('La clasificación final no muestra campeón, subcampeón y el resto de los puestos.');
 
