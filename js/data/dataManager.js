@@ -57,26 +57,36 @@ const deduplicateGroupPairs = matches => {
     });
     return result;
 };
-// El marcador es el único dato que ingresa la interfaz. A partir de él se
-// construye el resultado interno que usan tabla y eliminatorias.
-const scoreFromMarker = (setsLocal, setsVisitante) => {
-    const local = Number(setsLocal);
-    const visitante = Number(setsVisitante);
-    if (local === 2 && visitante === 0) return { setsLocal: local, setsVisitante: visitante, puntosLocal: 3, puntosVisitante: 1, ganaLocal: true };
-    if (local === 2 && visitante === 1) return { setsLocal: local, setsVisitante: visitante, puntosLocal: 2, puntosVisitante: 1, ganaLocal: true };
-    if (visitante === 2 && local === 0) return { setsLocal: local, setsVisitante: visitante, puntosLocal: 1, puntosVisitante: 3, ganaLocal: false };
-    if (visitante === 2 && local === 1) return { setsLocal: local, setsVisitante: visitante, puntosLocal: 1, puntosVisitante: 2, ganaLocal: false };
-    return null;
+const normalizeSets = sets => {
+    if (!Array.isArray(sets) || sets.length < 2 || sets.length > 3) throw new Error('Ingrese los puntos de 2 o 3 sets.');
+    return sets.map((set, index) => {
+        const puntosLocal = Number(set?.puntosLocal);
+        const puntosVisitante = Number(set?.puntosVisitante);
+        if (!Number.isInteger(puntosLocal) || !Number.isInteger(puntosVisitante) || puntosLocal < 0 || puntosVisitante < 0) throw new Error(`El set ${index + 1} debe tener puntos enteros iguales o mayores a cero.`);
+        if (puntosLocal === puntosVisitante) throw new Error(`El set ${index + 1} no puede terminar empatado.`);
+        return { puntosLocal, puntosVisitante };
+    });
 };
-const applyInternalResult = (match, setsLocal, setsVisitante) => {
-    const score = scoreFromMarker(setsLocal, setsVisitante);
-    if (!score) throw new Error('Los únicos resultados válidos son 2-0 o 2-1.');
+// La única fuente del resultado son los puntos de cada set. El marcador 2-0 o
+// 2-1 se calcula aquí y nunca se recibe manualmente desde la interfaz.
+const applyInternalResult = (match, rawSets) => {
+    const sets = normalizeSets(rawSets);
+    const setsLocal = sets.filter(set => set.puntosLocal > set.puntosVisitante).length;
+    const setsVisitante = sets.length - setsLocal;
+    const firstTwoAreSplit = sets.length === 3
+        && (sets[0].puntosLocal > sets[0].puntosVisitante) !== (sets[1].puntosLocal > sets[1].puntosVisitante);
+    const isTwoSetFinish = sets.length === 2 && (setsLocal === 2 || setsVisitante === 2);
+    const isThreeSetFinish = sets.length === 3 && firstTwoAreSplit && (setsLocal === 2 || setsVisitante === 2);
+    if (!isTwoSetFinish && !isThreeSetFinish) {
+        throw new Error('El resultado debe finalizar 2-0 o 2-1. Si los primeros dos sets quedan 1-1, cargue el tercer set.');
+    }
     match.estado = 'finalizado';
-    match.setsLocal = score.setsLocal;
-    match.setsVisitante = score.setsVisitante;
-    match.puntosLocal = score.puntosLocal;
-    match.puntosVisitante = score.puntosVisitante;
-    match.ganadorId = score.ganaLocal ? match.equipoLocalId : match.equipoVisitanteId;
+    match.sets = sets;
+    match.setsLocal = setsLocal;
+    match.setsVisitante = setsVisitante;
+    match.ganadorId = setsLocal === 2 ? match.equipoLocalId : match.equipoVisitanteId;
+    delete match.puntosLocal;
+    delete match.puntosVisitante;
 };
 
 export const DataManager = {
@@ -90,17 +100,14 @@ export const DataManager = {
                 ...zone,
                 torneoId: zone.torneoId || data.categories.find(category => category.id === zone.categoriaId)?.torneoId || null
             }));
-            // Migra resultados anteriores al mismo modelo interno, sin depender
-            // de valores de puntos que hubiera podido mostrar una vista antigua.
+            // Los resultados de versiones anteriores no contienen los puntos
+            // de cada set y ya no sirven para la nueva clasificación. Quedan
+            // pendientes para que se vuelvan a cargar con el detalle real.
             data.matches = data.matches.map(match => {
-                if (match.estado !== 'finalizado') return match;
-                const score = scoreFromMarker(match.setsLocal, match.setsVisitante);
-                return score ? {
-                    ...match,
-                    puntosLocal: score.puntosLocal,
-                    puntosVisitante: score.puntosVisitante,
-                    ganadorId: score.ganaLocal ? match.equipoLocalId : match.equipoVisitanteId
-                } : match;
+                const { puntosLocal, puntosVisitante, ...normalizedMatch } = match;
+                const hasDetailedSets = Array.isArray(normalizedMatch.sets) && normalizedMatch.sets.length >= 2;
+                if (normalizedMatch.estado !== 'finalizado' || hasDetailedSets) return { ...normalizedMatch, sets: normalizedMatch.sets || [] };
+                return { ...normalizedMatch, estado: 'pendiente', confirmado: true, sets: [], setsLocal: null, setsVisitante: null, ganadorId: null };
             });
             return data;
         } catch {
@@ -222,8 +229,7 @@ export const DataManager = {
         assertUniqueGroupPairs([...data.matches, ...matches]);
         data.matches.push(...matches.map(match => ({
             id: makeId('partido'), ...match,
-            puntosLocal: null,
-            puntosVisitante: null,
+            sets: [],
             ganadorId: null
         })));
         this._setStorage(data);
@@ -264,12 +270,12 @@ export const DataManager = {
         ));
         this._setStorage(data);
     },
-    updateMatchResult(matchId, setsLocal, setsVisitante) {
+    updateMatchResult(matchId, sets) {
         const data = this._getStorage();
         const match = data.matches.find(item => item.id === matchId);
         if (!match) throw new Error('No se encontró el partido.');
         if (!match.confirmado && match.estado !== 'programado' && match.estado !== 'finalizado') throw new Error('El partido debe confirmarse antes de cargar un resultado.');
-        applyInternalResult(match, setsLocal, setsVisitante);
+        applyInternalResult(match, sets);
         this._setStorage(data);
     },
 
