@@ -17,6 +17,7 @@ export function initCalendarView() {
     const period = DataManager.getTournamentPeriod(tournamentId);
     const defaultStart = tournament.horaInicio || '09:00';
     const defaultEnd = tournament.horaFin || '21:00';
+    const settings = DataManager.getTournamentSchedulingSettings(tournamentId);
     const daySchedules = DataManager.getDaySchedules(tournamentId);
     view.innerHTML = `
         <h2>Calendario del torneo</h2>
@@ -27,6 +28,8 @@ export function initCalendarView() {
                 <label class="form-field">Fecha de finalización<input id="fecha-fin" type="date" value="${period?.endDate || ''}" required></label>
                 <label class="form-field">Horario predeterminado · desde<input id="hora-inicio" type="time" value="${defaultStart}" required></label>
                 <label class="form-field">Hasta<input id="hora-fin" type="time" value="${defaultEnd}" required></label>
+                <label class="form-field">Duración estimada (min)<input id="duracion-partido" type="number" min="1" max="240" value="${settings.duracionPartido}" required></label>
+                <label class="form-field">Intervalo entre partidos (min)<input id="intervalo-partidos" type="number" min="0" max="120" value="${settings.intervaloPartidos}" required></label>
                 <div class="form-actions"><button class="btn-primary" type="submit">Guardar calendario</button></div>
             </form>
         </section>
@@ -55,6 +58,7 @@ export function initCalendarView() {
                 view.querySelector('#hora-fin').value,
                 schedules
             );
+            DataManager.setTournamentSchedulingSettings(tournamentId, view.querySelector('#duracion-partido').value, view.querySelector('#intervalo-partidos').value);
             const categoryId = AppState.getCategory();
             if (categoryId) SchedulerService.redistribuirFechas(tournamentId, categoryId);
             initCalendarView();
