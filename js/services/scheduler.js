@@ -58,7 +58,8 @@ export const SchedulerService = {
             const zoneTeams = teams.filter(team => team.zonaId === zone.id);
             if (!zoneTeams.length) continue;
             if (zoneTeams.length < 2) throw new Error(`${zone.nombre} necesita al menos dos equipos.`);
-            const requiredMatches = Math.min(assured, zoneTeams.length - 1);
+            if (assured > zoneTeams.length - 1) throw new Error(`${zone.nombre} tiene ${zoneTeams.length} equipos y no puede garantizar ${assured} partidos sin repetir enfrentamientos.`);
+            const requiredMatches = assured;
 
             const existing = existingFixture.filter(match => match.zonaId === zone.id);
             const counts = new Map(zoneTeams.map(team => [team.id, 0]));
@@ -182,18 +183,35 @@ export const SchedulerService = {
         const zones = DataManager.getZonesByTournamentAndCategory(torneoId, categoriaId);
         const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
             .filter(match => isGroupMatch(match) && (!onlyOfficial || isOfficialMatch(match)));
-        const requiredFor = team => {
-            const zoneSize = teams.filter(otherTeam => otherTeam.zonaId === team.zonaId).length;
-            return Math.min(Number(tournament.partidos_asegurados), Math.max(0, zoneSize - 1));
-        };
+        const requiredFor = () => Number(tournament.partidos_asegurados);
         const missing = teams.filter(team => matches.filter(match => match.equipoLocalId === team.id || match.equipoVisitanteId === team.id).length < requiredFor(team));
-        const cappedZones = zones.filter(zone => {
+        const impossibleZones = zones.filter(zone => {
             const teamCount = teams.filter(team => team.zonaId === zone.id).length;
             return Number(tournament.partidos_asegurados) > teamCount - 1;
         });
+        if (impossibleZones.length) return { ok: false, mensaje: `No se pueden cumplir los partidos asegurados sin repetir cruces en: ${impossibleZones.map(zone => zone.nombre).join(', ')}.` };
         if (missing.length) return { ok: false, mensaje: `Faltan partidos asegurados para: ${missing.map(team => team.nombre).join(', ')}.` };
-        const adjustment = cappedZones.length ? ` Se usó el máximo sin repetir rivales en: ${cappedZones.map(zone => zone.nombre).join(', ')}.` : '';
-        return { ok: true, mensaje: `Todos los equipos cumplen los partidos posibles.${adjustment}` };
+        return { ok: true, mensaje: 'Todos los equipos cumplen los partidos asegurados.' };
+    },
+
+    estadoFaseClasificatoria(torneoId, categoriaId) {
+        const tournament = DataManager.getTournament(torneoId);
+        const teams = DataManager.getTeamsByTournamentAndCategory(torneoId, categoriaId);
+        const finished = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
+            .filter(match => isGroupMatch(match) && match.estado === 'finalizado');
+        const required = Number(tournament?.partidos_asegurados || 0);
+        const equipos = teams.map(team => ({
+            ...team,
+            jugados: finished.filter(match => match.equipoLocalId === team.id || match.equipoVisitanteId === team.id).length,
+            requeridos: required
+        }));
+        const pendientes = equipos.filter(team => team.jugados < required);
+        return {
+            ok: !pendientes.length && equipos.length > 0,
+            equipos,
+            pendientes,
+            mensaje: pendientes.length ? `Faltan partidos asegurados: ${pendientes.map(team => `${team.nombre} ${team.jugados}/${required}`).join(', ')}.` : 'Fase clasificatoria completada.'
+        };
     },
 
     // Programa el fixture confirmado con fecha, hora y cancha. Ejecutarlo de
@@ -210,13 +228,14 @@ export const SchedulerService = {
             .filter(match => isGroupMatch(match) && isOfficialMatch(match) && match.estado !== 'finalizado');
         if (!toSchedule.length) return 0;
         const courts = Array.from({ length: DataManager.getTournamentCourtCount(torneoId) }, (_, index) => `Cancha ${index + 1}`);
+        const settings = DataManager.getTournamentSchedulingSettings(torneoId);
         const courtLoads = new Map(courts.map(court => [court, 0]));
         const scheduled = [];
 
         for (const day of daySchedules) {
             const remaining = toSchedule.filter(match => match.fecha === day.fecha);
             const timeSlots = [];
-            for (let minute = schedulerMinutesFromTime(day.inicio); minute + 60 <= schedulerMinutesFromTime(day.fin); minute += 60) {
+            for (let minute = schedulerMinutesFromTime(day.inicio); minute + settings.duracionPartido <= schedulerMinutesFromTime(day.fin); minute += settings.duracionPartido + settings.intervaloPartidos) {
                 timeSlots.push(schedulerTimeFromMinutes(minute));
             }
             if (remaining.length > timeSlots.length * courts.length) throw new Error(`No hay franjas suficientes el ${day.fecha}.`);
@@ -240,5 +259,46 @@ export const SchedulerService = {
         if (scheduled.length !== toSchedule.length) throw new Error('Hay partidos con una fecha fuera del período del torneo.');
         DataManager.updateMatches(scheduled);
         return scheduled.length;
+    },
+
+    // Propuesta automática reutilizable para cada etapa eliminatoria. El árbitro
+    // puede editar luego fecha, hora o cancha sin crear otro partido.
+    programarFase(torneoId, categoriaId, phase, afterPhase = null) {
+        const days = DataManager.getDaySchedules(torneoId);
+        const settings = DataManager.getTournamentSchedulingSettings(torneoId);
+        if (!days.length) return 0;
+        const targets = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => match.phase === phase && match.estado !== 'finalizado' && (!match.fecha || !match.hora || !match.cancha));
+        const allMatches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
+        const occupied = allMatches.filter(match => match.phase !== phase && match.fecha && match.hora && match.cancha);
+        // Una etapa no puede ser sugerida antes de que termine la anterior.
+        // Así los partidos nuevos nunca alteran ni se intercalan con el fixture
+        // de partidos asegurados ya cerrado.
+        const latestPriorSlot = afterPhase
+            ? allMatches.filter(match => match.phase === afterPhase && match.fecha && match.hora)
+                .map(match => `${match.fecha}T${match.hora}`)
+                .sort()
+                .at(-1)
+            : null;
+        const courts = Array.from({ length: DataManager.getTournamentCourtCount(torneoId) }, (_, index) => `Cancha ${index + 1}`);
+        const updates = [];
+        for (const match of targets) {
+            let slot = null;
+            for (const day of days) {
+                for (let minute = schedulerMinutesFromTime(day.inicio); minute + settings.duracionPartido <= schedulerMinutesFromTime(day.fin); minute += settings.duracionPartido + settings.intervaloPartidos) {
+                    const hora = schedulerTimeFromMinutes(minute);
+                    if (latestPriorSlot && `${day.fecha}T${hora}` <= latestPriorSlot) continue;
+                    for (const cancha of courts) {
+                        const conflict = [...occupied, ...updates].some(other => other.fecha === day.fecha && other.hora === hora && (other.cancha === cancha || [other.equipoLocalId, other.equipoVisitanteId].some(id => [match.equipoLocalId, match.equipoVisitanteId].includes(id))));
+                        if (!conflict) { slot = { fecha: day.fecha, hora, cancha }; break; }
+                    }
+                    if (slot) break;
+                }
+                if (slot) break;
+            }
+            if (!slot) throw new Error(`No hay una franja disponible para ${match.nombreEtapa || phase}.`);
+            updates.push({ ...match, ...slot, estado: 'pendiente', confirmado: true });
+        }
+        if (updates.length) DataManager.updateMatches(updates);
+        return updates.length;
     }
 };
