@@ -271,6 +271,10 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 .schedule-match-main > div { display: grid; gap: 3px; }
 .schedule-match-main strong { color: #1d2d47; font-size: .98rem; }
 .schedule-match-main strong b, .draft-fixture-row strong b { color: #8494aa; font-size: .76rem; margin: 0 5px; }
+.schedule-editor { grid-column: 1 / -1; margin: 0 16px 14px; border: 1px solid #dbe7f7; border-radius: 10px; background: #fbfdff; }
+.schedule-editor summary { cursor: pointer; padding: 10px 12px; color: #0757b8; font-weight: 700; }
+.schedule-editor form { padding: 2px 12px 12px; }
+.schedule-editor .helper-text { margin: 0 0 12px; }
 .schedule-stage { color: #71829d; font-size: .78rem; font-weight: 700; }
 .schedule-score { min-width: 58px; padding: 6px 9px; border-radius: 8px; color: #126637; background: var(--success-soft); font-weight: 900; text-align: center; }
 .draft-fixture-list { display: grid; margin-top: 12px; border: 1px solid #e3ebf6; border-radius: 10px; overflow: hidden; }
