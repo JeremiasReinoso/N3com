@@ -49,6 +49,8 @@ globalThis.localStorage = {
     getItem(key) { return this.values.get(key) || null; },
     setItem(key, value) { this.values.set(key, value); }
 };
+localStorage.setItem('newcom_active_license_code_v1', 'NWC-TEST-2026-001');
+globalThis.fetch = async () => ({ ok: true, json: async () => ({ id: 'CLI-0001', code: 'NWC-TEST-2026-001', clientName: 'Club de prueba', organization: '', email: '', phone: '', tournamentsPurchased: 1, tournamentsUsed: 0, tournamentsRemaining: 1, active: true, createdAt: '', activatedAt: null, history: [] }) });
 globalThis.document = {
     addEventListener: (type, callback) => {
         if (type === 'DOMContentLoaded') domReadyListeners.push(callback);
@@ -58,13 +60,15 @@ globalThis.document = {
         if (selector.includes('nav-btn')) return Object.values(buttons);
         if (selector === '.view-section') return Object.values(views);
         return [];
-    }
+    },
+    querySelector: () => null
 };
 globalThis.alert = () => {};
+globalThis.window = { addEventListener: () => {} };
 
 await import(`${pathToFileURL(resolve(root, 'js/main.js')).href}?navigation-test=1`);
 assert.equal(domReadyListeners.length, 1, 'La aplicación debe esperar al DOM antes de inicializarse.');
-domReadyListeners[0]();
+await domReadyListeners[0]();
 
 for (const id of buttonIds) {
     assert.equal(buttons[id].listenerCount('click'), 2, `${id} debe tener navegación y carga de vista.`);
