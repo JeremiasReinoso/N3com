@@ -4,11 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NEWCOM - Gestión de Torneos</title>
+    <script>try { document.documentElement.dataset.theme = localStorage.getItem('newcom_theme') === 'light' ? 'light' : 'dark'; } catch { document.documentElement.dataset.theme = 'dark'; }</script>
     <link rel="stylesheet" href="css/main.css" />
     <link rel="stylesheet" href="css/layout.css" />
     <script type="module" src="js/main.js"></script>
 </head>
 <body>
+    <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="true" aria-label="Activar tema claro">☀ Tema claro</button>
     <header class="app-header">
         <div class="logo">🏐 NEWCOM</div>
         <nav id="main-nav" aria-label="Navegación principal">
