@@ -26,6 +26,14 @@ try {
     const expanded = await LicenciaRepo.agregarTorneos(created.id, 5);
     if (expanded.codigo !== created.codigo || expanded.disponibles !== 7) throw new Error('Agregar torneos no conservó la licencia local.');
 
+    // Simula otra computadora: no comparte licencias ni activación con quien
+    // emitió el código, pero puede importar el código portátil por sí mismo.
+    localStorage.removeItem('newcom_local_licenses_v1');
+    localStorage.removeItem('newcom_active_license_code_v1');
+    const { LicenciaRepo: RecipientRepo } = await import(`${pathToFileURL(resolve(root, 'js/data/licenseRepo.js')).href}?browser-storage-test=recipient`);
+    const received = await RecipientRepo.activar(created.codigo);
+    if (received.disponibles !== 3 || received.codigo !== created.codigo || received.cliente !== 'Licencia portátil') throw new Error('El código emitido no pudo activarse en otra instalación local.');
+
     // Compatibilidad con datos locales producidos por versiones anteriores.
     localStorage.setItem('newcom_local_licenses_v1', JSON.stringify({ licenses: [{ id: 'CLI-0099', code: 'NWC-U3GC-CRTY-BAMJ', client: { name: 'Jeremias' }, license: { tournamentsPurchased: 4, tournamentsUsed: 0, tournamentsRemaining: 4, active: true, createdAt: '2026-01-01T00:00:00.000Z' } }] }));
     const { LicenciaRepo: LegacyRepo } = await import(`${pathToFileURL(resolve(root, 'js/data/licenseRepo.js')).href}?browser-storage-test=legacy`);
