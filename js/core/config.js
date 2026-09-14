@@ -1,10 +1,7 @@
-// Configuración global de la aplicación
-export const API_CONFIG = {
-    // Reemplaza con tus datos reales de Supabase
-    SUPABASE_URL: 'https://tu-proyecto.supabase.co',
-    SUPABASE_KEY: 'tu-public-anon-key-aqui',
-    CURRENT_LICENSE: 'NWC-DEV-0001'
-};
+// La versión actual funciona enteramente en el equipo local, mediante
+// server.js y private/licenses.json. Se reserva este objeto para que módulos
+// heredados puedan coexistir sin introducir servicios externos.
+export const API_CONFIG = { storage: 'local-file' };
 
 export const TOURNAMENT_RULES = {
     POINTS_WIN_2_0: 3,
