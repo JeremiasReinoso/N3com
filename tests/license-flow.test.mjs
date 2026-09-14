@@ -63,6 +63,8 @@ try {
 
     await LicenciaRepo.actualizar(created.id, { cliente: 'Club X', organizacion: 'Club X', email: 'club@example.test', telefono: '1234', activa: false });
     if (await LicenciaRepo.obtenerActiva()) throw new Error('Una licencia deshabilitada siguió activa en el cliente.');
+    const cleared = await LicenciaRepo.limpiarTodas();
+    if (cleared.deleted !== 1 || (await LicenciaRepo.obtenerTodas()).length !== 0) throw new Error('La limpieza administrativa no eliminó las licencias locales.');
     console.log('El flujo local de licencia activa, persiste 3→2, amplía 2→7, bloquea en cero y conserva el código.');
 } finally {
     globalThis.fetch = nativeFetch;
