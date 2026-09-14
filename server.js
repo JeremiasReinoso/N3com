@@ -34,6 +34,9 @@ const api = async (request, response, url) => {
     if (request.method === 'POST' && url.pathname === '/api/licenses/consume') {
         return send(response, 200, await licenseService.consumeTournament((await readBody(request)).code));
     }
+    if (request.method === 'DELETE' && url.pathname === '/api/licenses') {
+        return send(response, 200, await licenseService.clear());
+    }
     const id = url.pathname.match(/^\/api\/licenses\/([^/]+)$/)?.[1];
     if (request.method === 'PATCH' && id) {
         const body = await readBody(request); const licenseId = decodeURIComponent(id);
