@@ -46,4 +46,14 @@ async function loadLicenses() {
 
 document.getElementById('btn-nuevo-cliente').addEventListener('click', renderCreateForm);
 document.getElementById('btn-actualizar-licencias').addEventListener('click', () => { void loadLicenses(); });
+document.getElementById('btn-limpiar-licencias').addEventListener('click', async event => {
+    if (!confirm('Se eliminarán todas las licencias locales y no se podrá deshacer. ¿Querés continuar?')) return;
+    const button = event.currentTarget; button.disabled = true;
+    try {
+        const result = await LicenciaRepo.limpiarTodas();
+        panel.innerHTML = `<div class="empty-state">Se eliminaron ${result.deleted} licencia${result.deleted === 1 ? '' : 's'} locales.</div>`;
+        await loadLicenses();
+    } catch (error) { alert(error.message || 'No se pudieron limpiar las licencias.'); }
+    finally { button.disabled = false; }
+});
 void loadLicenses();
