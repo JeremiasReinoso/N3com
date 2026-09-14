@@ -4,10 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NEWCOM - Administración de Clientes</title>
+    <script>try { document.documentElement.dataset.theme = localStorage.getItem('newcom_theme') === 'light' ? 'light' : 'dark'; } catch { document.documentElement.dataset.theme = 'dark'; }</script>
     <link rel="stylesheet" href="css/main.css" />
     <link rel="stylesheet" href="css/layout.css" />
 </head>
 <body>
+    <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="true" aria-label="Activar tema claro">☀ Tema claro</button>
     <header id="admin-header" class="app-header" hidden>
         <div class="logo">🏐 NEWCOM · Administración</div>
         <nav aria-label="Navegación de administración">
