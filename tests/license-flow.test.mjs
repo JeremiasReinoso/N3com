@@ -12,6 +12,10 @@ const origin = `http://127.0.0.1:${port}`;
 const nativeFetch = globalThis.fetch;
 
 try {
+    const indexMarkup = await readFile(join(root, 'index.html'), 'utf8');
+    const mainSource = await readFile(join(root, 'js', 'main.js'), 'utf8');
+    if (/admin\.html|Administración/i.test(indexMarkup)) throw new Error('El cliente todavía muestra un acceso al panel administrativo.');
+    if (!mainSource.includes('Para utilizar NEWCOM necesitás activar tu licencia.')) throw new Error('La pantalla de activación no contiene el texto requerido.');
     for (let attempt = 0; attempt < 30; attempt += 1) {
         try { if ((await nativeFetch(`${origin}/api/licenses`)).ok) break; } catch {}
         await new Promise(resolveWait => setTimeout(resolveWait, 50));
@@ -38,21 +42,25 @@ try {
     const invalid = await nativeFetch(`${origin}/api/licenses/activate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: 'NWC-0000-0000-0000' }) });
     if (invalid.status !== 400 || (await invalid.json()).error !== 'El código de licencia no es válido o está deshabilitado.') throw new Error('La validación de códigos inválidos no devuelve el mensaje requerido.');
 
-    const active = await LicenciaRepo.activar(created.codigo.toLowerCase());
+    const active = await LicenciaRepo.activar(`  ${created.codigo.toLowerCase()}  `);
     if (active.disponibles !== 3) throw new Error('La activación no mostró tres torneos disponibles.');
-    for (const remaining of [2, 1, 0]) {
+    const afterFirstTournament = await LicenciaRepo.consumirTorneo();
+    if (afterFirstTournament.disponibles !== 2 || afterFirstTournament.cupo_utilizado !== 1) throw new Error('El primer torneo no actualizó el saldo de 3 a 2.');
+    const reopened = await LicenciaRepo.obtenerActiva();
+    if (!reopened || reopened.codigo !== created.codigo || reopened.disponibles !== 2) throw new Error('La activación local no persistió al volver a abrir NEWCOM.');
+    const expanded = await LicenciaRepo.agregarTorneos(created.id, 5);
+    if (expanded.codigo !== created.codigo || expanded.disponibles !== 7 || expanded.cupo_total !== 8) throw new Error('Agregar cinco torneos no conservó el código o el saldo de 2 a 7.');
+    for (const remaining of [6, 5, 4, 3, 2, 1, 0]) {
         const consumed = await LicenciaRepo.consumirTorneo();
-        if (consumed.disponibles !== remaining || consumed.cupo_utilizado !== 3 - remaining) throw new Error(`El consumo no actualizó el saldo a ${remaining}.`);
+        if (consumed.disponibles !== remaining || consumed.cupo_utilizado !== 8 - remaining) throw new Error(`El consumo no actualizó el saldo a ${remaining}.`);
     }
     let blocked = false;
     try { await LicenciaRepo.consumirTorneo(); } catch (error) { blocked = error.message === 'No tenés torneos disponibles. Contactá al administrador para adquirir más.'; }
     if (!blocked) throw new Error('Se permitió crear un torneo sin créditos o se mostró un mensaje incorrecto.');
 
-    const expanded = await LicenciaRepo.agregarTorneos(created.id, 5);
-    if (expanded.codigo !== created.codigo || expanded.disponibles !== 5 || expanded.cupo_total !== 8) throw new Error('Agregar créditos cambió el código o calculó mal el saldo.');
     await LicenciaRepo.actualizar(created.id, { cliente: 'Club X', organizacion: 'Club X', email: 'club@example.test', telefono: '1234', activa: false });
     if (await LicenciaRepo.obtenerActiva()) throw new Error('Una licencia deshabilitada siguió activa en el cliente.');
-    console.log('El flujo local de licencia crea, activa, consume 3→0, bloquea y conserva el código.');
+    console.log('El flujo local de licencia activa, persiste 3→2, amplía 2→7, bloquea en cero y conserva el código.');
 } finally {
     globalThis.fetch = nativeFetch;
     server.kill();
