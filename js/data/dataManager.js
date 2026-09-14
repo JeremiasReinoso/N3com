@@ -1,5 +1,5 @@
-// Persistencia local del flujo principal del torneo. La capa de Supabase queda
-// sin usar por ahora: esta pantalla debe funcionar de forma autónoma.
+// Persistencia local del flujo principal del torneo. Esta pantalla funciona de
+// forma autónoma y no depende de la gestión de licencias.
 const STORAGE_KEY = 'newcom_data';
 let sequence = 0;
 
