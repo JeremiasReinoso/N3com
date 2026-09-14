@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="css/layout.css" />
 </head>
 <body>
-    <header class="app-header">
+    <header id="admin-header" class="app-header" hidden>
         <div class="logo">🏐 NEWCOM · Administración</div>
         <nav aria-label="Navegación de administración">
             <a href="index.html" class="nav-btn">← Volver al inicio</a>
@@ -16,7 +16,7 @@
         </nav>
     </header>
 
-    <main id="admin-container" class="container">
+    <main id="admin-container" class="container" hidden>
         <section id="view-admin" class="view-section active">
             <h2>Gestión de Clientes / Licencias</h2>
             <div class="panel-control">
@@ -32,6 +32,6 @@
         </section>
     </main>
 
-    <script type="module" src="js/views/adminView.js"></script>
+    <script type="module" src="js/adminAccess.js"></script>
 </body>
 </html>
