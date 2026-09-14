@@ -9,7 +9,7 @@
 </head>
 <body>
     <header class="app-header">
-        <div class="logo">🏐 NEW.COM</div>
+        <div class="logo">🏐 NEWCOM · Administración</div>
         <nav aria-label="Navegación de administración">
             <a href="index.html" class="nav-btn">← Volver al inicio</a>
             <span class="nav-btn active" style="cursor: default;">Gestión de Clientes</span>
@@ -23,6 +23,7 @@
                 <button id="btn-nuevo-cliente" class="btn-primary">+ Nuevo Cliente</button>
                 <button id="btn-actualizar-licencias" class="btn-secondary">Actualizar Licencias</button>
             </div>
+            <div id="admin-license-form"></div>
             <div id="admin-list" class="grid-cards">
                 <!-- Las licencias se cargan aquí -->
                 <p>Cargando clientes...</p>
@@ -30,8 +31,6 @@
         </section>
     </main>
 
-    <!-- Script específico de administración -->
     <script type="module" src="js/views/adminView.js"></script>
-    <!-- Opcional: también podría necesitar db.js, licenseRepo.js, etc. -->
 </body>
 </html>
