@@ -1,9 +1,10 @@
 // Adaptador de licencias local. Cuando NEWCOM se inicia con server.js usa el
 // archivo privado; en un sitio estático usa localStorage del mismo navegador.
 // Cada ejecución escoge una sola fuente de verdad, sin servicios externos.
+import { createPortableLicenseCode, parsePortableLicenseCode } from '../core/portableLicense.js';
+
 const ACTIVE_CODE_KEY = 'newcom_active_license_code_v1';
 const BROWSER_STORE_KEY = 'newcom_local_licenses_v1';
-const codeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 let backend = null;
 
 const normalizeCode = code => String(code || '').trim().toUpperCase();
@@ -60,18 +61,6 @@ const saveBrowserStore = store => {
     localStorage.setItem(BROWSER_STORE_KEY, JSON.stringify(store));
 };
 const nextId = licenses => `CLI-${String(Math.max(0, ...licenses.map(license => Number(String(license.id || '').replace(/^CLI-/, '')) || 0)) + 1).padStart(4, '0')}`;
-const randomGroup = () => {
-    const bytes = new Uint8Array(4);
-    if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
-    else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
-    return [...bytes].map(byte => codeAlphabet[byte % codeAlphabet.length]).join('');
-};
-const nextCode = licenses => {
-    let code;
-    do { code = `NWC-${[randomGroup(), randomGroup(), randomGroup()].join('-')}`; }
-    while (licenses.some(license => license.code === code));
-    return code;
-};
 const browserOperation = operation => {
     const store = browserStore();
     const result = operation(store);
@@ -124,13 +113,22 @@ const createBrowserLicense = ({ clientName, organization = '', email = '', phone
     const name = clean(clientName); const purchased = credits(tournamentsPurchased);
     if (!name) throw new Error('Ingrese el nombre del cliente.');
     const now = new Date().toISOString();
-    const license = { id: nextId(store.licenses), code: nextCode(store.licenses), clientName: name, organization: clean(organization), email: clean(email), phone: clean(phone), tournamentsPurchased: purchased, tournamentsUsed: 0, tournamentsRemaining: purchased, active: true, createdAt: now, activatedAt: null, history: [{ at: now, type: 'LICENSE_CREATED', tournaments: purchased }] };
+    const id = nextId(store.licenses);
+    const license = { id, code: createPortableLicenseCode(id, purchased), clientName: name, organization: clean(organization), email: clean(email), phone: clean(phone), tournamentsPurchased: purchased, tournamentsUsed: 0, tournamentsRemaining: purchased, active: true, createdAt: now, activatedAt: null, history: [{ at: now, type: 'LICENSE_CREATED', tournaments: purchased }] };
     store.licenses.push(license);
     return license;
 });
 const activateBrowserLicense = code => browserOperation(store => {
-    const license = store.licenses.find(item => item.code === normalizeCode(code));
-    if (!license || !license.active) throw new Error('El código de licencia no es válido o está deshabilitado.');
+    const requested = normalizeCode(code);
+    let license = store.licenses.find(item => item.code === requested);
+    if (!license) {
+        const portable = parsePortableLicenseCode(requested);
+        if (!portable) throw new Error('El código de licencia no es válido o está deshabilitado.');
+        const now = new Date().toISOString();
+        license = { id: portable.id, code: portable.code, clientName: 'Licencia portátil', organization: '', email: '', phone: '', tournamentsPurchased: portable.tournamentsPurchased, tournamentsUsed: 0, tournamentsRemaining: portable.tournamentsPurchased, active: true, createdAt: now, activatedAt: null, history: [{ at: now, type: 'PORTABLE_LICENSE_IMPORTED' }] };
+        store.licenses.push(license);
+    }
+    if (!license.active) throw new Error('El código de licencia no es válido o está deshabilitado.');
     if (!license.activatedAt) {
         license.activatedAt = new Date().toISOString();
         license.history.push({ at: license.activatedAt, type: 'LICENSE_ACTIVATED' });
