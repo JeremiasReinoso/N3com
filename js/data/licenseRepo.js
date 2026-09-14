@@ -87,6 +87,10 @@ const requireLicenseList = value => {
     if (!Array.isArray(value?.licenses)) throw unavailable();
     return value.licenses;
 };
+const requireClearResult = value => {
+    if (!Number.isInteger(value?.deleted) || value.deleted < 0) throw unavailable();
+    return value;
+};
 const useSource = async (remoteOperation, localOperation) => {
     if (backend === 'browser') return localOperation();
     try {
@@ -150,6 +154,11 @@ const addBrowserTournaments = (id, amount) => browserOperation(store => {
     license.history.push({ at: new Date().toISOString(), type: 'CREDITS_ADDED', tournaments: quantity });
     return license;
 });
+const clearBrowserLicenses = () => browserOperation(store => {
+    const deleted = store.licenses.length;
+    store.licenses = [];
+    return { deleted };
+});
 const updateBrowserLicense = (id, changes) => browserOperation(store => {
     const license = store.licenses.find(item => item.id === id);
     const name = clean(changes.clientName);
@@ -187,6 +196,11 @@ export const LicenciaRepo = {
     async agregarTorneos(id, cantidad) {
         const amount = credits(cantidad);
         return normalize(await useSource(() => apiRequest(`/api/licenses/${encodeURIComponent(id)}`, 'PATCH', { action: 'add-credits', amount }).then(requireLicense), () => addBrowserTournaments(id, amount)));
+    },
+    async limpiarTodas() {
+        const result = await useSource(() => apiRequest('/api/licenses', 'DELETE').then(requireClearResult), clearBrowserLicenses);
+        localStorage.removeItem(ACTIVE_CODE_KEY);
+        return result;
     },
     async activar(codigo) {
         const code = normalizeCode(codigo);
