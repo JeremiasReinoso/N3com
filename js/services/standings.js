@@ -6,8 +6,7 @@ const hasSetResult = match => match.estado === 'finalizado' && Array.isArray(mat
 // Los criterios de desempate se mantienen explícitos y aislados aquí:
 // partidos ganados → diferencia de sets → diferencia de puntos → puntos a favor.
 const compareRows = (left, right) => (
-    right.puntos - left.puntos
-    || right.ganados - left.ganados
+    right.ganados - left.ganados
     || right.diferenciaSets - left.diferenciaSets
     || right.diferenciaPuntos - left.diferenciaPuntos
     || right.puntosFavor - left.puntosFavor
@@ -19,7 +18,6 @@ export const PosicionesService = {
         const rows = new Map(teams.map(team => [team.id, {
             ...team,
             jugados: 0,
-            puntos: 0,
             ganados: 0,
             perdidos: 0,
             setsFavor: 0,
@@ -38,8 +36,6 @@ export const PosicionesService = {
                 if (!local || !visitante) return;
                 local.jugados += 1;
                 visitante.jugados += 1;
-                local.puntos += Number(match.puntosLocal || 0);
-                visitante.puntos += Number(match.puntosVisitante || 0);
                 local.setsFavor += match.setsLocal;
                 local.setsContra += match.setsVisitante;
                 visitante.setsFavor += match.setsVisitante;
