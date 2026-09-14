@@ -175,6 +175,29 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 .btn-primary { border-radius: 10px; box-shadow: 0 5px 12px rgba(7, 87, 184, .18); }
 .btn-secondary { background: #e9f1fc; color: #0757b8; font-weight: 700; }
 .empty-state { padding: 28px; text-align: center; background: var(--surface-soft); border: 1px dashed #b9cce7; border-radius: 14px; color: #5b6c87; }
+.license-credit-warning { margin: 14px 0 0; color: #936600; font-weight: 700; }
+.license-error { min-height: 1.35em; margin: 10px 0 0; color: #b42318; font-size: .88rem; font-weight: 700; }
+.license-gate { display: grid; min-height: 100vh; place-items: center; padding: 24px; background: radial-gradient(circle at top, #e7f6fb, #f4f8ff 46%, #e9f0f8); }
+.license-gate-card { width: min(100%, 460px); padding: 32px; border: 1px solid var(--line-soft); border-radius: 18px; background: #fff; box-shadow: 0 18px 44px rgba(16, 50, 96, .14); }
+.license-gate-card h1 { margin: 14px 0 6px; color: var(--ink); font-size: 1.8rem; }
+.license-gate-card p { color: #60728e; }
+.license-gate-card form { display: grid; gap: 9px; margin-top: 24px; }
+.license-gate-card label { color: #34435d; font-weight: 800; }
+.license-gate-card input { min-height: 48px; border: 1px solid #cbd9ec; border-radius: 10px; padding: 10px 12px; color: var(--ink); font: inherit; text-transform: uppercase; }
+.license-gate-card input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(9, 167, 198, .14); }
+.license-card { display: grid; gap: 11px; padding: 18px; }
+.license-card h3, .license-card p { margin: 0; }
+.license-card p { color: #667792; font-size: .88rem; }
+.license-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.license-card-head > strong { color: #0757b8; font-size: .84rem; letter-spacing: .04em; }
+.license-balance { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }
+.license-balance div { padding: 9px; border: 1px solid #dce6f4; border-radius: 9px; background: #f8fbff; }
+.license-balance dt { color: #6a7c96; font-size: .68rem; font-weight: 800; text-transform: uppercase; }
+.license-balance dd { margin: 2px 0 0; color: #172033; font-size: 1.15rem; font-weight: 900; }
+.license-editor { padding-top: 4px; }
+.license-editor summary { cursor: pointer; color: #0757b8; font-weight: 800; }
+.license-editor form { display: grid; gap: 10px; padding-top: 12px; }
+.license-toggle { color: #34435d; font-weight: 700; }
 
 .category-workspace { margin: 18px 0 22px; padding: 18px; background: #fff; border: 1px solid var(--line-soft); border-radius: 16px; box-shadow: var(--shadow-card); }
 .category-workspace-header { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 12px; }
