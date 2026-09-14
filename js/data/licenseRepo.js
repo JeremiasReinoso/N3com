@@ -16,6 +16,7 @@ const credits = value => {
 const clone = value => JSON.parse(JSON.stringify(value));
 const emptyStore = () => ({ version: '1.0', lastUpdated: null, licenses: [] });
 const unavailable = () => Object.assign(new Error('LOCAL_SERVICE_UNAVAILABLE'), { code: 'LOCAL_SERVICE_UNAVAILABLE' });
+const numberOrZero = value => Math.max(0, Number(value || 0));
 
 const apiRequest = async (path, method = 'GET', payload) => {
     let response;
@@ -23,14 +24,35 @@ const apiRequest = async (path, method = 'GET', payload) => {
         response = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: payload === undefined ? undefined : JSON.stringify(payload) });
     } catch { throw unavailable(); }
     const body = await response.json().catch(() => ({}));
-    if (response.status === 404) throw unavailable();
+    if ([404, 405, 501].includes(response.status)) throw unavailable();
     if (!response.ok) throw new Error(body.error || 'No se pudo actualizar la licencia.');
     return body;
+};
+const normalizeStoredLicense = item => {
+    const legacy = item?.license || {};
+    const purchased = numberOrZero(item?.tournamentsPurchased ?? legacy.tournamentsPurchased ?? item?.cupo_total);
+    const used = numberOrZero(item?.tournamentsUsed ?? legacy.tournamentsUsed ?? item?.cupo_utilizado);
+    const storedActive = item?.active ?? legacy.active ?? item?.activa;
+    return {
+        id: item?.id,
+        code: normalizeCode(item?.code ?? item?.codigo),
+        clientName: clean(item?.clientName ?? item?.client?.name ?? item?.cliente),
+        organization: clean(item?.organization ?? item?.client?.organization ?? item?.organizacion),
+        email: clean(item?.email ?? item?.client?.email),
+        phone: clean(item?.phone ?? item?.client?.phone ?? item?.telefono),
+        tournamentsPurchased: purchased,
+        tournamentsUsed: used,
+        tournamentsRemaining: numberOrZero(item?.tournamentsRemaining ?? legacy.tournamentsRemaining ?? item?.disponibles ?? (purchased - used)),
+        active: storedActive !== false && storedActive !== 'false',
+        createdAt: item?.createdAt ?? legacy.createdAt ?? item?.creado ?? new Date().toISOString(),
+        activatedAt: item?.activatedAt ?? legacy.activatedAt ?? item?.activado ?? null,
+        history: Array.isArray(item?.history) ? item.history : []
+    };
 };
 const browserStore = () => {
     try {
         const stored = JSON.parse(localStorage.getItem(BROWSER_STORE_KEY) || 'null');
-        return stored && Array.isArray(stored.licenses) ? stored : emptyStore();
+        return stored && Array.isArray(stored.licenses) ? { ...stored, licenses: stored.licenses.map(normalizeStoredLicense) } : emptyStore();
     } catch { return emptyStore(); }
 };
 const saveBrowserStore = store => {
@@ -57,6 +79,14 @@ const browserOperation = operation => {
     return clone(result);
 };
 const browserLicenses = () => clone(browserStore().licenses);
+const requireLicense = value => {
+    if (!value?.id || !value?.code) throw unavailable();
+    return value;
+};
+const requireLicenseList = value => {
+    if (!Array.isArray(value?.licenses)) throw unavailable();
+    return value.licenses;
+};
 const useSource = async (remoteOperation, localOperation) => {
     if (backend === 'browser') return localOperation();
     try {
@@ -137,7 +167,7 @@ const updateBrowserLicense = (id, changes) => browserOperation(store => {
 export const LicenciaRepo = {
     disponible: license => Math.max(0, Number(license.disponibles ?? (license.cupo_total - license.cupo_utilizado) ?? 0)),
     async obtenerTodas() {
-        const licenses = await useSource(() => apiRequest('/api/licenses').then(data => data.licenses || []), browserLicenses);
+        const licenses = await useSource(() => apiRequest('/api/licenses').then(requireLicenseList), browserLicenses);
         return licenses.map(normalize);
     },
     async obtenerPorCodigo(codigo) {
@@ -147,20 +177,20 @@ export const LicenciaRepo = {
     async crear({ cliente, organization = '', email = '', phone = '', cupoTotal }) {
         if (!clean(cliente)) throw new Error('Ingrese el nombre del cliente.');
         const payload = { clientName: clean(cliente), organization, email, phone, tournamentsPurchased: credits(cupoTotal) };
-        return normalize(await useSource(() => apiRequest('/api/licenses', 'POST', payload), () => createBrowserLicense(payload)));
+        return normalize(await useSource(() => apiRequest('/api/licenses', 'POST', payload).then(requireLicense), () => createBrowserLicense(payload)));
     },
     async actualizar(id, changes) {
         if (!id || !clean(changes.cliente)) throw new Error('Ingrese los datos del cliente.');
         const payload = { clientName: clean(changes.cliente), organization: clean(changes.organizacion), email: clean(changes.email), phone: clean(changes.telefono), active: Boolean(changes.activa) };
-        return normalize(await useSource(() => apiRequest(`/api/licenses/${encodeURIComponent(id)}`, 'PATCH', payload), () => updateBrowserLicense(id, payload)));
+        return normalize(await useSource(() => apiRequest(`/api/licenses/${encodeURIComponent(id)}`, 'PATCH', payload).then(requireLicense), () => updateBrowserLicense(id, payload)));
     },
     async agregarTorneos(id, cantidad) {
         const amount = credits(cantidad);
-        return normalize(await useSource(() => apiRequest(`/api/licenses/${encodeURIComponent(id)}`, 'PATCH', { action: 'add-credits', amount }), () => addBrowserTournaments(id, amount)));
+        return normalize(await useSource(() => apiRequest(`/api/licenses/${encodeURIComponent(id)}`, 'PATCH', { action: 'add-credits', amount }).then(requireLicense), () => addBrowserTournaments(id, amount)));
     },
     async activar(codigo) {
         const code = normalizeCode(codigo);
-        const license = normalize(await useSource(() => apiRequest('/api/licenses/activate', 'POST', { code }), () => activateBrowserLicense(code)));
+        const license = normalize(await useSource(() => apiRequest('/api/licenses/activate', 'POST', { code }).then(requireLicense), () => activateBrowserLicense(code)));
         localStorage.setItem(ACTIVE_CODE_KEY, license.codigo);
         return license;
     },
@@ -173,7 +203,7 @@ export const LicenciaRepo = {
     async consumirTorneo() {
         const code = normalizeCode(localStorage.getItem(ACTIVE_CODE_KEY));
         if (!code) throw new Error('Activá una licencia válida para crear torneos.');
-        return normalize(await useSource(() => apiRequest('/api/licenses/consume', 'POST', { code }), () => consumeBrowserLicense(code)));
+        return normalize(await useSource(() => apiRequest('/api/licenses/consume', 'POST', { code }).then(requireLicense), () => consumeBrowserLicense(code)));
     },
     aCliente: toClient
 };
