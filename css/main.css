@@ -174,8 +174,12 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 .form-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .btn-primary { border-radius: 10px; box-shadow: 0 5px 12px rgba(7, 87, 184, .18); }
 .btn-secondary { background: #e9f1fc; color: #0757b8; font-weight: 700; }
+.btn-danger { border: 1px solid #c9372c; border-radius: 10px; padding: 12px 16px; background: #fff1f0; color: #a61b16; font: inherit; font-weight: 800; cursor: pointer; }
+.btn-danger:hover { background: #ffe2df; }
 .empty-state { padding: 28px; text-align: center; background: var(--surface-soft); border: 1px dashed #b9cce7; border-radius: 14px; color: #5b6c87; }
-.license-credit-warning { margin: 14px 0 0; color: #936600; font-weight: 700; }
+.license-credit-warning { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 14px 0 0; color: #936600; font-weight: 700; }
+.license-credit-warning p { margin: 0; }
+@media (max-width: 620px) { .license-credit-warning { align-items: flex-start; flex-direction: column; } }
 .license-error { min-height: 1.35em; margin: 10px 0 0; color: #b42318; font-size: .88rem; font-weight: 700; }
 .license-gate { display: grid; min-height: 100vh; place-items: center; padding: 24px; background: radial-gradient(circle at top, #e7f6fb, #f4f8ff 46%, #e9f0f8); }
 .license-gate-card { width: min(100%, 460px); padding: 32px; border: 1px solid var(--line-soft); border-radius: 18px; background: #fff; box-shadow: 0 18px 44px rgba(16, 50, 96, .14); }
