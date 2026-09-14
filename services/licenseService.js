@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 
 const initialStore = () => ({ version: '1.0', lastUpdated: null, licenses: [] });
 const codePattern = /^NWC-[A-Z0-9]{4}(?:-[A-Z0-9]{4}){2}$/;
+const codeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const clean = value => String(value || '').trim();
 const credits = value => {
     const amount = Number(value);
@@ -166,7 +167,7 @@ export class LocalLicenseService {
     #nextCode(licenses) {
         let code;
         do {
-            const groups = Array.from({ length: 3 }, () => randomBytes(3).toString('hex').toUpperCase().slice(0, 4));
+            const groups = Array.from({ length: 3 }, () => [...randomBytes(4)].map(byte => codeAlphabet[byte % codeAlphabet.length]).join(''));
             code = `NWC-${groups.join('-')}`;
         } while (!codePattern.test(code) || licenses.some(license => license.code === code));
         return code;
