@@ -58,6 +58,9 @@ try {
     try { await LicenciaRepo.consumirTorneo(); } catch (error) { blocked = error.message === 'No tenés torneos disponibles. Contactá al administrador para adquirir más.'; }
     if (!blocked) throw new Error('Se permitió crear un torneo sin créditos o se mostró un mensaje incorrecto.');
 
+    const replenished = await LicenciaRepo.agregarTorneos(created.id, 5);
+    if (replenished.codigo !== created.codigo || replenished.disponibles !== 5) throw new Error('Agregar cinco torneos desde cero no restauró el saldo ni conservó el código.');
+
     await LicenciaRepo.actualizar(created.id, { cliente: 'Club X', organizacion: 'Club X', email: 'club@example.test', telefono: '1234', activa: false });
     if (await LicenciaRepo.obtenerActiva()) throw new Error('Una licencia deshabilitada siguió activa en el cliente.');
     console.log('El flujo local de licencia activa, persiste 3→2, amplía 2→7, bloquea en cero y conserva el código.');
