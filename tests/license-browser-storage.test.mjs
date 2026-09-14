@@ -31,6 +31,8 @@ try {
     const { LicenciaRepo: LegacyRepo } = await import(`${pathToFileURL(resolve(root, 'js/data/licenseRepo.js')).href}?browser-storage-test=legacy`);
     const legacyLicense = await LegacyRepo.activar(' nwc-u3gc-crty-bamj ');
     if (legacyLicense.codigo !== 'NWC-U3GC-CRTY-BAMJ' || legacyLicense.disponibles !== 4 || !legacyLicense.activa) throw new Error('No se pudo validar una licencia local creada por una versión anterior.');
+    const cleared = await LegacyRepo.limpiarTodas();
+    if (cleared.deleted !== 1 || (await LegacyRepo.obtenerTodas()).length !== 0 || localStorage.getItem('newcom_active_license_code_v1')) throw new Error('La limpieza no eliminó las licencias ni la activación local del navegador.');
     console.log('La administración funciona también como sitio estático con almacenamiento local del navegador.');
 } finally {
     globalThis.fetch = originalFetch;
