@@ -41,7 +41,7 @@ const renderLicenses = licenses => {
 async function loadLicenses() {
     container.innerHTML = '<p>Cargando licencias...</p>';
     try { renderLicenses(await LicenciaRepo.obtenerTodas()); }
-    catch { container.innerHTML = '<div class="empty-state">No se pudieron cargar las licencias. Revise la conexión de la fuente configurada.</div>'; }
+    catch { container.innerHTML = '<div class="empty-state">No se pudieron cargar las licencias locales. Actualizá la página e intentá nuevamente.</div>'; }
 }
 
 document.getElementById('btn-nuevo-cliente').addEventListener('click', renderCreateForm);
