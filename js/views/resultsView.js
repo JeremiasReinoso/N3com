@@ -45,6 +45,7 @@ export function initResultadosView() {
         const saved = match.sets?.[index];
         return `<div class="set-points ${index === 2 ? 'third-set' : ''}"><span>Set ${index + 1}${index === 2 ? ' (desempate)' : ''}</span><input data-side="local" type="number" min="0" inputmode="numeric" aria-label="Puntos de ${team(match.equipoLocalId)} en set ${index + 1}" value="${saved?.puntosLocal ?? ''}"><b>–</b><input data-side="visitante" type="number" min="0" inputmode="numeric" aria-label="Puntos de ${team(match.equipoVisitanteId)} en set ${index + 1}" value="${saved?.puntosVisitante ?? ''}"></div>`;
     }).join('');
+    const savedSets = match => `<div class="saved-sets">${match.sets.map((set, index) => `<p><strong>Set ${index + 1}:</strong> ${set.puntosLocal}–${set.puntosVisitante}</p>`).join('')}</div>`;
 
     view.innerHTML = `
         <h2>Resultados</h2>
@@ -53,9 +54,9 @@ export function initResultadosView() {
             const finished = match.estado === 'finalizado';
             return `<article class="card set-result-card" data-id="${match.id}">
                 <div class="set-result-head"><div><span class="match-status ${finished ? 'finished' : 'pending'}">${finished ? `FINALIZADO ${match.setsLocal}–${match.setsVisitante}` : 'PENDIENTE'}</span><strong>${stage(match)} · ${zone(match.zonaId)}</strong></div><small>${schedule(match)}</small></div>
-                <div class="set-result-teams"><strong>${team(match.equipoLocalId)}</strong><span>vs</span><strong>${team(match.equipoVisitanteId)}</strong></div>
-                <div class="sets-editor">${setsForm(match)}</div>
-                <div class="set-result-footer"><p class="set-preview ${finished ? 'valid' : ''}">${finished ? `Resultado guardado: ${match.setsLocal}–${match.setsVisitante}. Podés corregir los puntos si es necesario.` : 'Ingresá los dos primeros sets.'}</p><button type="button" class="guardar-sets btn-primary" data-id="${match.id}">Guardar resultado</button></div>
+                <div class="set-result-teams"><strong>${team(match.equipoLocalId)}</strong><span>${finished ? `${match.score || `${match.setsLocal}-${match.setsVisitante}`}` : 'vs'}</span><strong>${team(match.equipoVisitanteId)}</strong></div>
+                ${finished ? `${savedSets(match)}<div class="sets-editor" hidden>${setsForm(match)}</div>` : `<div class="sets-editor">${setsForm(match)}</div>`}
+                <div class="set-result-footer"><p class="set-preview ${finished ? 'valid' : ''}">${finished ? '✅ Finalizado' : 'Ingresá los dos primeros sets.'}</p>${finished ? `<button type="button" class="editar-sets btn-secondary">Editar</button><button type="button" class="guardar-sets btn-primary" data-id="${match.id}" hidden>Guardar cambios</button>` : `<button type="button" class="guardar-sets btn-primary" data-id="${match.id}">Guardar resultado</button>`}</div>
             </article>`;
         }).join('') : '<div class="empty-state">No hay partidos confirmados en esta categoría. Confirmalos desde Programación para poder cargar resultados.</div>'}</div>`;
 
@@ -67,6 +68,15 @@ export function initResultadosView() {
         target.classList.toggle('invalid', !preview.valid && card.querySelector('[data-side="local"]').value !== '');
     };
     view.querySelectorAll('.set-points input').forEach(input => input.addEventListener('input', () => refreshPreview(input.closest('.set-result-card'))));
+    view.querySelectorAll('.editar-sets').forEach(button => button.addEventListener('click', () => {
+        const card = button.closest('.set-result-card');
+        card.querySelector('.saved-sets').hidden = true;
+        card.querySelector('.sets-editor').hidden = false;
+        card.querySelector('.guardar-sets').hidden = false;
+        button.hidden = true;
+        refreshPreview(card);
+        card.querySelector('.set-points input')?.focus();
+    }));
     view.querySelectorAll('.guardar-sets').forEach(button => button.addEventListener('click', () => {
         const card = button.closest('.set-result-card');
         const sets = [...card.querySelectorAll('.set-points')].map(row => ({
