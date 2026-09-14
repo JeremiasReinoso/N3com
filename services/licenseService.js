@@ -103,6 +103,14 @@ export class LocalLicenseService {
         });
     }
 
+    async clear() {
+        return this.#mutate(data => {
+            const deleted = data.licenses.length;
+            data.licenses = [];
+            return { deleted };
+        });
+    }
+
     async update(id, { clientName, organization = '', email = '', phone = '', active }) {
         const name = clean(clientName);
         if (!name) throw new Error('INVALID_CLIENT');
