@@ -14,7 +14,7 @@ export const initTorneosVer = async () => {
                 <label class="form-field">Nombre del torneo<input id="torneo-nombre" type="text" required maxlength="70" placeholder="Ej.: Copa Primavera"></label>
                 <label class="form-field">Partidos por equipo<input id="torneo-partidos" type="number" required min="1" value="3"></label>
                 <div class="form-actions"><button class="btn-primary" type="submit" ${license.disponibles < 1 ? 'disabled' : ''}>Crear torneo</button></div>
-            </form>${license.disponibles < 1 ? '<p class="license-credit-warning">No tenés torneos disponibles. Contactá al administrador para adquirir más.</p>' : ''}
+            </form>${license.disponibles < 1 ? '<div class="license-credit-warning"><p>No tenés torneos disponibles. Contactá al administrador para adquirir más.</p><button id="btn-renovar-licencia" type="button" class="btn-secondary">Renovar licencia</button></div>' : ''}
         </div>
         <div id="torneos-list" class="grid-cards">${tournaments.length ? tournaments.map(tournament => `
             <article class="card torneo-card">
@@ -35,6 +35,10 @@ export const initTorneosVer = async () => {
             AppState.setTournament(tournament.id);
             await initTorneosVer();
         } catch (error) { alert(error.message); button.disabled = false; }
+    });
+    view.querySelector('#btn-renovar-licencia')?.addEventListener('click', () => {
+        LicenciaRepo.cerrarActivacion();
+        location.reload();
     });
     view.querySelectorAll('.seleccionar-torneo').forEach(button => button.addEventListener('click', () => {
         AppState.setTournament(button.dataset.id);
