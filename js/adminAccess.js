@@ -1,4 +1,7 @@
 import { validarAccesoAdmin } from './core/adminAuth.js';
+import { initThemeToggle } from './core/theme.js';
+
+initThemeToggle();
 
 const header = document.getElementById('admin-header');
 const container = document.getElementById('admin-container');
