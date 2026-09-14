@@ -1,4 +1,5 @@
 import { Navigation } from './core/navigation.js';
+import { initThemeToggle } from './core/theme.js';
 import { LicenciaRepo } from './data/licenseRepo.js';
 import { initTorneosVer } from './views/tournamentsView.js';
 import { initEquiposView } from './views/teamsView.js';
@@ -26,6 +27,7 @@ const showActivation = message => {
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
+    initThemeToggle();
     let license;
     try { license = await LicenciaRepo.obtenerActiva(); } catch { showActivation('El código de licencia no es válido o está deshabilitado.'); return; }
     if (!license) { showActivation(); return; }
