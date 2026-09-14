@@ -1,11 +1,9 @@
-import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { createPortableLicenseCode, parsePortableLicenseCode } from '../js/core/portableLicense.js';
 
 const initialStore = () => ({ version: '1.0', lastUpdated: null, licenses: [] });
-const codePattern = /^NWC-[A-Z0-9]{4}(?:-[A-Z0-9]{4}){2}$/;
-const codeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const clean = value => String(value || '').trim();
 const credits = value => {
     const amount = Number(value);
@@ -48,7 +46,7 @@ export class LocalLicenseService {
             const now = new Date().toISOString();
             const license = {
                 id: this.#nextId(data.licenses),
-                code: this.#nextCode(data.licenses),
+                code: this.#nextCode(data.licenses, purchased),
                 clientName: name,
                 organization: clean(organization),
                 email: clean(email),
@@ -69,8 +67,14 @@ export class LocalLicenseService {
     async activate(code) {
         const requested = normalizeCode(code);
         return this.#mutate(data => {
-            const license = data.licenses.find(item => item.code === requested);
-            if (!license || !license.active) throw new Error('LICENSE_INVALID');
+            let license = data.licenses.find(item => item.code === requested);
+            if (!license) {
+                const portable = parsePortableLicenseCode(requested);
+                if (!portable) throw new Error('LICENSE_INVALID');
+                license = this.#portableLicense(portable);
+                data.licenses.push(license);
+            }
+            if (!license.active) throw new Error('LICENSE_INVALID');
             if (!license.activatedAt) {
                 license.activatedAt = new Date().toISOString();
                 license.history.push({ at: license.activatedAt, type: 'LICENSE_ACTIVATED' });
@@ -172,12 +176,26 @@ export class LocalLicenseService {
         return `CLI-${String(max + 1).padStart(4, '0')}`;
     }
 
-    #nextCode(licenses) {
-        let code;
-        do {
-            const groups = Array.from({ length: 3 }, () => [...randomBytes(4)].map(byte => codeAlphabet[byte % codeAlphabet.length]).join(''));
-            code = `NWC-${groups.join('-')}`;
-        } while (!codePattern.test(code) || licenses.some(license => license.code === code));
-        return code;
+    #nextCode(licenses, tournamentsPurchased) {
+        return createPortableLicenseCode(this.#nextId(licenses), tournamentsPurchased);
+    }
+
+    #portableLicense({ id, code, tournamentsPurchased }) {
+        const now = new Date().toISOString();
+        return {
+            id,
+            code,
+            clientName: 'Licencia portátil',
+            organization: '',
+            email: '',
+            phone: '',
+            tournamentsPurchased,
+            tournamentsUsed: 0,
+            tournamentsRemaining: tournamentsPurchased,
+            active: true,
+            createdAt: now,
+            activatedAt: null,
+            history: [{ at: now, type: 'PORTABLE_LICENSE_IMPORTED' }]
+        };
     }
 }
