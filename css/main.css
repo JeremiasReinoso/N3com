@@ -30,6 +30,147 @@ body {
     line-height: 1.6;
 }
 
+/* El modo oscuro es el tema inicial: las preferencias del usuario se guardan en el navegador. */
+.theme-toggle {
+    position: fixed;
+    z-index: 20;
+    top: 16px;
+    right: 16px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 8px 13px;
+    color: #dceeff;
+    background: #182536;
+    border: 1px solid #3a5472;
+    border-radius: 999px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, .28);
+    font-size: .82rem;
+    font-weight: 800;
+}
+
+.theme-toggle:hover { background: #22344d; }
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg-color: #05070a;
+    --text-color: #edf4ff;
+    --text-muted: #b1bed1;
+    --border-color: #334155;
+    --bg-card: #111827;
+    --primary-color: #32b7ec;
+    --primary-hover: #65c9f1;
+    --ink: #eef5ff;
+    --surface-soft: #111b2a;
+    --line-soft: #2b405b;
+    --accent: #5bd5ff;
+    --success-soft: #123b2a;
+    --warning-soft: #3d2d10;
+    --shadow-card: 0 14px 34px rgba(0, 0, 0, .32);
+}
+
+:root[data-theme="dark"] body {
+    background: radial-gradient(circle at 16% -10%, #16233a 0%, #070a10 42%, #000 100%);
+    color: var(--ink);
+}
+
+:root[data-theme="dark"] .app-header,
+:root[data-theme="dark"] .panel-control,
+:root[data-theme="dark"] .card,
+:root[data-theme="dark"] .category-workspace,
+:root[data-theme="dark"] .schedule-day,
+:root[data-theme="dark"] .zone-card,
+:root[data-theme="dark"] .free-team-card,
+:root[data-theme="dark"] .license-gate-card,
+:root[data-theme="dark"] .podium-card,
+:root[data-theme="dark"] .set-result-footer {
+    background: #101722;
+    border-color: var(--line-soft);
+}
+
+:root[data-theme="dark"] .license-gate {
+    background: radial-gradient(circle at top, #14253a, #070a10 48%, #000);
+}
+
+:root[data-theme="dark"] .form-field,
+:root[data-theme="dark"] .form-field label,
+:root[data-theme="dark"] .license-gate-card label,
+:root[data-theme="dark"] .license-toggle,
+:root[data-theme="dark"] .calendar-hours label,
+:root[data-theme="dark"] .free-team-card label { color: #c5d3e8; }
+
+:root[data-theme="dark"] .form-field input,
+:root[data-theme="dark"] .form-field select,
+:root[data-theme="dark"] .resultado-select,
+:root[data-theme="dark"] .license-gate-card input,
+:root[data-theme="dark"] .calendar-hours input,
+:root[data-theme="dark"] .seed-choice select,
+:root[data-theme="dark"] .free-team-card select,
+:root[data-theme="dark"] .zone-team select,
+:root[data-theme="dark"] .set-points input {
+    color: var(--ink);
+    background: #0a111b;
+    border-color: #38506e;
+}
+
+:root[data-theme="dark"] .btn-secondary { color: #c8e9ff; background: #1a314d; }
+:root[data-theme="dark"] .btn-danger { color: #ffd0cc; background: #3a1718; border-color: #a54747; }
+:root[data-theme="dark"] .theme-toggle { color: #172033; background: #eaf6ff; border-color: #fff; }
+:root[data-theme="dark"] .theme-toggle:hover { background: #cbe9fb; }
+
+:root[data-theme="dark"] .empty-state,
+:root[data-theme="dark"] .match-schedule,
+:root[data-theme="dark"] .result-card-head,
+:root[data-theme="dark"] .set-result-head,
+:root[data-theme="dark"] .schedule-day > header,
+:root[data-theme="dark"] .result-row-meta,
+:root[data-theme="dark"] .result-row-schedule,
+:root[data-theme="dark"] .schedule-match-time,
+:root[data-theme="dark"] .seed-draw,
+:root[data-theme="dark"] .category-picker-group,
+:root[data-theme="dark"] .category-picker-group header,
+:root[data-theme="dark"] .zone-card > header,
+:root[data-theme="dark"] .standings-head,
+:root[data-theme="dark"] .final-podium {
+    color: #bdcde2;
+    background: #142033;
+    border-color: var(--line-soft);
+}
+
+:root[data-theme="dark"] .category-choice,
+:root[data-theme="dark"] .seed-choice,
+:root[data-theme="dark"] .set-points,
+:root[data-theme="dark"] .schedule-editor,
+:root[data-theme="dark"] .score-option,
+:root[data-theme="dark"] .license-balance div {
+    color: #d7e5f7;
+    background: #101a29;
+    border-color: #304866;
+}
+
+:root[data-theme="dark"] .standings-table th { color: #b8c9df; background: #142033; }
+:root[data-theme="dark"] .standings-table td,
+:root[data-theme="dark"] .standing-team,
+:root[data-theme="dark"] .schedule-day h4,
+:root[data-theme="dark"] .schedule-match-main strong,
+:root[data-theme="dark"] .result-row-teams,
+:root[data-theme="dark"] .podium-card strong { color: var(--ink) !important; }
+:root[data-theme="dark"] .standings-table td,
+:root[data-theme="dark"] .schedule-match,
+:root[data-theme="dark"] .result-row > div,
+:root[data-theme="dark"] .zone-team { border-color: #263b55; }
+
+:root[data-theme="dark"] .standing-top-1,
+:root[data-theme="dark"] .standing-top-2,
+:root[data-theme="dark"] .standing-top-3,
+:root[data-theme="dark"] .zone-team.leader,
+:root[data-theme="dark"] .third-set { background: #1d2838; }
+
+:root[data-theme="dark"] .calendar-day.disabled { color: #718096; background: #1a202c; }
+
+:root[data-theme="light"] .theme-toggle { color: #eef7ff; background: #0757b8; border-color: #0757b8; }
+
 h1, h2, h3 {
     color: var(--primary-color);
     margin-bottom: var(--spacing-md);
