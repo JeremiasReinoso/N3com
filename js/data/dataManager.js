@@ -101,9 +101,7 @@ const applyInternalResult = (match, rawSets) => {
     match.setsLocal = setsLocal;
     match.setsVisitante = setsVisitante;
     match.ganadorId = setsLocal === 2 ? match.equipoLocalId : match.equipoVisitanteId;
-    // Puntaje reglamentario interno: jamás llega desde un control de la UI.
-    match.puntosLocal = setsLocal === 2 ? (setsVisitante === 0 ? 3 : 2) : 1;
-    match.puntosVisitante = setsVisitante === 2 ? (setsLocal === 0 ? 3 : 2) : 1;
+    match.score = `${setsLocal}-${setsVisitante}`;
 };
 
 export const DataManager = {
@@ -121,15 +119,14 @@ export const DataManager = {
             // de cada set y ya no sirven para la nueva clasificación. Quedan
             // pendientes para que se vuelvan a cargar con el detalle real.
             data.matches = data.matches.map(match => {
+                // Se descarta la puntuación fija de versiones anteriores. La
+                // clasificación sólo se deriva de los sets reales guardados.
                 const { puntosLocal, puntosVisitante, ...normalizedMatch } = match;
                 const hasDetailedSets = Array.isArray(normalizedMatch.sets) && normalizedMatch.sets.length >= 2;
                 if (normalizedMatch.estado !== 'finalizado') return normalizeMatch(normalizedMatch);
                 if (hasDetailedSets) {
                     const restored = normalizeMatch(normalizedMatch);
-                    const localSets = restored.sets.filter(set => set.puntosLocal > set.puntosVisitante).length;
-                    const visitorSets = restored.sets.length - localSets;
-                    restored.puntosLocal = localSets === 2 ? (visitorSets === 0 ? 3 : 2) : 1;
-                    restored.puntosVisitante = visitorSets === 2 ? (localSets === 0 ? 3 : 2) : 1;
+                    applyInternalResult(restored, restored.sets);
                     return restored;
                 }
                 return normalizeMatch({ ...normalizedMatch, estado: 'pendiente', confirmado: true, sets: [], setsLocal: null, setsVisitante: null, ganadorId: null });
