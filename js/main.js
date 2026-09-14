@@ -14,7 +14,7 @@ const showActivation = message => {
     document.getElementById('app-container').hidden = true;
     const gate = document.createElement('main');
     gate.className = 'license-gate';
-    gate.innerHTML = `<section class="license-gate-card" aria-labelledby="license-title"><span class="calendar-chip">NEWCOM</span><p class="license-gate-product">Sistema de Torneos</p><h1 id="license-title">Activá tu licencia para comenzar</h1><p>Ingresá el código permanente entregado por administración para continuar.</p><form id="license-activation-form"><label for="license-code">Código de licencia</label><input id="license-code" name="codigo" autocomplete="off" autocapitalize="characters" placeholder="NWC-XXXX-XXXX-XXXX" required><p id="license-error" class="license-error" aria-live="polite">${message || ''}</p><button class="btn-primary" type="submit">Activar</button></form></section>`;
+    gate.innerHTML = `<section class="license-gate-card" aria-labelledby="license-title"><span class="calendar-chip">NEWCOM</span><p class="license-gate-product">Sistema de Torneos</p><h1 id="license-title">Para utilizar NEWCOM necesitás activar tu licencia.</h1><p>Ingresá el código permanente de tu licencia para continuar.</p><form id="license-activation-form"><label for="license-code">Código de licencia</label><input id="license-code" name="codigo" autocomplete="off" autocapitalize="characters" placeholder="NWC-XXXX-XXXX-XXXX" required><p id="license-error" class="license-error" aria-live="polite">${message || ''}</p><button class="btn-primary" type="submit">Activar</button></form></section>`;
     document.body.append(gate);
     gate.querySelector('form').addEventListener('submit', async event => {
         event.preventDefault();
