@@ -328,7 +328,9 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 .license-gate-card p { color: #60728e; }
 .license-gate-card form { display: grid; gap: 9px; margin-top: 24px; }
 .license-gate-card label { color: #34435d; font-weight: 800; }
-.license-gate-card input { min-height: 48px; border: 1px solid #cbd9ec; border-radius: 10px; padding: 10px 12px; color: var(--ink); font: inherit; text-transform: uppercase; }
+.license-gate-card input { min-height: 48px; border: 1px solid #cbd9ec; border-radius: 10px; padding: 10px 12px; color: var(--ink); font: inherit; }
+.license-gate-card input[name="username"],
+.license-gate-card input[name="codigo"] { text-transform: uppercase; }
 .license-gate-card input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(9, 167, 198, .14); }
 .license-card { display: grid; gap: 11px; padding: 18px; }
 .license-card h3, .license-card p { margin: 0; }
