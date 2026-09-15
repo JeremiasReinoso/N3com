@@ -38,6 +38,8 @@ export function initResultadosView() {
         return;
     }
     const category = DataManager.getCategory(categoryId);
+    const classificationMode = DataManager.getTournamentClassificationMode(tournamentId);
+    const byPoints = classificationMode === 'points';
     const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId);
     const zones = DataManager.getZonesByTournamentAndCategory(tournamentId, categoryId);
     const matches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId).filter(isOfficialMatch);
@@ -57,10 +59,11 @@ export function initResultadosView() {
         const finished = match.estado === 'finalizado';
         const quickActions = `<fieldset class="quick-result-actions"><legend>Marcador rápido</legend><div><button type="button" class="quick-result" data-id="${match.id}" data-result="local-20">${team(match.equipoLocalId)} 2–0</button><button type="button" class="quick-result" data-id="${match.id}" data-result="local-21">${team(match.equipoLocalId)} 2–1</button><button type="button" class="quick-result" data-id="${match.id}" data-result="visitante-21">${team(match.equipoVisitanteId)} 2–1</button><button type="button" class="quick-result" data-id="${match.id}" data-result="visitante-20">${team(match.equipoVisitanteId)} 2–0</button></div></fieldset>`;
         const detailedEditor = `<details class="score-details"><summary>${finished ? 'Corregir puntos por set' : 'Cargar puntos por set'}</summary><div class="sets-editor">${setsForm(match)}</div><div class="set-result-footer"><p class="set-preview ${finished ? 'valid' : ''}">${finished ? 'Podés corregir el detalle y guardar nuevamente.' : 'Completá los sets si necesitás un marcador detallado.'}</p><button type="button" class="guardar-sets btn-primary" data-id="${match.id}">${finished ? 'Guardar cambios' : 'Guardar resultado'}</button></div></details>`;
+        const pendingEntry = byPoints ? detailedEditor.replace('<details class="score-details">', '<details class="score-details" open>') : `${quickActions}${detailedEditor}`;
         return `<article class="card set-result-card ${finished ? 'is-finished' : ''}" data-id="${match.id}">
             <div class="set-result-head"><div><span class="match-status ${finished ? 'finished' : 'pending'}">${finished ? `FINALIZADO ${match.setsLocal}–${match.setsVisitante}` : 'PENDIENTE'}</span><strong>${stage(match)} · ${zone(match.zonaId)}</strong></div><small>${schedule(match)}</small></div>
             <div class="set-result-teams"><strong>${team(match.equipoLocalId)}</strong><span>${finished ? `${match.score || `${match.setsLocal}-${match.setsVisitante}`}` : 'vs'}</span><strong>${team(match.equipoVisitanteId)}</strong></div>
-            ${finished ? `${savedSets(match)}${detailedEditor}` : `${quickActions}${detailedEditor}`}
+            ${finished ? `${savedSets(match)}${detailedEditor}` : pendingEntry}
         </article>`;
     };
     const pendingMatches = matches.filter(match => match.estado !== 'finalizado');
@@ -68,7 +71,7 @@ export function initResultadosView() {
 
     view.innerHTML = `
         <h2>Resultados</h2>
-        <div class="resultados-toolbar"><p><strong>${category.nombre}</strong> · Elegí el marcador para cargar un partido en un clic. Los puntos de la tabla se calculan automáticamente.</p><span class="calendar-chip">${matches.length} PARTIDOS</span></div>
+        <div class="resultados-toolbar"><p><strong>${category.nombre}</strong> · ${byPoints ? 'Modo por puntos: cargá los puntos reales de cada set; la tabla usa ese rendimiento.' : 'Modo por sets ganados: elegí el marcador para cargar un partido en un clic; la tabla aplica 3/1 o 2/1 automáticamente.'}</p><span class="calendar-chip">${matches.length} PARTIDOS</span></div>
         <div id="resultados-list" class="set-results-list">${matches.length ? `<section class="results-group"><div class="results-group-head"><h3>Por cargar</h3><span>${pendingMatches.length}</span></div>${pendingMatches.length ? pendingMatches.map(matchCard).join('') : '<div class="empty-state compact">No quedan resultados pendientes.</div>'}</section>${finishedMatches.length ? `<details class="finished-results"><summary>Partidos finalizados <span>${finishedMatches.length}</span></summary><div class="results-group">${finishedMatches.map(matchCard).join('')}</div></details>` : ''}` : '<div class="empty-state">No hay partidos confirmados en esta categoría. Confirmalos desde Programación para poder cargar resultados.</div>'}</div>`;
 
     const refreshPreview = card => {
