@@ -3,6 +3,13 @@ import { DataManager } from '../data/dataManager.js';
 
 const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'finalizado'].includes(match.estado);
 
+const QUICK_RESULTS = {
+    'local-20': [{ puntosLocal: 25, puntosVisitante: 15 }, { puntosLocal: 25, puntosVisitante: 15 }],
+    'local-21': [{ puntosLocal: 25, puntosVisitante: 15 }, { puntosLocal: 18, puntosVisitante: 25 }, { puntosLocal: 15, puntosVisitante: 10 }],
+    'visitante-20': [{ puntosLocal: 15, puntosVisitante: 25 }, { puntosLocal: 15, puntosVisitante: 25 }],
+    'visitante-21': [{ puntosLocal: 15, puntosVisitante: 25 }, { puntosLocal: 25, puntosVisitante: 18 }, { puntosLocal: 10, puntosVisitante: 15 }]
+};
+
 const previewFromInputs = card => {
     const entries = [...card.querySelectorAll('.set-points')].map(row => ({
         local: row.querySelector('[data-side="local"]').value,
@@ -45,20 +52,24 @@ export function initResultadosView() {
         const saved = match.sets?.[index];
         return `<div class="set-points ${index === 2 ? 'third-set' : ''}"><span>Set ${index + 1}${index === 2 ? ' (desempate)' : ''}</span><input data-side="local" type="number" min="0" inputmode="numeric" aria-label="Puntos de ${team(match.equipoLocalId)} en set ${index + 1}" value="${saved?.puntosLocal ?? ''}"><b>–</b><input data-side="visitante" type="number" min="0" inputmode="numeric" aria-label="Puntos de ${team(match.equipoVisitanteId)} en set ${index + 1}" value="${saved?.puntosVisitante ?? ''}"></div>`;
     }).join('');
-    const savedSets = match => `<div class="saved-sets">${match.sets.map((set, index) => `<p><strong>Set ${index + 1}:</strong> ${set.puntosLocal}–${set.puntosVisitante}</p>`).join('')}</div>`;
+    const savedSets = match => `<div class="saved-sets">${match.sets.map((set, index) => `<span><strong>S${index + 1}</strong> ${set.puntosLocal}–${set.puntosVisitante}</span>`).join('')}</div>`;
+    const matchCard = match => {
+        const finished = match.estado === 'finalizado';
+        const quickActions = `<fieldset class="quick-result-actions"><legend>Marcador rápido</legend><div><button type="button" class="quick-result" data-id="${match.id}" data-result="local-20">${team(match.equipoLocalId)} 2–0</button><button type="button" class="quick-result" data-id="${match.id}" data-result="local-21">${team(match.equipoLocalId)} 2–1</button><button type="button" class="quick-result" data-id="${match.id}" data-result="visitante-21">${team(match.equipoVisitanteId)} 2–1</button><button type="button" class="quick-result" data-id="${match.id}" data-result="visitante-20">${team(match.equipoVisitanteId)} 2–0</button></div></fieldset>`;
+        const detailedEditor = `<details class="score-details"><summary>${finished ? 'Corregir puntos por set' : 'Cargar puntos por set'}</summary><div class="sets-editor">${setsForm(match)}</div><div class="set-result-footer"><p class="set-preview ${finished ? 'valid' : ''}">${finished ? 'Podés corregir el detalle y guardar nuevamente.' : 'Completá los sets si necesitás un marcador detallado.'}</p><button type="button" class="guardar-sets btn-primary" data-id="${match.id}">${finished ? 'Guardar cambios' : 'Guardar resultado'}</button></div></details>`;
+        return `<article class="card set-result-card ${finished ? 'is-finished' : ''}" data-id="${match.id}">
+            <div class="set-result-head"><div><span class="match-status ${finished ? 'finished' : 'pending'}">${finished ? `FINALIZADO ${match.setsLocal}–${match.setsVisitante}` : 'PENDIENTE'}</span><strong>${stage(match)} · ${zone(match.zonaId)}</strong></div><small>${schedule(match)}</small></div>
+            <div class="set-result-teams"><strong>${team(match.equipoLocalId)}</strong><span>${finished ? `${match.score || `${match.setsLocal}-${match.setsVisitante}`}` : 'vs'}</span><strong>${team(match.equipoVisitanteId)}</strong></div>
+            ${finished ? `${savedSets(match)}${detailedEditor}` : `${quickActions}${detailedEditor}`}
+        </article>`;
+    };
+    const pendingMatches = matches.filter(match => match.estado !== 'finalizado');
+    const finishedMatches = matches.filter(match => match.estado === 'finalizado');
 
     view.innerHTML = `
         <h2>Resultados</h2>
-        <div class="resultados-toolbar"><p><strong>${category.nombre}</strong> · Cargá los puntos reales de cada set. El resultado final y la clasificación se calculan automáticamente.</p><span class="calendar-chip">${matches.length} PARTIDOS</span></div>
-        <div id="resultados-list" class="set-results-list">${matches.length ? matches.map(match => {
-            const finished = match.estado === 'finalizado';
-            return `<article class="card set-result-card" data-id="${match.id}">
-                <div class="set-result-head"><div><span class="match-status ${finished ? 'finished' : 'pending'}">${finished ? `FINALIZADO ${match.setsLocal}–${match.setsVisitante}` : 'PENDIENTE'}</span><strong>${stage(match)} · ${zone(match.zonaId)}</strong></div><small>${schedule(match)}</small></div>
-                <div class="set-result-teams"><strong>${team(match.equipoLocalId)}</strong><span>${finished ? `${match.score || `${match.setsLocal}-${match.setsVisitante}`}` : 'vs'}</span><strong>${team(match.equipoVisitanteId)}</strong></div>
-                ${finished ? `${savedSets(match)}<div class="sets-editor" hidden>${setsForm(match)}</div>` : `<div class="sets-editor">${setsForm(match)}</div>`}
-                <div class="set-result-footer"><p class="set-preview ${finished ? 'valid' : ''}">${finished ? '✅ Finalizado' : 'Ingresá los dos primeros sets.'}</p>${finished ? `<button type="button" class="editar-sets btn-secondary">Editar</button><button type="button" class="guardar-sets btn-primary" data-id="${match.id}" hidden>Guardar cambios</button>` : `<button type="button" class="guardar-sets btn-primary" data-id="${match.id}">Guardar resultado</button>`}</div>
-            </article>`;
-        }).join('') : '<div class="empty-state">No hay partidos confirmados en esta categoría. Confirmalos desde Programación para poder cargar resultados.</div>'}</div>`;
+        <div class="resultados-toolbar"><p><strong>${category.nombre}</strong> · Elegí el marcador para cargar un partido en un clic. Los puntos de la tabla se calculan automáticamente.</p><span class="calendar-chip">${matches.length} PARTIDOS</span></div>
+        <div id="resultados-list" class="set-results-list">${matches.length ? `<section class="results-group"><div class="results-group-head"><h3>Por cargar</h3><span>${pendingMatches.length}</span></div>${pendingMatches.length ? pendingMatches.map(matchCard).join('') : '<div class="empty-state compact">No quedan resultados pendientes.</div>'}</section>${finishedMatches.length ? `<details class="finished-results"><summary>Partidos finalizados <span>${finishedMatches.length}</span></summary><div class="results-group">${finishedMatches.map(matchCard).join('')}</div></details>` : ''}` : '<div class="empty-state">No hay partidos confirmados en esta categoría. Confirmalos desde Programación para poder cargar resultados.</div>'}</div>`;
 
     const refreshPreview = card => {
         const preview = previewFromInputs(card);
@@ -68,14 +79,8 @@ export function initResultadosView() {
         target.classList.toggle('invalid', !preview.valid && card.querySelector('[data-side="local"]').value !== '');
     };
     view.querySelectorAll('.set-points input').forEach(input => input.addEventListener('input', () => refreshPreview(input.closest('.set-result-card'))));
-    view.querySelectorAll('.editar-sets').forEach(button => button.addEventListener('click', () => {
-        const card = button.closest('.set-result-card');
-        card.querySelector('.saved-sets').hidden = true;
-        card.querySelector('.sets-editor').hidden = false;
-        card.querySelector('.guardar-sets').hidden = false;
-        button.hidden = true;
-        refreshPreview(card);
-        card.querySelector('.set-points input')?.focus();
+    view.querySelectorAll('.quick-result').forEach(button => button.addEventListener('click', () => {
+        try { DataManager.updateMatchResult(button.dataset.id, QUICK_RESULTS[button.dataset.result]); initResultadosView(); } catch (error) { alert(error.message); }
     }));
     view.querySelectorAll('.guardar-sets').forEach(button => button.addEventListener('click', () => {
         const card = button.closest('.set-result-card');
