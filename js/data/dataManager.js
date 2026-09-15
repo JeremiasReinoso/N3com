@@ -1,6 +1,8 @@
 // Persistencia local del flujo principal del torneo. Esta pantalla funciona de
 // forma autónoma y no depende de la gestión de licencias.
 const STORAGE_KEY = 'newcom_data';
+const CLASSIFICATION_MODE = { SETS: 'sets', POINTS: 'points' };
+const normalizeClassificationMode = value => value === CLASSIFICATION_MODE.POINTS ? CLASSIFICATION_MODE.POINTS : CLASSIFICATION_MODE.SETS;
 let sequence = 0;
 
 const emptyData = () => ({ tournaments: [], categories: [], teams: [], zones: [], matches: [], calendar: [] });
@@ -109,6 +111,12 @@ export const DataManager = {
         try {
             const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
             const data = { ...emptyData(), ...(parsed || {}) };
+            // Los torneos creados antes de esta opción conservan el formato
+            // histórico basado en sets ganados.
+            data.tournaments = data.tournaments.map(tournament => ({
+                ...tournament,
+                classificationMode: normalizeClassificationMode(tournament.classificationMode)
+            }));
             // Compatibilidad con las zonas locales creadas por la versión
             // anterior, que guardaba sólo la categoría.
             data.zones = data.zones.map(zone => ({
@@ -140,9 +148,10 @@ export const DataManager = {
 
     getTournaments() { return this._getStorage().tournaments; },
     getTournament(id) { return this.getTournaments().find(tournament => tournament.id === id) || null; },
-    createTournament(nombre, partidosAsegurados) {
+    getTournamentClassificationMode(id) { return normalizeClassificationMode(this.getTournament(id)?.classificationMode); },
+    createTournament(nombre, partidosAsegurados, classificationMode = CLASSIFICATION_MODE.SETS) {
         const data = this._getStorage();
-        const tournament = { id: makeId('torneo'), nombre: nombre.trim(), partidos_asegurados: Number(partidosAsegurados), duracionPartido: 60, intervaloPartidos: 0, creado: new Date().toISOString() };
+        const tournament = { id: makeId('torneo'), nombre: nombre.trim(), partidos_asegurados: Number(partidosAsegurados), classificationMode: normalizeClassificationMode(classificationMode), duracionPartido: 60, intervaloPartidos: 0, creado: new Date().toISOString() };
         data.tournaments.push(tournament);
         this._setStorage(data);
         return tournament;
