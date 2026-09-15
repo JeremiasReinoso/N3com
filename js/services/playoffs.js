@@ -5,6 +5,11 @@ import { SchedulerService } from './scheduler.js';
 const TOP_16_PAIRS = [[1, 16], [8, 9], [5, 12], [4, 13], [6, 11], [3, 14], [7, 10], [2, 15]];
 const STAGE_LIMITS = { TOP_16: 8, TOP_8: 4, SEMIFINAL: 2, THIRD_PLACE: 1, FINAL: 1 };
 const PREVIOUS_PHASE = { TOP_16: 'ZONAS', TOP_8: 'TOP_16', SEMIFINAL: 'TOP_8', THIRD_PLACE: 'SEMIFINAL', FINAL: 'SEMIFINAL' };
+const tournamentMode = torneoId => DataManager.getTournamentClassificationMode(torneoId);
+const supportsTopStages = torneoId => tournamentMode(torneoId) === 'points';
+const previousPhaseFor = (torneoId, phase) => (
+    phase === 'SEMIFINAL' && !supportsTopStages(torneoId) ? 'ZONAS' : PREVIOUS_PHASE[phase]
+);
 const winner = match => match.ganadorId;
 const phaseMatches = (torneoId, categoriaId, phase) => DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => match.phase === phase);
 const loser = match => winner(match) === match.equipoLocalId ? match.equipoVisitanteId : match.equipoLocalId;
@@ -32,7 +37,7 @@ const addStageMatches = (torneoId, categoriaId, phase, pairs, title, offset = 0)
         equipoLocalId: local, equipoVisitanteId: visitante, fecha: null, hora: null,
         cancha: null, orden: null, estado: 'pendiente', confirmado: true
     })));
-    SchedulerService.programarFase(torneoId, categoriaId, phase, PREVIOUS_PHASE[phase]);
+    SchedulerService.programarFase(torneoId, categoriaId, phase, previousPhaseFor(torneoId, phase));
 };
 const fillStage = (torneoId, categoriaId, phase, eligibleIds, title, pairs = null) => {
     const existing = phaseMatches(torneoId, categoriaId, phase);
@@ -45,13 +50,21 @@ const fillStage = (torneoId, categoriaId, phase, eligibleIds, title, pairs = nul
 
 const eligibleTeams = (torneoId, categoriaId, phase) => {
     if (phase === 'TOP_16') {
+        if (!supportsTopStages(torneoId)) throw new Error('Este torneo clasifica directamente a semifinales; no utiliza Top 16.');
         const completion = SchedulerService.estadoFaseClasificatoria(torneoId, categoriaId);
         if (!completion.ok) throw new Error(completion.mensaje);
         const table = PosicionesService.calcularPosiciones(torneoId, categoriaId);
         if (table.length < 16) throw new Error('Se necesitan al menos 16 equipos para generar el Top 16.');
         return table.slice(0, 16).map(row => row.id);
     }
-    const prior = phaseMatches(torneoId, categoriaId, PREVIOUS_PHASE[phase]);
+    if (phase === 'SEMIFINAL' && !supportsTopStages(torneoId)) {
+        const completion = SchedulerService.estadoFaseClasificatoria(torneoId, categoriaId);
+        if (!completion.ok) throw new Error(completion.mensaje);
+        const table = PosicionesService.calcularPosiciones(torneoId, categoriaId);
+        if (table.length < 4) throw new Error('Se necesitan al menos 4 equipos para generar semifinales.');
+        return table.slice(0, 4).map(row => row.id);
+    }
+    const prior = phaseMatches(torneoId, categoriaId, previousPhaseFor(torneoId, phase));
     if (phase === 'TOP_8') {
         assertCompleted(prior, 8, 'Registre los resultados de los 8 partidos Top 16 antes de continuar.');
         return prior.map(winner);
@@ -72,6 +85,7 @@ export const PlayoffsService = {
         fillStage(torneoId, categoriaId, 'TOP_16', eligible, 'Top 16', pairs);
     },
     generarTop8(torneoId, categoriaId) {
+        if (!supportsTopStages(torneoId)) throw new Error('Este torneo clasifica directamente a semifinales; no utiliza Top 8.');
         fillStage(torneoId, categoriaId, 'TOP_8', eligibleTeams(torneoId, categoriaId, 'TOP_8'), 'Top 8');
     },
     generarSemifinales(torneoId, categoriaId) {
@@ -83,6 +97,7 @@ export const PlayoffsService = {
     },
     crearPartidoManual(torneoId, categoriaId, phase, equipoLocalId, equipoVisitanteId, schedule = {}) {
         if (!STAGE_LIMITS[phase]) throw new Error('Seleccione una etapa eliminatoria válida.');
+        if (!supportsTopStages(torneoId) && ['TOP_16', 'TOP_8'].includes(phase)) throw new Error('Este torneo clasifica directamente a semifinales.');
         if (!equipoLocalId || !equipoVisitanteId || equipoLocalId === equipoVisitanteId) throw new Error('Seleccione dos equipos distintos.');
         const eligible = eligibleTeams(torneoId, categoriaId, phase);
         const existing = phaseMatches(torneoId, categoriaId, phase);
@@ -91,7 +106,7 @@ export const PlayoffsService = {
         if (![equipoLocalId, equipoVisitanteId].every(id => eligible.includes(id))) throw new Error('Los equipos elegidos no están clasificados para esta etapa.');
         if (existing.some(match => [match.equipoLocalId, match.equipoVisitanteId].includes(equipoLocalId) || [match.equipoLocalId, match.equipoVisitanteId].includes(equipoVisitanteId))) throw new Error('Uno de los equipos ya está asignado en esta etapa.');
         DataManager.createManualMatch({ torneoId, categoriaId, zonaId: null, phase, nombreEtapa: `Partido manual · ${phase}`, equipoLocalId, equipoVisitanteId, fecha: schedule.fecha || null, hora: schedule.hora || null, cancha: schedule.cancha || null, orden: schedule.orden ? Number(schedule.orden) : null });
-        SchedulerService.programarFase(torneoId, categoriaId, phase, PREVIOUS_PHASE[phase]);
+        SchedulerService.programarFase(torneoId, categoriaId, phase, previousPhaseFor(torneoId, phase));
     },
     generarFinal(torneoId, categoriaId) { return this.generarFinales(torneoId, categoriaId); }
 };
