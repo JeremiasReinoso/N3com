@@ -1,5 +1,6 @@
 import { AppState } from '../core/state.js';
 import { DataManager } from '../data/dataManager.js';
+import { renderCategoryWorkspace } from '../core/categoryWorkspace.js';
 
 const CATEGORY_GROUPS = {
     '+40': ['+40 Masculino', '+40 Femenino', '+40 Mixto'],
@@ -68,6 +69,7 @@ export const initEquiposView = () => {
         try {
             const created = DataManager.createCategories(names, tournamentId);
             AppState.setCategory(created[0].id);
+            renderCategoryWorkspace();
             initEquiposView();
         } catch (error) { alert(error.message); }
     });
@@ -81,6 +83,7 @@ export const initEquiposView = () => {
     }));
     view.querySelectorAll('.categoria-tab').forEach(tab => tab.addEventListener('click', () => {
         AppState.setCategory(tab.dataset.id);
+        renderCategoryWorkspace();
         initEquiposView();
     }));
     view.querySelector('#form-nuevo-equipo')?.addEventListener('submit', event => {
