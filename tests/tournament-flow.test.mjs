@@ -96,14 +96,7 @@ const scenario = `
     const scheduleByDate = new Map(daySchedules.map(day => [day.fecha, day]));
     if (scheduled !== 6 || matches.some(match => !match.fecha || !match.hora || !match.cancha || match.estado !== 'pendiente' || !scheduleByDate.has(match.fecha) || match.hora < scheduleByDate.get(match.fecha).inicio || match.hora >= scheduleByDate.get(match.fecha).fin)) throw new Error('La programación está incompleta o sale de los horarios configurados.');
     const matchesPerDay = daySchedules.map(day => matches.filter(match => match.fecha === day.fecha).length);
-    if (Math.max(...matchesPerDay) - Math.min(...matchesPerDay) > 1) throw new Error('Los partidos no se distribuyeron equilibradamente entre los días.');
-    const datesPerRound = new Map();
-    matches.forEach(match => {
-        const datesForRound = datesPerRound.get(match.ronda) || new Set();
-        datesForRound.add(match.fecha);
-        datesPerRound.set(match.ronda, datesForRound);
-    });
-    if ([...datesPerRound.values()].some(datesForRound => datesForRound.size !== 1)) throw new Error('Una ronda se dividió entre días aun cuando había capacidad disponible.');
+    if (matchesPerDay.at(-1) !== 0 || matchesPerDay.slice(0, -1).some(count => count < 1)) throw new Error('El último día no quedó reservado para las etapas finales cuando había capacidad previa.');
     const matchesPerCourt = [...matches.reduce((countsByCourt, match) => countsByCourt.set(match.cancha, (countsByCourt.get(match.cancha) || 0) + 1), new Map()).values()];
     if (matchesPerCourt.length !== 3 || Math.max(...matchesPerCourt) - Math.min(...matchesPerCourt) > 1) throw new Error('Los partidos no se repartieron equilibradamente entre las canchas.');
     DataManager.setTournamentCalendar(tournament.id, '2026-09-15', '2026-09-17', '09:00', '21:00', [
@@ -219,7 +212,7 @@ const scenario = `
 
     // Flujo completo: los ocho cruces de Top 16 son nuevos, conservan la
     // fase de zonas y desembocan en Top 8, semifinales, tercer puesto y final.
-    const knockoutTournament = DataManager.createTournament('Llave completa', 1);
+    const knockoutTournament = DataManager.createTournament('Llave completa', 1, 'points');
     const knockoutCategory = DataManager.createCategory('+68 Mixto', knockoutTournament.id);
     const knockoutZone = DataManager.createZone('Zona única', knockoutCategory.id, knockoutTournament.id);
     for (let index = 1; index <= 16; index += 1) {
@@ -237,6 +230,7 @@ const scenario = `
     const fixtureIdentity = matches => JSON.stringify(matches.filter(match => match.phase === 'ZONAS').map(match => ({ id: match.id, local: match.equipoLocalId, visitante: match.equipoVisitanteId, fecha: match.fecha, hora: match.hora, cancha: match.cancha })));
     const assuredSnapshot = fixtureIdentity(DataManager.getMatchesByTournamentAndCategory(knockoutTournament.id, knockoutCategory.id));
     finish('ZONAS');
+    if (PosicionesService.calcularPosiciones(knockoutTournament.id, knockoutCategory.id).some(row => row.puntosClasificacion !== 0)) throw new Error('El formato por puntos aplicó la tabla 3/2/1 reservada para el formato por sets.');
     PlayoffsService.generarTop16(knockoutTournament.id, knockoutCategory.id);
     let knockoutMatches = DataManager.getMatchesByTournamentAndCategory(knockoutTournament.id, knockoutCategory.id);
     if (knockoutMatches.filter(match => match.phase === 'TOP_16').length !== 8 || fixtureIdentity(knockoutMatches) !== assuredSnapshot) throw new Error('El Top 16 no creó ocho partidos nuevos o alteró el fixture asegurado.');
@@ -250,6 +244,37 @@ const scenario = `
     const finalMatch = DataManager.getMatchesByTournamentAndCategory(knockoutTournament.id, knockoutCategory.id).find(match => match.phase === 'FINAL');
     const thirdMatch = DataManager.getMatchesByTournamentAndCategory(knockoutTournament.id, knockoutCategory.id).find(match => match.phase === 'THIRD_PLACE');
     if (!finalTable || finalTable.length !== 16 || finalTable[0].id !== finalMatch.ganadorId || finalTable[2].id !== thirdMatch.ganadorId) throw new Error('La tabla final no actualizó campeón, subcampeón y tercer puesto desde las eliminatorias.');
+
+    // Formato por sets: la clasificación 3/1 y 2/1 lleva a los cuatro mejores
+    // directamente a semifinales, sin crear rondas Top 16 ni Top 8.
+    const setsTournament = DataManager.createTournament('Sets directos', 4, 'sets');
+    const setsCategory = DataManager.createCategory('+50 Femenino', setsTournament.id);
+    const setsZone = DataManager.createZone('Zona Sets', setsCategory.id, setsTournament.id);
+    for (let index = 1; index <= 5; index += 1) {
+        const team = DataManager.createTeam('Sets ' + index, setsCategory.id, setsTournament.id);
+        DataManager.assignTeamToZone(team.id, setsZone.id);
+    }
+    SchedulerService.generarEmparejamientos(setsTournament.id, setsCategory.id);
+    SchedulerService.confirmarEmparejamientos(setsTournament.id, setsCategory.id);
+    const setsMatches = DataManager.getMatchesByTournamentAndCategory(setsTournament.id, setsCategory.id);
+    if (setsMatches.length !== 10) throw new Error('El torneo por sets no generó los partidos asegurados de la zona.');
+    setsMatches.forEach((match, index) => DataManager.updateMatchResult(match.id, index % 2 === 0
+        ? [{ puntosLocal: 25, puntosVisitante: 16 }, { puntosLocal: 25, puntosVisitante: 19 }]
+        : [{ puntosLocal: 25, puntosVisitante: 16 }, { puntosLocal: 19, puntosVisitante: 25 }, { puntosLocal: 25, puntosVisitante: 20 }]
+    ));
+    const setsTable = PosicionesService.calcularPosiciones(setsTournament.id, setsCategory.id);
+    const expectedSetPoints = setsMatches.reduce((total, _match, index) => total + (index % 2 === 0 ? 4 : 3), 0);
+    if (setsTable.reduce((total, row) => total + row.puntosClasificacion, 0) !== expectedSetPoints) throw new Error('La tabla por sets no calculó los puntos 3/1 y 2/1 internamente.');
+    let topStageBlocked = false;
+    try { PlayoffsService.generarTop16(setsTournament.id, setsCategory.id); } catch { topStageBlocked = true; }
+    if (!topStageBlocked) throw new Error('El formato por sets permitió una fase Top 16.');
+    PlayoffsService.generarSemifinales(setsTournament.id, setsCategory.id);
+    let setsPlayoffs = DataManager.getMatchesByTournamentAndCategory(setsTournament.id, setsCategory.id);
+    if (setsPlayoffs.filter(match => match.phase === 'SEMIFINAL').length !== 2 || setsPlayoffs.some(match => ['TOP_16', 'TOP_8'].includes(match.phase))) throw new Error('El formato por sets no clasificó los cuatro mejores directamente a semifinales.');
+    setsPlayoffs.filter(match => match.phase === 'SEMIFINAL').forEach(match => DataManager.updateMatchResult(match.id, [{ puntosLocal: 25, puntosVisitante: 17 }, { puntosLocal: 25, puntosVisitante: 18 }]));
+    PlayoffsService.generarFinales(setsTournament.id, setsCategory.id);
+    setsPlayoffs = DataManager.getMatchesByTournamentAndCategory(setsTournament.id, setsCategory.id);
+    if (setsPlayoffs.filter(match => match.phase === 'FINAL').length !== 1 || setsPlayoffs.filter(match => match.phase === 'THIRD_PLACE').length !== 1) throw new Error('El formato por sets no generó final y tercer puesto luego de las semifinales.');
     console.log(JSON.stringify({ created, confirmed, scheduled, matchesPerTeam: Object.values(counts), dates }));
 `;
 
