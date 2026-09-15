@@ -11,6 +11,11 @@ const schedulerMinutesFromTime = time => {
     return hour * 60 + minute;
 };
 const schedulerTimeFromMinutes = minutes => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+const dayCapacity = (day, settings, courtCount) => {
+    const duration = Number(settings.duracionPartido) + Number(settings.intervaloPartidos);
+    const available = schedulerMinutesFromTime(day.fin) - schedulerMinutesFromTime(day.inicio);
+    return duration > 0 ? Math.max(0, Math.floor((available - Number(settings.duracionPartido)) / duration + 1) * courtCount) : 0;
+};
 
 // Método circular de todos contra todos. Cada ronda deja a cada equipo con un
 // único partido, salvo el descanso inevitable de las zonas impares.
@@ -109,8 +114,8 @@ export const SchedulerService = {
 
     // Distribuye el fixture de forma equitativa, conservando una ronda completa
     // en el mismo día cuando la capacidad lo permite.
-    redistribuirFechas(torneoId, categoriaId) {
-        const dates = DataManager.getCalendarDates(torneoId);
+    redistribuirFechas(torneoId, categoriaId, preferredDates = null) {
+        const dates = preferredDates?.length ? preferredDates : DataManager.getCalendarDates(torneoId);
         if (!dates.length) return 0;
         const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
             .filter(match => isGroupMatch(match) && match.estado !== 'finalizado');
@@ -223,16 +228,23 @@ export const SchedulerService = {
         if (groupMatches.some(match => !isOfficialMatch(match))) throw new Error('Confirme los emparejamientos antes de programarlos.');
         const verification = this.verificarPartidosAsegurados(torneoId, categoriaId, true);
         if (!verification.ok) throw new Error(verification.mensaje);
-        this.redistribuirFechas(torneoId, categoriaId);
+        const courts = Array.from({ length: DataManager.getTournamentCourtCount(torneoId) }, (_, index) => `Cancha ${index + 1}`);
+        const settings = DataManager.getTournamentSchedulingSettings(torneoId);
+        // Si la capacidad lo permite, el último día queda libre para la llave
+        // final. Si no alcanza, se conserva como respaldo para no dejar
+        // partidos asegurados sin fecha.
+        const priorDays = daySchedules.slice(0, -1);
+        const unscheduledGroups = groupMatches.filter(match => match.estado !== 'finalizado').length;
+        const priorCapacity = priorDays.reduce((total, day) => total + dayCapacity(day, settings, courts.length), 0);
+        const schedulingDays = priorDays.length && unscheduledGroups <= priorCapacity ? priorDays : daySchedules;
+        this.redistribuirFechas(torneoId, categoriaId, schedulingDays.map(day => day.fecha));
         const toSchedule = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
             .filter(match => isGroupMatch(match) && isOfficialMatch(match) && match.estado !== 'finalizado');
         if (!toSchedule.length) return 0;
-        const courts = Array.from({ length: DataManager.getTournamentCourtCount(torneoId) }, (_, index) => `Cancha ${index + 1}`);
-        const settings = DataManager.getTournamentSchedulingSettings(torneoId);
         const courtLoads = new Map(courts.map(court => [court, 0]));
         const scheduled = [];
 
-        for (const day of daySchedules) {
+        for (const day of schedulingDays) {
             const remaining = toSchedule.filter(match => match.fecha === day.fecha);
             const timeSlots = [];
             for (let minute = schedulerMinutesFromTime(day.inicio); minute + settings.duracionPartido <= schedulerMinutesFromTime(day.fin); minute += settings.duracionPartido + settings.intervaloPartidos) {
@@ -264,9 +276,15 @@ export const SchedulerService = {
     // Propuesta automática reutilizable para cada etapa eliminatoria. El árbitro
     // puede editar luego fecha, hora o cancha sin crear otro partido.
     programarFase(torneoId, categoriaId, phase, afterPhase = null) {
-        const days = DataManager.getDaySchedules(torneoId);
+        const configuredDays = DataManager.getDaySchedules(torneoId);
         const settings = DataManager.getTournamentSchedulingSettings(torneoId);
-        if (!days.length) return 0;
+        if (!configuredDays.length) return 0;
+        // Semifinales, tercer puesto y final tienen prioridad en el último
+        // día. Las rondas Top conservan antes los días previos cuando existen.
+        const finalStages = ['SEMIFINAL', 'THIRD_PLACE', 'FINAL'];
+        const days = finalStages.includes(phase)
+            ? [configuredDays.at(-1), ...configuredDays.slice(0, -1)]
+            : [...configuredDays.slice(0, -1), configuredDays.at(-1)];
         const targets = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => match.phase === phase && match.estado !== 'finalizado' && (!match.fecha || !match.hora || !match.cancha));
         const allMatches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
         const occupied = allMatches.filter(match => match.phase !== phase && match.fecha && match.hora && match.cancha);
