@@ -1,5 +1,6 @@
 import { AppState } from '../core/state.js';
 import { DataManager } from '../data/dataManager.js';
+import { SchedulerService } from '../services/scheduler.js';
 
 const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'finalizado'].includes(match.estado);
 
@@ -42,6 +43,11 @@ export function initResultadosView() {
     const byPoints = classificationMode === 'points';
     const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId);
     const zones = DataManager.getZonesByTournamentAndCategory(tournamentId, categoryId);
+    const categoryMatches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId);
+    const unscheduledGroupMatch = categoryMatches.some(match => isOfficialMatch(match) && (!match.phase || match.phase === 'ZONAS') && (!match.fecha || !match.hora || !match.cancha));
+    if (unscheduledGroupMatch && DataManager.getDaySchedules(tournamentId).length) {
+        try { SchedulerService.programarEmparejamientos(tournamentId, categoryId); } catch { /* La pantalla conserva el resultado y la Programación informa cualquier conflicto. */ }
+    }
     const matches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId).filter(isOfficialMatch);
     const team = id => teams.find(item => item.id === id)?.nombre || 'Equipo';
     const zone = id => zones.find(item => item.id === id)?.nombre || 'Eliminatorias';
