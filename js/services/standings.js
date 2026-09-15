@@ -3,17 +3,25 @@ import { DataManager } from '../data/dataManager.js';
 const isGroupStandingMatch = match => match.phase === 'ZONAS' || !match.tipo || match.tipo === 'fase_zonas';
 const hasSetResult = match => match.estado === 'finalizado' && Array.isArray(match.sets) && match.sets.length >= 2 && match.ganadorId;
 
-// Los criterios de desempate se mantienen explícitos y aislados aquí:
-// partidos ganados → diferencia de sets → diferencia de puntos → puntos a favor.
-const compareRows = (left, right) => (
+// Por puntos se prioriza el rendimiento real: partidos ganados → diferencia de
+// sets → diferencia de puntos → puntos a favor.
+const compareByRealPerformance = (left, right) => (
     right.ganados - left.ganados
     || right.diferenciaSets - left.diferenciaSets
     || right.diferenciaPuntos - left.diferenciaPuntos
     || right.puntosFavor - left.puntosFavor
 );
 
+// En la modalidad histórica los puntos de clasificación son la fuente de
+// orden: 2-0 = 3/1 y 2-1 = 2/1. El resto sólo desempata.
+const compareBySetPoints = (left, right) => (
+    right.puntosClasificacion - left.puntosClasificacion
+    || compareByRealPerformance(left, right)
+);
+
 export const PosicionesService = {
     calcularPosiciones(torneoId, categoriaId) {
+        const classificationMode = DataManager.getTournamentClassificationMode(torneoId);
         const teams = DataManager.getTeamsByTournamentAndCategory(torneoId, categoriaId);
         const rows = new Map(teams.map(team => [team.id, {
             ...team,
@@ -24,6 +32,7 @@ export const PosicionesService = {
             setsContra: 0,
             puntosFavor: 0,
             puntosContra: 0,
+            puntosClasificacion: 0,
             diferenciaSets: 0,
             diferenciaPuntos: 0
         }]));
@@ -49,9 +58,17 @@ export const PosicionesService = {
                 if (match.ganadorId === local.id) {
                     local.ganados += 1;
                     visitante.perdidos += 1;
+                    if (classificationMode === 'sets') {
+                        local.puntosClasificacion += match.setsVisitante === 0 ? 3 : 2;
+                        visitante.puntosClasificacion += 1;
+                    }
                 } else {
                     visitante.ganados += 1;
                     local.perdidos += 1;
+                    if (classificationMode === 'sets') {
+                        visitante.puntosClasificacion += match.setsLocal === 0 ? 3 : 2;
+                        local.puntosClasificacion += 1;
+                    }
                 }
             });
 
@@ -61,7 +78,7 @@ export const PosicionesService = {
                 diferenciaSets: row.setsFavor - row.setsContra,
                 diferenciaPuntos: row.puntosFavor - row.puntosContra
             }))
-            .sort(compareRows);
+            .sort(classificationMode === 'sets' ? compareBySetPoints : compareByRealPerformance);
     },
 
     calcularClasificacionFinal(torneoId, categoriaId) {
