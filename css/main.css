@@ -660,9 +660,13 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 :root[data-theme="dark"] .classification-selector label { background: #101a29; border-color: #304b68; }
 :root[data-theme="dark"] .classification-selector small { color: #aebfd4; }
 :root[data-theme="dark"] .classification-selector label:has(input:checked) { background: #133049; border-color: #42bce8; box-shadow: 0 0 0 3px rgba(66, 188, 232, .16); }
-:root[data-theme="dark"] .license-balance dd,
+:root[data-theme="dark"] .license-card .license-balance > div > dd,
 :root[data-theme="dark"] .license-card input[type="number"],
-:root[data-theme="dark"] .admin-access-gate input[type="number"] { color: #fff !important; }
+:root[data-theme="dark"] .admin-access-gate input[type="number"] {
+    color: #fff !important;
+    -webkit-text-fill-color: #fff;
+    opacity: 1;
+}
 :root[data-theme="dark"] :is(.category-page, .category-choice, .categoria-tab, .btn-tab, .quick-result, .score-option):hover:not(:disabled):not(.active):not(.selected) { color: #edf7ff; background: #1b324d; border-color: #5f99c9; }
 :root[data-theme="dark"] .category-page.active,
 :root[data-theme="dark"] .categoria-tab.active,
