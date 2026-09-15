@@ -1,5 +1,6 @@
 import { Navigation } from './core/navigation.js';
 import { initThemeToggle } from './core/theme.js';
+import { renderCategoryWorkspace } from './core/categoryWorkspace.js';
 import { LicenciaRepo } from './data/licenseRepo.js';
 import { initTorneosVer } from './views/tournamentsView.js';
 import { initEquiposView } from './views/teamsView.js';
@@ -44,7 +45,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         'btn-nav-eliminatorias': initPlayoffsView
     };
     const render = async buttonId => {
-        try { await renderers[buttonId]?.(); }
+        try {
+            renderCategoryWorkspace();
+            await renderers[buttonId]?.();
+            renderCategoryWorkspace();
+        }
         catch (error) { console.error(error); alert('No se pudo cargar esta sección. Revise los datos del torneo e intente nuevamente.'); }
     };
     Object.keys(renderers).forEach(buttonId => {
