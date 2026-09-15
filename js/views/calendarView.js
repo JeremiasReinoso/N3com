@@ -28,16 +28,15 @@ export function initCalendarView() {
                 <label class="form-field">Fecha de finalización<input id="fecha-fin" type="date" value="${period?.endDate || ''}" required></label>
                 <label class="form-field">Horario predeterminado · desde<input id="hora-inicio" type="time" value="${defaultStart}" required></label>
                 <label class="form-field">Hasta<input id="hora-fin" type="time" value="${defaultEnd}" required></label>
-                <label class="form-field">Duración estimada (min)<input id="duracion-partido" type="number" min="1" max="240" value="${settings.duracionPartido}" required></label>
                 <label class="form-field">Intervalo entre partidos (min)<input id="intervalo-partidos" type="number" min="0" max="120" value="${settings.intervaloPartidos}" required></label>
                 <div class="form-actions"><button class="btn-primary" type="submit">Guardar calendario</button></div>
             </form>
         </section>
-        <div class="calendar-intro"><span class="calendar-chip">${daySchedules.length} DÍAS</span><p>Los horarios por día se usan para distribuir y programar los partidos.</p></div>
+        <div class="calendar-intro"><span class="calendar-chip">${daySchedules.length} DÍAS</span><p>Personalizá el horario de cada jornada. Al confirmar el fixture, NEWCOM asignará automáticamente hora y cancha.</p></div>
         <div id="calendario-grid" class="calendar-grid">${daySchedules.length ? daySchedules.map(({ fecha, inicio, fin }) => `
-            <article class="calendar-day">
-                <div class="calendar-day-header"><span>${fecha}</span><strong>${displayDate(fecha)}</strong></div>
-                <div class="calendar-day-content"><span class="calendar-chip">Disponibilidad</span><div class="calendar-hours">
+            <article class="calendar-day" aria-label="Disponibilidad del ${displayDate(fecha)}">
+                <div class="calendar-day-header"><div><span>${fecha}</span><strong>${displayDate(fecha)}</strong></div><span class="calendar-day-status">JORNADA</span></div>
+                <div class="calendar-day-content"><div class="calendar-time-summary"><span>Disponibilidad</span><strong>${inicio} — ${fin}</strong></div><div class="calendar-hours">
                     <label>Desde<input class="horario-dia-inicio" data-fecha="${fecha}" type="time" value="${inicio}" required></label>
                     <label>Hasta<input class="horario-dia-fin" data-fecha="${fecha}" type="time" value="${fin}" required></label>
                 </div></div>
@@ -58,9 +57,15 @@ export function initCalendarView() {
                 view.querySelector('#hora-fin').value,
                 schedules
             );
-            DataManager.setTournamentSchedulingSettings(tournamentId, view.querySelector('#duracion-partido').value, view.querySelector('#intervalo-partidos').value);
+            DataManager.setTournamentSchedulingSettings(tournamentId, settings.duracionPartido, view.querySelector('#intervalo-partidos').value);
             const categoryId = AppState.getCategory();
-            if (categoryId) SchedulerService.redistribuirFechas(tournamentId, categoryId);
+            if (categoryId) {
+                const groupMatches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId)
+                    .filter(match => !match.phase || match.phase === 'ZONAS');
+                const allConfirmed = groupMatches.length && groupMatches.every(match => match.confirmado || ['pendiente', 'programado', 'finalizado'].includes(match.estado));
+                if (allConfirmed) SchedulerService.programarEmparejamientos(tournamentId, categoryId);
+                else SchedulerService.redistribuirFechas(tournamentId, categoryId);
+            }
             initCalendarView();
         } catch (error) { alert(error.message); }
     });
