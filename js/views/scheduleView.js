@@ -20,6 +20,19 @@ export const initScheduleView = () => {
     const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId);
     const zones = DataManager.getZonesByTournamentAndCategory(tournamentId, categoryId);
     const matches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId);
+    const isGroupMatch = match => !match.tipo || match.tipo === 'fase_zonas';
+    const confirmedGroups = matches.filter(match => isGroupMatch(match) && isOfficialMatch(match));
+    const hasDraftGroups = matches.some(match => isGroupMatch(match) && !isOfficialMatch(match));
+    const needsAutomaticSchedule = confirmedGroups.some(match => match.estado !== 'finalizado' && (!match.fecha || !match.hora || !match.cancha));
+    let automaticScheduleError = '';
+    if (needsAutomaticSchedule && !hasDraftGroups && DataManager.getDaySchedules(tournamentId).length) {
+        try {
+            SchedulerService.programarEmparejamientos(tournamentId, categoryId);
+            const stillPending = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId)
+                .some(match => isGroupMatch(match) && isOfficialMatch(match) && match.estado !== 'finalizado' && (!match.fecha || !match.hora || !match.cancha));
+            if (!stillPending) return initScheduleView();
+        } catch (error) { automaticScheduleError = error.message; }
+    }
     const drafts = matches.filter(match => !isOfficialMatch(match));
     const official = matches.filter(isOfficialMatch);
     const teamName = id => teams.find(team => team.id === id)?.nombre || 'Equipo eliminado';
@@ -32,7 +45,7 @@ export const initScheduleView = () => {
     controls.innerHTML = `
         <div class="form-title"><div><h3>${tournament.nombre} · ${category.nombre}</h3><p>${tournament.partidos_asegurados} partidos asegurados por equipo. ${period ? `Período: ${period.startDate} a ${period.endDate}.` : 'Defina el período en Calendario antes de programar.'}</p></div><span class="calendar-chip">PROGRAMACIÓN</span></div>
         <div class="form-grid"><label class="form-field">Canchas disponibles<input id="cantidad-canchas" type="number" min="1" max="20" value="${courtCount}"></label>
-        <div class="form-actions"><button type="button" id="guardar-canchas" class="btn-secondary">Guardar canchas</button><button type="button" id="btn-generar-emparejamientos" class="btn-primary">1. Generar fixture</button><button type="button" id="btn-recrear-emparejamientos" class="btn-secondary">Rehacer borradores</button><button type="button" id="btn-confirmar-emparejamientos" class="btn-primary">2. Confirmar y programar</button></div></div>`;
+        <div class="form-actions"><button type="button" id="guardar-canchas" class="btn-secondary">Guardar canchas</button><button type="button" id="btn-generar-emparejamientos" class="btn-primary">Generar fixture</button><button type="button" id="btn-confirmar-emparejamientos" class="btn-primary">Confirmar</button></div></div>`;
 
     const editor = match => match.estado === 'finalizado' ? '' : `
         <details class="schedule-editor"><summary>Editar partido</summary>
@@ -54,7 +67,7 @@ export const initScheduleView = () => {
     }, new Map());
     const sortMatches = (left, right) => Number(left.orden || Number.MAX_SAFE_INTEGER) - Number(right.orden || Number.MAX_SAFE_INTEGER) || String(left.hora || '99:99').localeCompare(String(right.hora || '99:99')) || left.id.localeCompare(right.id);
     const officialHtml = officialByDate.size ? [...officialByDate.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([date, dayMatches]) => `<section class="schedule-day"><header><div><span class="calendar-chip">${date === 'Sin fecha asignada' ? 'PENDIENTE' : 'JORNADA'}</span><h4>${date}</h4></div><strong>${dayMatches.length} partidos</strong></header><div class="schedule-match-list">${dayMatches.sort(sortMatches).map(match => `<article class="schedule-match"><div class="schedule-match-time"><strong>${match.hora || 'Horario pendiente'}</strong><span>${match.cancha || 'Cancha por definir'}${match.orden ? ` · Orden ${match.orden}` : ''}</span></div><div class="schedule-match-main"><div><span class="schedule-stage">${phaseName(match)}${match.phase === 'ZONAS' ? ` · ${zoneName(match.zonaId)}` : ''}</span><strong>${teamName(match.equipoLocalId)} <b>vs</b> ${teamName(match.equipoVisitanteId)}</strong></div>${match.estado === 'finalizado' ? `<span class="schedule-score">${match.setsLocal} – ${match.setsVisitante}</span>` : '<span class="match-status pending">PENDIENTE</span>'}</div>${editor(match)}</article>`).join('')}</div></section>`).join('') : '<div class="empty-state">Aún no hay partidos oficiales.</div>';
-    box.innerHTML = `<section class="category-workspace"><h3>Borradores para revisar</h3><p class="helper-text">Los partidos asegurados sólo cruzan equipos de la misma zona. Las etapas eliminatorias son partidos nuevos y se distinguen por su fase.</p>${draftHtml}</section><section class="schedule-board"><div class="schedule-board-head"><div><h3>Partidos confirmados</h3><p>La programación asigna automáticamente día, horario y cancha. Podés corregir equipos u orden antes de cargar un resultado.</p></div><span class="calendar-chip">${official.length} PARTIDOS</span></div>${officialHtml}</section>`;
+    box.innerHTML = `<section class="category-workspace"><h3>Borradores para revisar</h3><p class="helper-text">Los partidos asegurados sólo cruzan equipos de la misma zona. Las etapas eliminatorias son partidos nuevos y se distinguen por su fase.</p>${draftHtml}</section><section class="schedule-board"><div class="schedule-board-head"><div><h3>Partidos confirmados</h3><p>La programación asigna automáticamente día, horario y cancha. Podés corregir equipos u orden antes de cargar un resultado.</p>${automaticScheduleError ? `<p class="license-error">No se pudo completar la programación automática: ${automaticScheduleError}</p>` : ''}</div><span class="calendar-chip">${official.length} PARTIDOS</span></div>${officialHtml}</section>`;
 
     document.querySelectorAll('.eliminar-borrador, .eliminar-partido').forEach(button => button.addEventListener('click', () => {
         try { DataManager.removeMatch(button.dataset.id); initScheduleView(); } catch (error) { alert(error.message); }
@@ -75,20 +88,7 @@ export const initScheduleView = () => {
     document.getElementById('btn-generar-emparejamientos').addEventListener('click', () => {
         try { const created = SchedulerService.generarEmparejamientos(tournamentId, categoryId); const check = SchedulerService.verificarPartidosAsegurados(tournamentId, categoryId); alert(`${created} borradores creados. ${check.mensaje}`); initScheduleView(); } catch (error) { alert(error.message); }
     });
-    document.getElementById('btn-recrear-emparejamientos').addEventListener('click', () => {
-        if (!confirm('Se reemplazarán únicamente los borradores de esta categoría. ¿Desea continuar?')) return;
-        try { const created = SchedulerService.recrearBorradores(tournamentId, categoryId); alert(`${created} borradores nuevos creados por rondas, sin repetir rivales.`); initScheduleView(); } catch (error) { alert(error.message); }
-    });
     document.getElementById('btn-confirmar-emparejamientos').addEventListener('click', () => {
-        try {
-            if (!DataManager.getDaySchedules(tournamentId).length) throw new Error('Configure el Calendario antes de confirmar el fixture.');
-            DataManager.setTournamentCourtCount(tournamentId, document.getElementById('cantidad-canchas').value);
-            const check = SchedulerService.verificarPartidosAsegurados(tournamentId, categoryId);
-            if (!check.ok) throw new Error(check.mensaje);
-            const confirmed = SchedulerService.confirmarEmparejamientos(tournamentId, categoryId);
-            const scheduled = SchedulerService.programarEmparejamientos(tournamentId, categoryId);
-            alert(`${confirmed} partidos confirmados y ${scheduled} programados automáticamente.`);
-            initScheduleView();
-        } catch (error) { alert(error.message); }
+        try { const check = SchedulerService.verificarPartidosAsegurados(tournamentId, categoryId); if (!check.ok) throw new Error(check.mensaje); const confirmed = SchedulerService.confirmarEmparejamientos(tournamentId, categoryId); alert(`${confirmed} partidos confirmados.`); initScheduleView(); } catch (error) { alert(error.message); }
     });
 };
