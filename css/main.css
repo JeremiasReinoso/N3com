@@ -605,11 +605,12 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 /* Selección del formato de clasificación al crear el torneo. */
 .classification-selector { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 0; border: 0; }
 .classification-selector legend { grid-column: 1 / -1; margin-bottom: 2px; color: #34435d; font-size: .88rem; font-weight: 800; }
-.classification-selector label { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; padding: 12px; color: #34435d; background: #f8fbff; border: 1px solid #d2e0f2; border-radius: 10px; cursor: pointer; transition: transform .2s ease, border-color .2s ease, background-color .2s ease, box-shadow .2s ease; }
-.classification-selector input { margin-top: 4px; accent-color: #0757b8; }
+.classification-selector label { position: relative; display: grid; grid-template-columns: 1fr; gap: 10px; align-items: start; padding: 12px; color: #34435d; background: #f8fbff; border: 1px solid #d2e0f2; border-radius: 10px; cursor: pointer; transition: transform .2s ease, border-color .2s ease, background-color .2s ease, box-shadow .2s ease; }
+.classification-selector input { position: absolute; inline-size: 1px; block-size: 1px; margin: -1px; opacity: 0; clip-path: inset(50%); }
 .classification-selector span { display: grid; gap: 2px; }
 .classification-selector small { color: #667a96; font-size: .76rem; line-height: 1.35; }
 .classification-selector label:has(input:checked) { background: #edf6ff; border-color: #3298db; box-shadow: 0 0 0 3px rgba(9, 167, 198, .12); }
+.classification-selector label:has(input:focus-visible) { outline: 3px solid rgba(9, 167, 198, .42); outline-offset: 3px; }
 @media (hover: hover) {
     .classification-selector label:hover { transform: translateY(-2px); border-color: #2a91cf; background: #f1f8ff; box-shadow: 0 8px 18px rgba(7, 87, 184, .14); }
 }
