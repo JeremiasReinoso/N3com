@@ -35,8 +35,8 @@ export const initTorneosVer = async () => {
         const button = event.currentTarget.querySelector('button[type="submit"]'); button.disabled = true;
         try {
             await LicenciaRepo.consumirTorneo();
-            const tournament = DataManager.createTournament(name, assured, classificationMode);
-            AppState.setTournament(tournament.id);
+            DataManager.createTournament(name, assured, classificationMode);
+            AppState.clear();
             await initTorneosVer();
         } catch (error) { alert(error.message); button.disabled = false; }
     });
@@ -48,6 +48,6 @@ export const initTorneosVer = async () => {
         AppState.setTournament(button.dataset.id);
         const categories = DataManager.getCategoriesByTournament(button.dataset.id);
         if (categories.length) AppState.setCategory(categories[0].id);
-        document.getElementById('btn-nav-equipos').click();
+        document.getElementById('btn-nav-inicio').click();
     }));
 };
