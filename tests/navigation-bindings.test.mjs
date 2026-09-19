@@ -50,7 +50,7 @@ globalThis.localStorage = {
     setItem(key, value) { this.values.set(key, value); }
 };
 localStorage.setItem('newcom_active_license_code_v1', 'NWC-TEST-2026-001');
-globalThis.fetch = async () => ({ ok: true, json: async () => ({ id: 'CLI-0001', code: 'NWC-TEST-2026-001', clientName: 'Club de prueba', organization: '', email: '', phone: '', tournamentsPurchased: 1, tournamentsUsed: 0, tournamentsRemaining: 1, active: true, createdAt: '', activatedAt: null, history: [] }) });
+globalThis.fetch = async () => ({ ok: true, json: async () => ({ id: 'CLI-0001', code: 'NWC-TEST-2026-001', clientName: 'Club de prueba', organization: '', phone: '', tournamentsPurchased: 1, tournamentsUsed: 0, tournamentsRemaining: 1, active: true, createdAt: '', activatedAt: null, history: [] }) });
 globalThis.document = {
     addEventListener: (type, callback) => {
         if (type === 'DOMContentLoaded') domReadyListeners.push(callback);
