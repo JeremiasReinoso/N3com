@@ -9,15 +9,26 @@ const toIsoDate = (year, month, day) => `${year}-${String(month + 1).padStart(2,
 const formatPeriodDate = date => date ? date.split('-').reverse().join('/') : '';
 const monthLabel = (year, month) => new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric' })
     .format(new Date(year, month, 1));
+const today = new Date();
+const todayIso = toIsoDate(today.getFullYear(), today.getMonth(), today.getDate());
+const selectedDays = (fechaInicio, fechaFin) => {
+    if (!fechaInicio || !fechaFin) return 0;
+    const [startYear, startMonth, startDay] = fechaInicio.split('-').map(Number);
+    const [endYear, endMonth, endDay] = fechaFin.split('-').map(Number);
+    return Math.floor((Date.UTC(endYear, endMonth - 1, endDay) - Date.UTC(startYear, startMonth - 1, startDay)) / 86400000) + 1;
+};
 
 const periodSummary = (fechaInicio, fechaFin) => {
-    if (fechaInicio && fechaFin) return `Período del torneo: ${formatPeriodDate(fechaInicio)} → ${formatPeriodDate(fechaFin)}`;
+    if (fechaInicio && fechaFin) {
+        const total = selectedDays(fechaInicio, fechaFin);
+        return `${total} ${total === 1 ? 'día seleccionado' : 'días seleccionados'}`;
+    }
     if (fechaInicio) return `Inicio seleccionado: ${formatPeriodDate(fechaInicio)}. Ahora seleccioná el día de finalización.`;
-    return 'Seleccioná el primer y último día del torneo.';
+    return '';
 };
 
 const periodFieldText = (fechaInicio, fechaFin) => (
-    fechaInicio && fechaFin ? `${formatPeriodDate(fechaInicio)} - ${formatPeriodDate(fechaFin)}` : 'Seleccioná las fechas del torneo'
+    fechaInicio && fechaFin ? `${formatPeriodDate(fechaInicio)} → ${formatPeriodDate(fechaFin)}` : 'Seleccionar período del torneo'
 );
 
 const calendarDaysMarkup = (year, month, fechaInicio, fechaFin) => {
@@ -30,10 +41,12 @@ const calendarDaysMarkup = (year, month, fechaInicio, fechaFin) => {
         const isStart = date === fechaInicio;
         const isEnd = date === fechaFin;
         const isInRange = fechaInicio && fechaFin && date > fechaInicio && date < fechaFin;
+        const isToday = date === todayIso;
         const selected = isStart || isEnd;
-        const state = [selected && 'is-boundary', isStart && 'is-start', isEnd && 'is-end', isInRange && 'is-in-range'].filter(Boolean).join(' ');
+        const state = [selected && 'is-boundary', isStart && 'is-start', isEnd && 'is-end', isInRange && 'is-in-range', isToday && 'is-today'].filter(Boolean).join(' ');
         const selectedText = isStart && isEnd ? ', inicio y final del período' : isStart ? ', inicio del período' : isEnd ? ', final del período' : isInRange ? ', dentro del período' : '';
-        return `<button class="range-calendar-day ${state}" type="button" data-date="${date}" aria-label="${formatPeriodDate(date)}${selectedText}" aria-pressed="${selected}">${day}</button>`;
+        const todayText = isToday ? ', hoy' : '';
+        return `<button class="range-calendar-day ${state}" type="button" data-date="${date}" aria-label="${formatPeriodDate(date)}${selectedText}${todayText}" aria-pressed="${selected}">${day}</button>`;
     }).join('');
     return `${blanks}${days}`;
 };
@@ -72,6 +85,7 @@ export function initCalendarView() {
                         <div class="range-calendar-header"><button id="mes-anterior" class="range-calendar-nav" type="button" aria-label="Mes anterior">‹</button><strong id="mes-periodo"></strong><button id="mes-siguiente" class="range-calendar-nav" type="button" aria-label="Mes siguiente">›</button></div>
                         <div class="range-calendar-weekdays" aria-hidden="true">${weekDays.map(day => `<span>${day}</span>`).join('')}</div>
                         <div id="dias-periodo" class="range-calendar-days"></div>
+                        <p class="range-calendar-legend"><span><i class="range-calendar-legend-boundary" aria-hidden="true"></i>Inicio / final</span><span><i class="range-calendar-legend-range" aria-hidden="true"></i>Días incluidos</span></p>
                         <div class="range-calendar-actions"><button id="borrar-periodo" class="btn-secondary range-calendar-clear" type="button">Borrar selección</button></div>
                     </section>
                 </div>
@@ -106,10 +120,18 @@ export function initCalendarView() {
     const setPickerOpen = open => {
         periodDialog.hidden = !open;
         periodPicker.setAttribute('aria-expanded', String(open));
-        if (open) renderPeriodPicker();
+        if (!open) return;
+        renderPeriodPicker();
+        const field = periodPicker.closest('.tournament-period-field');
+        const dialogBounds = periodDialog.getBoundingClientRect();
+        if (dialogBounds.bottom > window.innerHeight - 12 && periodPicker.getBoundingClientRect().top > dialogBounds.height + 12) field.dataset.pickerPosition = 'above';
+        else delete field.dataset.pickerPosition;
     };
 
     periodPicker.addEventListener('click', () => setPickerOpen(periodDialog.hidden));
+    view.addEventListener('click', event => {
+        if (!periodPicker.closest('.tournament-period-field').contains(event.target)) setPickerOpen(false);
+    });
     view.querySelector('#mes-anterior').addEventListener('click', () => {
         if (visibleMonth === 0) { visibleYear -= 1; visibleMonth = 11; }
         else visibleMonth -= 1;
@@ -127,13 +149,11 @@ export function initCalendarView() {
         if (!fechaInicio || fechaFin) {
             fechaInicio = selectedDate;
             fechaFin = '';
-        } else if (selectedDate < fechaInicio) {
-            periodSummaryElement.textContent = `La fecha de finalización debe ser ${formatPeriodDate(fechaInicio)} o posterior.`;
-            return;
         } else {
-            fechaFin = selectedDate;
+            [fechaInicio, fechaFin] = selectedDate < fechaInicio ? [selectedDate, fechaInicio] : [fechaInicio, selectedDate];
         }
         renderPeriodPicker();
+        if (fechaInicio && fechaFin) setPickerOpen(false);
     });
     view.querySelector('#borrar-periodo').addEventListener('click', () => {
         fechaInicio = '';
