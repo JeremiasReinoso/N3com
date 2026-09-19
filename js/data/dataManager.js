@@ -188,9 +188,8 @@ export const DataManager = {
         const team = data.teams.find(item => item.id === equipoId);
         const zone = data.zones.find(item => item.id === zonaId);
         if (!team || !zone || team.categoriaId !== zone.categoriaId || team.torneoId !== zone.torneoId) throw new Error('El equipo y la zona deben pertenecer a la misma categoría del torneo.');
-        data.zones.forEach(item => {
-            if (item.liderEquipoId === team.id && item.id !== zone.id) item.liderEquipoId = null;
-        });
+        const leaderZone = data.zones.find(item => item.liderEquipoId === team.id);
+        if (leaderZone && leaderZone.id !== zone.id) throw new Error('La cabeza de serie está fija en su zona y no se puede mover.');
         team.zonaId = zonaId;
         this._setStorage(data);
     },
@@ -212,21 +211,39 @@ export const DataManager = {
         const leaders = Object.entries(leadersByZone || {}).filter(([, teamId]) => teamId);
         const selectedTeamIds = leaders.map(([, teamId]) => teamId);
         if (new Set(selectedTeamIds).size !== selectedTeamIds.length) throw new Error('Un equipo sólo puede ser cabeza de serie de una zona.');
+
+        // Un líder ya confirmado es una asignación fija: ningún sorteo puede
+        // cambiar su zona ni reemplazarlo por otro equipo.
+        const lockedLeaders = zones.filter(zone => zone.liderEquipoId);
+        lockedLeaders.forEach(zone => {
+            const leader = teams.find(team => team.id === zone.liderEquipoId);
+            if (!leader || leader.zonaId !== zone.id) throw new Error(`La cabeza de serie de ${zone.nombre} no coincide con su zona.`);
+        });
         leaders.forEach(([zoneId, teamId]) => {
             const zone = zones.find(item => item.id === zoneId);
             const team = teams.find(item => item.id === teamId);
             if (!zone || !team) throw new Error('La cabeza de serie debe pertenecer a esta categoría y a una de sus zonas.');
+            if (zone.liderEquipoId && zone.liderEquipoId !== team.id) throw new Error(`La cabeza de serie de ${zone.nombre} está fija y no se puede reemplazar en el sorteo.`);
+            if (!zone.liderEquipoId && team.zonaId) throw new Error('Sólo se puede elegir como nueva cabeza de serie un equipo sin zona.');
+            const lockedZone = lockedLeaders.find(item => item.liderEquipoId === team.id);
+            if (lockedZone && lockedZone.id !== zone.id) throw new Error('La cabeza de serie ya está fija en otra zona.');
         });
 
-        zones.forEach(zone => { zone.liderEquipoId = null; });
-        teams.forEach(team => { team.zonaId = null; });
+        // Las nuevas cabezas sólo pueden salir del conjunto libre. Las ya
+        // asignadas (líderes o no) se conservan exactamente como están.
         leaders.forEach(([zoneId, teamId]) => {
             const zone = zones.find(item => item.id === zoneId);
             const team = teams.find(item => item.id === teamId);
-            zone.liderEquipoId = team.id;
-            team.zonaId = zone.id;
+            if (!zone.liderEquipoId) {
+                zone.liderEquipoId = team.id;
+                team.zonaId = zone.id;
+            }
         });
 
+        // El sorteo opera exclusivamente sobre los equipos sin zona. Cada
+        // vuelta usa la zona menos poblada, por lo que sólo llena los cupos
+        // disponibles y deja la distribución tan equilibrada como permitan
+        // las asignaciones ya fijas.
         const remaining = teams.filter(team => !team.zonaId);
         for (let index = remaining.length - 1; index > 0; index -= 1) {
             const swapIndex = Math.floor(Math.random() * (index + 1));
