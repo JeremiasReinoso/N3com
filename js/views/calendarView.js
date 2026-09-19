@@ -4,6 +4,39 @@ import { SchedulerService } from '../services/scheduler.js';
 
 const displayDate = date => new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'short' })
     .format(new Date(`${date}T12:00:00`));
+const weekDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+const toIsoDate = (year, month, day) => `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+const formatPeriodDate = date => date ? date.split('-').reverse().join('/') : '';
+const monthLabel = (year, month) => new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric' })
+    .format(new Date(year, month, 1));
+
+const periodSummary = (fechaInicio, fechaFin) => {
+    if (fechaInicio && fechaFin) return `Período del torneo: ${formatPeriodDate(fechaInicio)} → ${formatPeriodDate(fechaFin)}`;
+    if (fechaInicio) return `Inicio seleccionado: ${formatPeriodDate(fechaInicio)}. Ahora seleccioná el día de finalización.`;
+    return 'Seleccioná el primer y último día del torneo.';
+};
+
+const periodFieldText = (fechaInicio, fechaFin) => (
+    fechaInicio && fechaFin ? `${formatPeriodDate(fechaInicio)} - ${formatPeriodDate(fechaFin)}` : 'Seleccioná las fechas del torneo'
+);
+
+const calendarDaysMarkup = (year, month, fechaInicio, fechaFin) => {
+    const firstDayOffset = (new Date(year, month, 1).getDay() + 6) % 7;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const blanks = Array.from({ length: firstDayOffset }, () => '<span class="range-calendar-blank" aria-hidden="true"></span>').join('');
+    const days = Array.from({ length: daysInMonth }, (_, index) => {
+        const day = index + 1;
+        const date = toIsoDate(year, month, day);
+        const isStart = date === fechaInicio;
+        const isEnd = date === fechaFin;
+        const isInRange = fechaInicio && fechaFin && date > fechaInicio && date < fechaFin;
+        const selected = isStart || isEnd;
+        const state = [selected && 'is-boundary', isStart && 'is-start', isEnd && 'is-end', isInRange && 'is-in-range'].filter(Boolean).join(' ');
+        const selectedText = isStart && isEnd ? ', inicio y final del período' : isStart ? ', inicio del período' : isEnd ? ', final del período' : isInRange ? ', dentro del período' : '';
+        return `<button class="range-calendar-day ${state}" type="button" data-date="${date}" aria-label="${formatPeriodDate(date)}${selectedText}" aria-pressed="${selected}">${day}</button>`;
+    }).join('');
+    return `${blanks}${days}`;
+};
 
 export function initCalendarView() {
     let tournamentId;
@@ -19,13 +52,29 @@ export function initCalendarView() {
     const defaultEnd = tournament.horaFin || '21:00';
     const settings = DataManager.getTournamentSchedulingSettings(tournamentId);
     const daySchedules = DataManager.getDaySchedules(tournamentId);
+    let fechaInicio = period?.startDate || '';
+    let fechaFin = period?.endDate || '';
+    const initialMonth = fechaInicio ? new Date(`${fechaInicio}T12:00:00`) : new Date();
+    let visibleYear = initialMonth.getFullYear();
+    let visibleMonth = initialMonth.getMonth();
     view.innerHTML = `
         <h2>Calendario del torneo</h2>
         <section class="form-card panel-control">
             <div class="form-title"><div><h3>Disponibilidad general</h3><p>Definí el período; cada fecha tendrá su propio horario editable.</p></div><span class="calendar-chip">${tournament.nombre}</span></div>
             <form id="form-calendario" class="form-grid">
-                <label class="form-field">Fecha de inicio<input id="fecha-inicio" type="date" value="${period?.startDate || ''}" required></label>
-                <label class="form-field">Fecha de finalización<input id="fecha-fin" type="date" value="${period?.endDate || ''}" required></label>
+                <div class="form-field tournament-period-field">
+                    <span id="periodo-torneo-label">Período del torneo</span>
+                    <button id="periodo-torneo" class="tournament-period-picker" type="button" aria-labelledby="periodo-torneo-label periodo-torneo-value" aria-haspopup="dialog" aria-expanded="false">
+                        <span id="periodo-torneo-value" class="tournament-period-value">${periodFieldText(fechaInicio, fechaFin)}</span><span class="tournament-period-icon" aria-hidden="true">📅</span>
+                    </button>
+                    <p id="periodo-torneo-resumen" class="tournament-period-summary" aria-live="polite">${periodSummary(fechaInicio, fechaFin)}</p>
+                    <section id="selector-periodo" class="range-calendar" role="dialog" aria-label="Selector de período del torneo" hidden>
+                        <div class="range-calendar-header"><button id="mes-anterior" class="range-calendar-nav" type="button" aria-label="Mes anterior">‹</button><strong id="mes-periodo"></strong><button id="mes-siguiente" class="range-calendar-nav" type="button" aria-label="Mes siguiente">›</button></div>
+                        <div class="range-calendar-weekdays" aria-hidden="true">${weekDays.map(day => `<span>${day}</span>`).join('')}</div>
+                        <div id="dias-periodo" class="range-calendar-days"></div>
+                        <div class="range-calendar-actions"><button id="borrar-periodo" class="btn-secondary range-calendar-clear" type="button">Borrar selección</button></div>
+                    </section>
+                </div>
                 <label class="form-field">Horario predeterminado · desde<input id="hora-inicio" type="time" value="${defaultStart}" required></label>
                 <label class="form-field">Hasta<input id="hora-fin" type="time" value="${defaultEnd}" required></label>
                 <label class="form-field">Intervalo entre partidos (min)<input id="intervalo-partidos" type="number" min="0" max="120" value="${settings.intervaloPartidos}" required></label>
@@ -41,6 +90,60 @@ export function initCalendarView() {
                     <label>Hasta<input class="horario-dia-fin" data-fecha="${fecha}" type="time" value="${fin}" required></label>
                 </div></div>
             </article>`).join('') : '<div class="empty-state">Guardá las fechas de inicio y finalización para ver los días disponibles.</div>'}</div>`;
+
+    const periodPicker = view.querySelector('#periodo-torneo');
+    const periodDialog = view.querySelector('#selector-periodo');
+    const periodValue = view.querySelector('#periodo-torneo-value');
+    const periodSummaryElement = view.querySelector('#periodo-torneo-resumen');
+    const monthTitle = view.querySelector('#mes-periodo');
+    const daysContainer = view.querySelector('#dias-periodo');
+    const renderPeriodPicker = () => {
+        periodValue.textContent = periodFieldText(fechaInicio, fechaFin);
+        periodSummaryElement.textContent = periodSummary(fechaInicio, fechaFin);
+        monthTitle.textContent = monthLabel(visibleYear, visibleMonth);
+        daysContainer.innerHTML = calendarDaysMarkup(visibleYear, visibleMonth, fechaInicio, fechaFin);
+    };
+    const setPickerOpen = open => {
+        periodDialog.hidden = !open;
+        periodPicker.setAttribute('aria-expanded', String(open));
+        if (open) renderPeriodPicker();
+    };
+
+    periodPicker.addEventListener('click', () => setPickerOpen(periodDialog.hidden));
+    view.querySelector('#mes-anterior').addEventListener('click', () => {
+        if (visibleMonth === 0) { visibleYear -= 1; visibleMonth = 11; }
+        else visibleMonth -= 1;
+        renderPeriodPicker();
+    });
+    view.querySelector('#mes-siguiente').addEventListener('click', () => {
+        if (visibleMonth === 11) { visibleYear += 1; visibleMonth = 0; }
+        else visibleMonth += 1;
+        renderPeriodPicker();
+    });
+    daysContainer.addEventListener('click', event => {
+        const day = event.target.closest('[data-date]');
+        if (!day) return;
+        const selectedDate = day.dataset.date;
+        if (!fechaInicio || fechaFin) {
+            fechaInicio = selectedDate;
+            fechaFin = '';
+        } else if (selectedDate < fechaInicio) {
+            periodSummaryElement.textContent = `La fecha de finalización debe ser ${formatPeriodDate(fechaInicio)} o posterior.`;
+            return;
+        } else {
+            fechaFin = selectedDate;
+        }
+        renderPeriodPicker();
+    });
+    view.querySelector('#borrar-periodo').addEventListener('click', () => {
+        fechaInicio = '';
+        fechaFin = '';
+        renderPeriodPicker();
+    });
+    periodDialog.addEventListener('keydown', event => {
+        if (event.key === 'Escape') { setPickerOpen(false); periodPicker.focus(); }
+    });
+
     view.querySelector('#form-calendario').addEventListener('submit', event => {
         event.preventDefault();
         const schedules = daySchedules.map(({ fecha }) => ({
@@ -49,10 +152,11 @@ export function initCalendarView() {
             fin: view.querySelector(`.horario-dia-fin[data-fecha="${fecha}"]`)?.value
         })).filter(schedule => schedule.inicio && schedule.fin);
         try {
+            if (!fechaInicio || !fechaFin) throw new Error('Seleccioná el primer y último día del torneo antes de guardar.');
             DataManager.setTournamentCalendar(
                 tournamentId,
-                view.querySelector('#fecha-inicio').value,
-                view.querySelector('#fecha-fin').value,
+                fechaInicio,
+                fechaFin,
                 view.querySelector('#hora-inicio').value,
                 view.querySelector('#hora-fin').value,
                 schedules
