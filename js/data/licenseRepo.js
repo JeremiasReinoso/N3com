@@ -39,7 +39,6 @@ const normalizeStoredLicense = item => {
         code: normalizeCode(item?.code ?? item?.codigo),
         clientName: clean(item?.clientName ?? item?.client?.name ?? item?.cliente),
         organization: clean(item?.organization ?? item?.client?.organization ?? item?.organizacion),
-        email: clean(item?.email ?? item?.client?.email),
         phone: clean(item?.phone ?? item?.client?.phone ?? item?.telefono),
         tournamentsPurchased: purchased,
         tournamentsUsed: used,
@@ -53,7 +52,10 @@ const normalizeStoredLicense = item => {
 const browserStore = () => {
     try {
         const stored = JSON.parse(localStorage.getItem(BROWSER_STORE_KEY) || 'null');
-        return stored && Array.isArray(stored.licenses) ? { ...stored, licenses: stored.licenses.map(normalizeStoredLicense) } : emptyStore();
+        if (!stored || !Array.isArray(stored.licenses)) return emptyStore();
+        const normalized = { ...stored, licenses: stored.licenses.map(normalizeStoredLicense) };
+        if (JSON.stringify(stored.licenses) !== JSON.stringify(normalized.licenses)) localStorage.setItem(BROWSER_STORE_KEY, JSON.stringify(normalized));
+        return normalized;
     } catch { return emptyStore(); }
 };
 const saveBrowserStore = store => {
@@ -97,7 +99,6 @@ const normalize = raw => raw && ({
     codigo: normalizeCode(raw.code),
     cliente: clean(raw.clientName),
     organizacion: clean(raw.organization),
-    email: clean(raw.email),
     telefono: clean(raw.phone),
     cupo_total: Number(raw.tournamentsPurchased || 0),
     cupo_utilizado: Number(raw.tournamentsUsed || 0),
@@ -107,14 +108,14 @@ const normalize = raw => raw && ({
     activado: raw.activatedAt || null,
     history: Array.isArray(raw.history) ? raw.history : []
 });
-const toClient = license => ({ name: license.cliente, organization: license.organizacion, email: license.email, phone: license.telefono });
+const toClient = license => ({ name: license.cliente, organization: license.organizacion, phone: license.telefono });
 
-const createBrowserLicense = ({ clientName, organization = '', email = '', phone = '', tournamentsPurchased }) => browserOperation(store => {
+const createBrowserLicense = ({ clientName, organization = '', phone = '', tournamentsPurchased }) => browserOperation(store => {
     const name = clean(clientName); const purchased = credits(tournamentsPurchased);
     if (!name) throw new Error('Ingrese el nombre del cliente.');
     const now = new Date().toISOString();
     const id = nextId(store.licenses);
-    const license = { id, code: createPortableLicenseCode(id, purchased), clientName: name, organization: clean(organization), email: clean(email), phone: clean(phone), tournamentsPurchased: purchased, tournamentsUsed: 0, tournamentsRemaining: purchased, active: true, createdAt: now, activatedAt: null, history: [{ at: now, type: 'LICENSE_CREATED', tournaments: purchased }] };
+    const license = { id, code: createPortableLicenseCode(id, purchased), clientName: name, organization: clean(organization), phone: clean(phone), tournamentsPurchased: purchased, tournamentsUsed: 0, tournamentsRemaining: purchased, active: true, createdAt: now, activatedAt: null, history: [{ at: now, type: 'LICENSE_CREATED', tournaments: purchased }] };
     store.licenses.push(license);
     return license;
 });
@@ -125,7 +126,7 @@ const activateBrowserLicense = code => browserOperation(store => {
         const portable = parsePortableLicenseCode(requested);
         if (!portable) throw new Error('El código de licencia no es válido o está deshabilitado.');
         const now = new Date().toISOString();
-        license = { id: portable.id, code: portable.code, clientName: 'Licencia portátil', organization: '', email: '', phone: '', tournamentsPurchased: portable.tournamentsPurchased, tournamentsUsed: 0, tournamentsRemaining: portable.tournamentsPurchased, active: true, createdAt: now, activatedAt: null, history: [{ at: now, type: 'PORTABLE_LICENSE_IMPORTED' }] };
+        license = { id: portable.id, code: portable.code, clientName: 'Licencia portátil', organization: '', phone: '', tournamentsPurchased: portable.tournamentsPurchased, tournamentsUsed: 0, tournamentsRemaining: portable.tournamentsPurchased, active: true, createdAt: now, activatedAt: null, history: [{ at: now, type: 'PORTABLE_LICENSE_IMPORTED' }] };
         store.licenses.push(license);
     }
     if (!license.active) throw new Error('El código de licencia no es válido o está deshabilitado.');
@@ -164,7 +165,6 @@ const updateBrowserLicense = (id, changes) => browserOperation(store => {
     if (!name) throw new Error('Ingrese los datos del cliente.');
     license.clientName = name;
     license.organization = clean(changes.organization);
-    license.email = clean(changes.email);
     license.phone = clean(changes.phone);
     license.active = Boolean(changes.active);
     license.history.push({ at: new Date().toISOString(), type: 'LICENSE_UPDATED', active: license.active });
@@ -181,14 +181,14 @@ export const LicenciaRepo = {
         const code = normalizeCode(codigo); if (!code) return null;
         return (await this.obtenerTodas()).find(license => license.codigo === code) || null;
     },
-    async crear({ cliente, organization = '', email = '', phone = '', cupoTotal }) {
+    async crear({ cliente, organization = '', phone = '', cupoTotal }) {
         if (!clean(cliente)) throw new Error('Ingrese el nombre del cliente.');
-        const payload = { clientName: clean(cliente), organization, email, phone, tournamentsPurchased: credits(cupoTotal) };
+        const payload = { clientName: clean(cliente), organization, phone, tournamentsPurchased: credits(cupoTotal) };
         return normalize(await useSource(() => apiRequest('/api/licenses', 'POST', payload).then(requireLicense), () => createBrowserLicense(payload)));
     },
     async actualizar(id, changes) {
         if (!id || !clean(changes.cliente)) throw new Error('Ingrese los datos del cliente.');
-        const payload = { clientName: clean(changes.cliente), organization: clean(changes.organizacion), email: clean(changes.email), phone: clean(changes.telefono), active: Boolean(changes.activa) };
+        const payload = { clientName: clean(changes.cliente), organization: clean(changes.organizacion), phone: clean(changes.telefono), active: Boolean(changes.activa) };
         return normalize(await useSource(() => apiRequest(`/api/licenses/${encodeURIComponent(id)}`, 'PATCH', payload).then(requireLicense), () => updateBrowserLicense(id, payload)));
     },
     async agregarTorneos(id, cantidad) {
