@@ -31,7 +31,7 @@ try {
     globalThis.fetch = (path, options) => nativeFetch(`${origin}${path}`, options);
     const { LicenciaRepo } = await import(`${pathToFileURL(resolve(root, 'js/data/licenseRepo.js')).href}?local-license-test=2`);
 
-    const created = await LicenciaRepo.crear({ cliente: 'Club X', organization: 'Club X', email: 'club@example.test', phone: '1234', cupoTotal: 3 });
+    const created = await LicenciaRepo.crear({ cliente: 'Club X', organization: 'Club X', phone: '1234', cupoTotal: 3 });
     if (created.id !== 'CLI-0001' || !/^NWC-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(created.codigo) || created.disponibles !== 3 || !created.history.length) throw new Error('La licencia inicial no se creó con la estructura local requerida.');
 
     const stored = JSON.parse(await readFile(join(dataDir, 'licenses.json'), 'utf8')).licenses[0];
@@ -61,7 +61,7 @@ try {
     const replenished = await LicenciaRepo.agregarTorneos(created.id, 5);
     if (replenished.codigo !== created.codigo || replenished.disponibles !== 5) throw new Error('Agregar cinco torneos desde cero no restauró el saldo ni conservó el código.');
 
-    await LicenciaRepo.actualizar(created.id, { cliente: 'Club X', organizacion: 'Club X', email: 'club@example.test', telefono: '1234', activa: false });
+    await LicenciaRepo.actualizar(created.id, { cliente: 'Club X', organizacion: 'Club X', telefono: '1234', activa: false });
     if (await LicenciaRepo.obtenerActiva()) throw new Error('Una licencia deshabilitada siguió activa en el cliente.');
     const cleared = await LicenciaRepo.limpiarTodas();
     if (cleared.deleted !== 1 || (await LicenciaRepo.obtenerTodas()).length !== 0) throw new Error('La limpieza administrativa no eliminó las licencias locales.');
