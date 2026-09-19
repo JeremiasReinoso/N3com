@@ -41,11 +41,19 @@ export const initScheduleView = () => {
     const period = DataManager.getTournamentPeriod(tournamentId);
     const courtCount = DataManager.getTournamentCourtCount(tournamentId);
     const teamOptions = selected => teams.map(team => `<option value="${team.id}" ${team.id === selected ? 'selected' : ''}>${team.nombre}</option>`).join('');
+    const courtOptions = selected => Array.from({ length: courtCount }, (_, index) => {
+        const court = `Cancha ${index + 1}`;
+        return `<option value="${court}" ${court === selected ? 'selected' : ''}>${court}</option>`;
+    }).join('');
+    const calendarDates = DataManager.getCalendarDates(tournamentId);
+    const dateOptions = selected => calendarDates.map(date => `<option value="${date}" ${date === selected ? 'selected' : ''}>${date}</option>`).join('');
+    const guaranteedValidation = SchedulerService.validateGuaranteedMatches(tournamentId, categoryId);
 
     controls.innerHTML = `
-        <div class="form-title"><div><h3>${tournament.nombre} · ${category.nombre}</h3><p>${tournament.partidos_asegurados} partidos asegurados por equipo. ${period ? `Período: ${period.startDate} a ${period.endDate}.` : 'Defina el período en Calendario antes de programar.'}</p></div><span class="calendar-chip">PROGRAMACIÓN</span></div>
+        <div class="form-title"><div><h3>${tournament.nombre} · ${category.nombre}</h3><p>${tournament.partidos_asegurados} partidos asegurados por equipo. ${period ? `Período: ${period.startDate} a ${period.endDate}.` : 'Defina el período en Calendario antes de programar.'}</p><p class="helper-text">${guaranteedValidation.valid ? 'Programación válida: todos los equipos cumplen el mínimo.' : `Programación incompleta: ${guaranteedValidation.mensaje}`}</p></div><span class="calendar-chip">${guaranteedValidation.valid ? 'VÁLIDA' : 'INCOMPLETA'}</span></div>
         <div class="form-grid"><label class="form-field">Canchas disponibles<input id="cantidad-canchas" type="number" min="1" max="20" value="${courtCount}"></label>
-        <div class="form-actions"><button type="button" id="guardar-canchas" class="btn-secondary">Guardar canchas</button><button type="button" id="btn-generar-emparejamientos" class="btn-primary">Generar fixture</button><button type="button" id="btn-confirmar-emparejamientos" class="btn-primary">Confirmar</button></div></div>`;
+        <div class="form-actions"><button type="button" id="guardar-canchas" class="btn-secondary">Guardar canchas</button><button type="button" id="btn-generar-emparejamientos" class="btn-primary">Generar fixture</button><button type="button" id="btn-confirmar-emparejamientos" class="btn-primary">Confirmar</button></div></div>
+        <details class="schedule-editor"><summary>Crear partido manual de zona</summary><form id="manual-group-match-form"><div class="form-grid"><label class="form-field">Equipo A<select name="local" required><option value="">Seleccionar</option>${teamOptions('')}</select></label><label class="form-field">Equipo B<select name="visitante" required><option value="">Seleccionar</option>${teamOptions('')}</select></label><label class="form-field">Fecha<select name="fecha" required><option value="">Seleccionar</option>${dateOptions('')}</select></label><label class="form-field">Hora<input name="hora" type="time" required></label><label class="form-field">Cancha<select name="cancha" required><option value="">Seleccionar</option>${courtOptions('')}</select></label><label class="form-field">Orden<input name="orden" type="number" min="1" placeholder="Ej.: 1"></label></div><p class="helper-text">Sólo se aceptan equipos de la misma zona y categoría, cruces no repetidos y una cancha/horario disponibles.</p><button class="btn-secondary" type="submit">Crear partido</button></form></details>`;
 
     const editor = match => match.estado === 'finalizado' ? '' : `
         <details class="schedule-editor"><summary>Editar partido</summary>
@@ -53,9 +61,12 @@ export const initScheduleView = () => {
                 <div class="form-grid">
                     <label class="form-field">Local<select name="local" required>${teamOptions(match.equipoLocalId)}</select></label>
                     <label class="form-field">Visitante<select name="visitante" required>${teamOptions(match.equipoVisitanteId)}</select></label>
+                    <label class="form-field">Fecha<select name="fecha" required>${dateOptions(match.fecha)}</select></label>
+                    <label class="form-field">Hora<input name="hora" type="time" required value="${match.hora || ''}"></label>
+                    <label class="form-field">Cancha<select name="cancha" required>${courtOptions(match.cancha)}</select></label>
                     <label class="form-field">Orden<input name="orden" type="number" min="1" value="${match.orden || ''}" placeholder="Ej.: 1"></label>
                 </div>
-                <p class="helper-text">La fecha, el horario y la cancha se asignan automáticamente según el calendario y las canchas disponibles.</p>
+                <p class="helper-text">Los cambios modifican este mismo partido y se validan contra zona, rivales, cancha y horario.</p>
                 <div class="form-actions"><button class="btn-primary" type="submit">Guardar cambios</button><button class="eliminar-partido btn-secondary" type="button" data-id="${match.id}">Eliminar</button></div>
             </form>
         </details>`;
@@ -77,11 +88,19 @@ export const initScheduleView = () => {
         try {
             const current = matches.find(match => match.id === form.dataset.id);
             const values = new FormData(form);
-            DataManager.updateMatches([{ ...current, equipoLocalId: values.get('local'), equipoVisitanteId: values.get('visitante'), orden: values.get('orden') ? Number(values.get('orden')) : null }]);
-            if (!current.phase || current.phase === 'ZONAS') SchedulerService.programarEmparejamientos(tournamentId, categoryId);
+            DataManager.updateMatches([{ ...current, equipoLocalId: values.get('local'), equipoVisitanteId: values.get('visitante'), fecha: values.get('fecha'), hora: values.get('hora'), cancha: values.get('cancha'), orden: values.get('orden') ? Number(values.get('orden')) : null }]);
             initScheduleView();
         } catch (error) { alert(error.message); }
     }));
+    document.getElementById('manual-group-match-form').addEventListener('submit', event => {
+        event.preventDefault();
+        try {
+            const values = new FormData(event.currentTarget);
+            const local = teams.find(team => team.id === values.get('local'));
+            DataManager.createManualMatch({ torneoId: tournamentId, categoriaId: categoryId, zonaId: local?.zonaId, tipo: 'fase_zonas', phase: 'ZONAS', equipoLocalId: values.get('local'), equipoVisitanteId: values.get('visitante'), fecha: values.get('fecha'), hora: values.get('hora'), cancha: values.get('cancha'), orden: values.get('orden') ? Number(values.get('orden')) : null });
+            initScheduleView();
+        } catch (error) { alert(error.message); }
+    });
     document.getElementById('guardar-canchas').addEventListener('click', () => {
         try { DataManager.setTournamentCourtCount(tournamentId, document.getElementById('cantidad-canchas').value); initScheduleView(); } catch (error) { alert(error.message); }
     });
