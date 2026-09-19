@@ -162,7 +162,7 @@ const scenario = `
             oddRoundAppearances.set(roundKey, (oddRoundAppearances.get(roundKey) || 0) + 1);
         }
     }
-    if (oddCreated !== 6 || oddPairs.size !== oddMatches.length || [...oddCounts.values()].some(count => count < 2) || [...oddRoundAppearances.values()].some(count => count > 1)) throw new Error('La zona impar no generó rondas equilibradas y sin repetir cruces.');
+    if (oddCreated !== 5 || oddPairs.size !== oddMatches.length || [...oddCounts.values()].some(count => count !== 2) || [...oddRoundAppearances.values()].some(count => count > 1)) throw new Error('La zona impar no generó exactamente los partidos garantizados, equilibrados y sin repetir cruces.');
 
     const repairTournament = DataManager.createTournament('Reparación de borradores', 3);
     const repairCategory = DataManager.createCategory('+70', repairTournament.id);
