@@ -398,7 +398,7 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 .calendar-chip { display: inline-flex; width: fit-content; padding: 5px 9px; border-radius: 999px; background: #e9f5fb; color: #08718e; font-size: .76rem; font-weight: 800; }
 
 /* Selector de rango del período: una única entrada visual y calendario propio. */
-.tournament-period-field { position: relative; grid-column: span 2; }
+.tournament-period-field { position: relative; z-index: 1; grid-column: span 2; }
 .tournament-period-picker {
     display: flex; width: 100%; min-height: 56px; align-items: center; justify-content: space-between; gap: 12px;
     padding: 11px 13px; color: var(--ink); background: #fff; border: 1px solid #cbd9ec; border-radius: 10px;
@@ -409,10 +409,12 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 .tournament-period-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tournament-period-icon { display: grid; flex: 0 0 32px; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: #e3f7fc; font-size: 1.08rem; }
 .tournament-period-summary { min-height: 1.4em; margin: 0; color: #58708e; font-size: .85rem; font-weight: 600; line-height: 1.35; }
+.tournament-period-summary:empty { display: none; }
 .range-calendar {
-    display: grid; width: min(100%, 410px); gap: 10px; padding: 14px; background: #fff; border: 1px solid #b9d7e8;
-    border-radius: 14px; box-shadow: 0 18px 35px rgba(16, 50, 96, .16);
+    position: absolute; z-index: 10; top: calc(100% + 8px); left: 0; display: grid; width: min(360px, 100%); gap: 9px;
+    padding: 12px; background: #fff; border: 1px solid #b9d7e8; border-radius: 14px; box-shadow: 0 18px 35px rgba(16, 50, 96, .16);
 }
+.tournament-period-field[data-picker-position="above"] .range-calendar { top: auto; bottom: calc(100% + 8px); }
 .range-calendar[hidden] { display: none; }
 .range-calendar-header { display: grid; grid-template-columns: 46px 1fr 46px; align-items: center; gap: 8px; }
 .range-calendar-header strong { color: #1e496d; font-size: 1rem; text-align: center; text-transform: capitalize; }
@@ -424,15 +426,21 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 .range-calendar-weekdays, .range-calendar-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; text-align: center; }
 .range-calendar-weekdays { color: #5e7795; font-size: .72rem; font-weight: 900; letter-spacing: .02em; }
 .range-calendar-days { gap: 4px 3px; }
-.range-calendar-blank { min-height: 45px; }
+.range-calendar-blank { min-height: 42px; }
 .range-calendar-day {
-    min-width: 0; min-height: 45px; padding: 0; color: #1f3856; background: #f5f9fd; border: 1px solid transparent; border-radius: 9px;
+    min-width: 0; min-height: 42px; padding: 0; color: #1f3856; background: #f5f9fd; border: 1px solid transparent; border-radius: 9px;
     box-shadow: none; font-size: 1rem; font-weight: 800;
 }
 .range-calendar-day:hover { color: #0757b8; background: #dff5fb; border-color: #7fcee3; }
+.range-calendar-day.is-today { border-color: #149cc2; box-shadow: inset 0 -3px 0 #149cc2; }
 .range-calendar-day.is-in-range { color: #07506f; background: #bcecf7; border-color: #bcecf7; border-radius: 3px; }
 .range-calendar-day.is-boundary { color: #fff; background: linear-gradient(135deg, #0757b8, #0996bb); border-color: #0757b8; border-radius: 9px; }
 .range-calendar-day:focus-visible, .range-calendar-nav:focus-visible, .range-calendar-clear:focus-visible { outline: 3px solid #09a7c6; outline-offset: 2px; }
+.range-calendar-legend { display: flex; flex-wrap: wrap; gap: 9px 13px; margin: 0; color: #58708e; font-size: .72rem; font-weight: 700; }
+.range-calendar-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.range-calendar-legend i { display: inline-block; width: 13px; height: 13px; border-radius: 4px; }
+.range-calendar-legend-boundary { background: #0875b4; }
+.range-calendar-legend-range { background: #bcecf7; border: 1px solid #7acfe4; }
 .range-calendar-actions { display: flex; justify-content: flex-end; padding-top: 2px; border-top: 1px solid #e1edf5; }
 .range-calendar-clear { min-height: 42px; padding: 8px 12px; font-size: .84rem; box-shadow: none; }
 
@@ -448,8 +456,11 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 :root[data-theme="dark"] .range-calendar-weekdays { color: #a7bad2; }
 :root[data-theme="dark"] .range-calendar-day { color: #dceaff; background: #142235; }
 :root[data-theme="dark"] .range-calendar-day:hover { color: #effaff; background: #1a3c53; border-color: #56c5e7; }
+:root[data-theme="dark"] .range-calendar-day.is-today { border-color: #64d5ff; box-shadow: inset 0 -3px 0 #64d5ff; }
 :root[data-theme="dark"] .range-calendar-day.is-in-range { color: #e1faff; background: #15516a; border-color: #15516a; }
 :root[data-theme="dark"] .range-calendar-day.is-boundary { color: #fff; background: linear-gradient(135deg, #0878ad, #13a9c4); border-color: #4bd2ef; }
+:root[data-theme="dark"] .range-calendar-legend { color: #b8cce3; }
+:root[data-theme="dark"] .range-calendar-legend-range { background: #15516a; border-color: #4fc4e6; }
 :root[data-theme="dark"] .range-calendar-actions { border-color: #2b405b; }
 
 @media (max-width: 640px) {
