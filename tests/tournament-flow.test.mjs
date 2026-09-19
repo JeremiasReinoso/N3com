@@ -207,8 +207,18 @@ const scenario = `
     const seededTeams = DataManager.getTeamsByTournamentAndCategory(drawTournament.id, drawCategory.id);
     const seededSizes = seededZones.map(zone => seededTeams.filter(team => team.zonaId === zone.id).length);
     if (seededZones.find(zone => zone.id === drawZoneA.id).liderEquipoId !== drawTeams[0].id || seededZones.find(zone => zone.id === drawZoneB.id).liderEquipoId !== drawTeams[1].id || seededTeams.find(team => team.id === drawTeams[0].id).zonaId !== drawZoneA.id || seededTeams.find(team => team.id === drawTeams[1].id).zonaId !== drawZoneB.id || Math.max(...seededSizes) - Math.min(...seededSizes) > 1) throw new Error('El sorteo con cabezas de serie no respetó líderes o equilibrio.');
+    const assignedZonesBeforeRedraw = new Map(seededTeams.map(team => [team.id, team.zonaId]));
     DataManager.drawZones(drawTournament.id, drawCategory.id);
-    if (DataManager.getZonesByTournamentAndCategory(drawTournament.id, drawCategory.id).some(zone => zone.liderEquipoId)) throw new Error('El sorteo aleatorio conservó líderes que no fueron seleccionados.');
+    const redrawnZones = DataManager.getZonesByTournamentAndCategory(drawTournament.id, drawCategory.id);
+    const redrawnTeams = DataManager.getTeamsByTournamentAndCategory(drawTournament.id, drawCategory.id);
+    if (redrawnZones.find(zone => zone.id === drawZoneA.id).liderEquipoId !== drawTeams[0].id || redrawnZones.find(zone => zone.id === drawZoneB.id).liderEquipoId !== drawTeams[1].id || redrawnTeams.some(team => team.zonaId !== assignedZonesBeforeRedraw.get(team.id))) throw new Error('Un nuevo sorteo modificó líderes o equipos ya asignados.');
+    const freeDrawTeam = DataManager.createTeam('Sorteo G', drawCategory.id, drawTournament.id);
+    DataManager.drawZones(drawTournament.id, drawCategory.id);
+    const afterFreeDraw = DataManager.getTeamsByTournamentAndCategory(drawTournament.id, drawCategory.id);
+    if (!afterFreeDraw.find(team => team.id === freeDrawTeam.id).zonaId || afterFreeDraw.filter(team => team.id !== freeDrawTeam.id).some(team => team.zonaId !== assignedZonesBeforeRedraw.get(team.id))) throw new Error('El sorteo no se limitó a los equipos sin zona.');
+    let leaderMoveBlocked = false;
+    try { DataManager.assignTeamToZone(drawTeams[0].id, drawZoneB.id); } catch { leaderMoveBlocked = true; }
+    if (!leaderMoveBlocked) throw new Error('Se permitió mover una cabeza de serie fija.');
 
     // Flujo completo: los ocho cruces de Top 16 son nuevos, conservan la
     // fase de zonas y desembocan en Top 8, semifinales, tercer puesto y final.
