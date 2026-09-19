@@ -2,6 +2,8 @@ import { AppState } from '../core/state.js';
 import { DataManager } from '../data/dataManager.js';
 import { SchedulerService } from '../services/scheduler.js';
 
+let disposePeriodPicker = () => {};
+
 const displayDate = date => new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'short' })
     .format(new Date(`${date}T12:00:00`));
 const weekDays = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
@@ -55,6 +57,8 @@ export function initCalendarView() {
     let tournamentId;
     try { tournamentId = AppState.getTournament(); } catch { tournamentId = null; }
     const view = document.getElementById('view-calendario');
+    disposePeriodPicker();
+    disposePeriodPicker = () => {};
     if (!tournamentId) {
         view.innerHTML = '<h2>Calendario</h2><div class="empty-state">Seleccione un torneo desde Torneos para configurar las fechas de juego.</div>';
         return;
@@ -85,6 +89,7 @@ export function initCalendarView() {
                         <div class="range-calendar-header"><button id="mes-anterior" class="range-calendar-nav" type="button" aria-label="Mes anterior">‹</button><strong id="mes-periodo"></strong><button id="mes-siguiente" class="range-calendar-nav" type="button" aria-label="Mes siguiente">›</button></div>
                         <div class="range-calendar-weekdays" aria-hidden="true">${weekDays.map(day => `<span>${day}</span>`).join('')}</div>
                         <div id="dias-periodo" class="range-calendar-days"></div>
+                        <p id="estado-selector-periodo" class="range-calendar-selection" aria-live="polite"></p>
                         <p class="range-calendar-legend"><span><i class="range-calendar-legend-boundary" aria-hidden="true"></i>Inicio / final</span><span><i class="range-calendar-legend-range" aria-hidden="true"></i>Días incluidos</span></p>
                         <div class="range-calendar-actions"><button id="borrar-periodo" class="btn-secondary range-calendar-clear" type="button">Borrar selección</button></div>
                     </section>
@@ -111,36 +116,71 @@ export function initCalendarView() {
     const periodSummaryElement = view.querySelector('#periodo-torneo-resumen');
     const monthTitle = view.querySelector('#mes-periodo');
     const daysContainer = view.querySelector('#dias-periodo');
+    const selectionStatus = view.querySelector('#estado-selector-periodo');
+    const periodField = periodPicker.closest('.tournament-period-field');
     const renderPeriodPicker = () => {
         periodValue.textContent = periodFieldText(fechaInicio, fechaFin);
         periodSummaryElement.textContent = periodSummary(fechaInicio, fechaFin);
         monthTitle.textContent = monthLabel(visibleYear, visibleMonth);
         daysContainer.innerHTML = calendarDaysMarkup(visibleYear, visibleMonth, fechaInicio, fechaFin);
+        selectionStatus.textContent = `Inicio: ${fechaInicio ? formatPeriodDate(fechaInicio) : '—'} · Fin: ${fechaFin ? formatPeriodDate(fechaFin) : 'seleccioná la fecha final'}`;
+    };
+    const positionPicker = () => {
+        if (periodDialog.hidden) return;
+        const margin = 12;
+        const gap = 10;
+        const triggerBounds = periodPicker.getBoundingClientRect();
+        const dialogBounds = periodDialog.getBoundingClientRect();
+        const viewportWidth = document.documentElement.clientWidth;
+        const viewportHeight = window.innerHeight;
+        const spaceAbove = triggerBounds.top - margin;
+        const spaceBelow = viewportHeight - triggerBounds.bottom - margin;
+        const preferredAbove = spaceAbove >= dialogBounds.height + gap;
+        const preferredBelow = spaceBelow >= dialogBounds.height + gap;
+        let top;
+        if (preferredAbove || (!preferredBelow && spaceAbove >= spaceBelow)) top = triggerBounds.top - dialogBounds.height - gap;
+        else top = triggerBounds.bottom + gap;
+        top = Math.max(margin, Math.min(top, viewportHeight - dialogBounds.height - margin));
+        const left = Math.max(margin, Math.min(triggerBounds.left, viewportWidth - dialogBounds.width - margin));
+        periodDialog.style.top = `${top}px`;
+        periodDialog.style.left = `${left}px`;
     };
     const setPickerOpen = open => {
         periodDialog.hidden = !open;
         periodPicker.setAttribute('aria-expanded', String(open));
+        periodDialog.classList.toggle('is-open', open);
         if (!open) return;
         renderPeriodPicker();
-        const field = periodPicker.closest('.tournament-period-field');
-        const dialogBounds = periodDialog.getBoundingClientRect();
-        if (dialogBounds.bottom > window.innerHeight - 12 && periodPicker.getBoundingClientRect().top > dialogBounds.height + 12) field.dataset.pickerPosition = 'above';
-        else delete field.dataset.pickerPosition;
+        positionPicker();
+        requestAnimationFrame(positionPicker);
+    };
+    const closeOnOutsideClick = event => {
+        if (!periodDialog.hidden && !periodField.contains(event.target)) setPickerOpen(false);
+    };
+    const repositionOnViewportChange = () => positionPicker();
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    window.addEventListener('resize', repositionOnViewportChange);
+    window.addEventListener('orientationchange', repositionOnViewportChange);
+    window.addEventListener('scroll', repositionOnViewportChange, true);
+    disposePeriodPicker = () => {
+        document.removeEventListener('pointerdown', closeOnOutsideClick);
+        window.removeEventListener('resize', repositionOnViewportChange);
+        window.removeEventListener('orientationchange', repositionOnViewportChange);
+        window.removeEventListener('scroll', repositionOnViewportChange, true);
     };
 
     periodPicker.addEventListener('click', () => setPickerOpen(periodDialog.hidden));
-    view.addEventListener('click', event => {
-        if (!periodPicker.closest('.tournament-period-field').contains(event.target)) setPickerOpen(false);
-    });
     view.querySelector('#mes-anterior').addEventListener('click', () => {
         if (visibleMonth === 0) { visibleYear -= 1; visibleMonth = 11; }
         else visibleMonth -= 1;
         renderPeriodPicker();
+        positionPicker();
     });
     view.querySelector('#mes-siguiente').addEventListener('click', () => {
         if (visibleMonth === 11) { visibleYear += 1; visibleMonth = 0; }
         else visibleMonth += 1;
         renderPeriodPicker();
+        positionPicker();
     });
     daysContainer.addEventListener('click', event => {
         const day = event.target.closest('[data-date]');
@@ -153,12 +193,21 @@ export function initCalendarView() {
             [fechaInicio, fechaFin] = selectedDate < fechaInicio ? [selectedDate, fechaInicio] : [fechaInicio, selectedDate];
         }
         renderPeriodPicker();
-        if (fechaInicio && fechaFin) setPickerOpen(false);
+        if (fechaInicio && fechaFin) {
+            try {
+                // El selector actualiza la misma fuente de verdad que usan
+                // Calendario y Programación; el formulario conserva el guardado
+                // de horarios por día como hasta ahora.
+                DataManager.setTournamentPeriod(tournamentId, fechaInicio, fechaFin);
+                setPickerOpen(false);
+            } catch (error) { alert(error.message); }
+        } else positionPicker();
     });
     view.querySelector('#borrar-periodo').addEventListener('click', () => {
         fechaInicio = '';
         fechaFin = '';
         renderPeriodPicker();
+        positionPicker();
     });
     periodDialog.addEventListener('keydown', event => {
         if (event.key === 'Escape') { setPickerOpen(false); periodPicker.focus(); }
