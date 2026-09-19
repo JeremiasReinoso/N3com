@@ -1,6 +1,7 @@
 import { Navigation } from './core/navigation.js';
 import { AppState } from './core/state.js';
 import { DataManager } from './data/dataManager.js';
+import { goToTournament, goToTournamentList, readTournamentRoute } from './core/tournamentRoute.js';
 import { initThemeToggle } from './core/theme.js';
 import { renderCategoryWorkspace } from './core/categoryWorkspace.js';
 import { LicenciaRepo } from './data/licenseRepo.js';
@@ -38,9 +39,11 @@ const showTournamentShell = () => {
     const nav = document.getElementById('main-nav');
     const context = document.getElementById('tournament-context');
     const name = document.getElementById('active-tournament-name');
+    const header = document.querySelector('.app-header');
     if (nav) nav.hidden = false;
     if (context) context.hidden = false;
     if (name) name.textContent = tournament.nombre;
+    header?.classList.add('tournament-open');
     return true;
 };
 
@@ -49,9 +52,11 @@ const showTournamentList = () => {
     const nav = document.getElementById('main-nav');
     const context = document.getElementById('tournament-context');
     const workspace = document.getElementById('category-workspace-nav');
+    const header = document.querySelector('.app-header');
     if (nav) nav.hidden = true;
     if (context) context.hidden = true;
     if (workspace) { workspace.hidden = true; workspace.innerHTML = ''; }
+    header?.classList.remove('tournament-open');
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -72,25 +77,48 @@ document.addEventListener('DOMContentLoaded', async () => {
         'btn-nav-posiciones': initStandingsView,
         'btn-nav-eliminatorias': initPlayoffsView
     };
-    const render = async buttonId => {
+    const renderRoute = async () => {
         try {
-            const isTournamentList = buttonId === 'btn-nav-torneos';
-            if (isTournamentList) showTournamentList();
-            else if (!showTournamentShell()) return;
-            if (!isTournamentList) renderCategoryWorkspace();
+            const route = readTournamentRoute();
+            if (route.type === 'home') {
+                showTournamentList();
+                Navigation.activate('btn-nav-torneos');
+                await initTorneosVer();
+                return;
+            }
+            let currentTournamentId;
+            try { currentTournamentId = AppState.getTournament(); } catch { currentTournamentId = null; }
+            if (currentTournamentId !== route.tournamentId) AppState.setTournament(route.tournamentId);
+            const categories = DataManager.getCategoriesByTournament(route.tournamentId);
+            if (categories.length && !categories.some(category => category.id === AppState.getCategory())) AppState.setCategory(categories[0].id);
+            if (!showTournamentShell()) {
+                goToTournamentList();
+                return;
+            }
+            const buttonId = `btn-nav-${route.section}`;
+            Navigation.activate(buttonId);
+            renderCategoryWorkspace();
             await renderers[buttonId]?.();
-            if (!isTournamentList) renderCategoryWorkspace();
+            renderCategoryWorkspace();
         }
         catch (error) { console.error(error); alert('No se pudo cargar esta sección. Revise los datos del torneo e intente nuevamente.'); }
     };
     Object.keys(renderers).forEach(buttonId => {
         const button = document.getElementById(buttonId);
-        if (button) button.addEventListener('click', () => { void render(buttonId); });
+        if (!button) return;
+        button.addEventListener('click', () => {
+            if (buttonId === 'btn-nav-torneos') {
+                if (!goToTournamentList()) void renderRoute();
+                return;
+            }
+            let tournamentId;
+            try { tournamentId = AppState.getTournament(); } catch { return; }
+            if (!goToTournament(tournamentId, buttonId.replace('btn-nav-', ''))) void renderRoute();
+        });
     });
-    document.getElementById('btn-newcom-home')?.addEventListener('click', () => document.getElementById('btn-nav-torneos')?.click());
+    window.addEventListener('hashchange', () => { void renderRoute(); });
     window.addEventListener('focus', () => {
-        const active = document.querySelector('.nav-btn.active[id]');
-        if (active) void render(active.id);
+        void renderRoute();
     });
-    await render('btn-nav-torneos');
+    await renderRoute();
 });
