@@ -397,9 +397,67 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 .calendar-hours input { min-height: 40px; border: 1px solid #cedcef; border-radius: 8px; padding: 7px; font: inherit; }
 .calendar-chip { display: inline-flex; width: fit-content; padding: 5px 9px; border-radius: 999px; background: #e9f5fb; color: #08718e; font-size: .76rem; font-weight: 800; }
 
+/* Selector de rango del período: una única entrada visual y calendario propio. */
+.tournament-period-field { position: relative; grid-column: span 2; }
+.tournament-period-picker {
+    display: flex; width: 100%; min-height: 56px; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 11px 13px; color: var(--ink); background: #fff; border: 1px solid #cbd9ec; border-radius: 10px;
+    box-shadow: none; font: inherit; font-weight: 700; text-align: left;
+}
+.tournament-period-picker:hover { border-color: #58bcd1; background: #f8fdff; }
+.tournament-period-picker:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(9, 167, 198, .14); }
+.tournament-period-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tournament-period-icon { display: grid; flex: 0 0 32px; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: #e3f7fc; font-size: 1.08rem; }
+.tournament-period-summary { min-height: 1.4em; margin: 0; color: #58708e; font-size: .85rem; font-weight: 600; line-height: 1.35; }
+.range-calendar {
+    display: grid; width: min(100%, 410px); gap: 10px; padding: 14px; background: #fff; border: 1px solid #b9d7e8;
+    border-radius: 14px; box-shadow: 0 18px 35px rgba(16, 50, 96, .16);
+}
+.range-calendar[hidden] { display: none; }
+.range-calendar-header { display: grid; grid-template-columns: 46px 1fr 46px; align-items: center; gap: 8px; }
+.range-calendar-header strong { color: #1e496d; font-size: 1rem; text-align: center; text-transform: capitalize; }
+.range-calendar-nav {
+    display: grid; width: 46px; height: 46px; min-height: 46px; place-items: center; padding: 0; color: #0757b8; background: #edf7ff;
+    border: 1px solid #c8e5f1; border-radius: 10px; box-shadow: none; font-size: 1.75rem; line-height: 1;
+}
+.range-calendar-nav:hover { color: #fff; background: #0757b8; }
+.range-calendar-weekdays, .range-calendar-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; text-align: center; }
+.range-calendar-weekdays { color: #5e7795; font-size: .72rem; font-weight: 900; letter-spacing: .02em; }
+.range-calendar-days { gap: 4px 3px; }
+.range-calendar-blank { min-height: 45px; }
+.range-calendar-day {
+    min-width: 0; min-height: 45px; padding: 0; color: #1f3856; background: #f5f9fd; border: 1px solid transparent; border-radius: 9px;
+    box-shadow: none; font-size: 1rem; font-weight: 800;
+}
+.range-calendar-day:hover { color: #0757b8; background: #dff5fb; border-color: #7fcee3; }
+.range-calendar-day.is-in-range { color: #07506f; background: #bcecf7; border-color: #bcecf7; border-radius: 3px; }
+.range-calendar-day.is-boundary { color: #fff; background: linear-gradient(135deg, #0757b8, #0996bb); border-color: #0757b8; border-radius: 9px; }
+.range-calendar-day:focus-visible, .range-calendar-nav:focus-visible, .range-calendar-clear:focus-visible { outline: 3px solid #09a7c6; outline-offset: 2px; }
+.range-calendar-actions { display: flex; justify-content: flex-end; padding-top: 2px; border-top: 1px solid #e1edf5; }
+.range-calendar-clear { min-height: 42px; padding: 8px 12px; font-size: .84rem; box-shadow: none; }
+
+:root[data-theme="dark"] .tournament-period-picker,
+:root[data-theme="dark"] .range-calendar { color: #edf5ff; background: #0d1724; border-color: #385775; }
+:root[data-theme="dark"] .tournament-period-picker:hover { background: #122235; border-color: #5abfe0; }
+:root[data-theme="dark"] .tournament-period-icon { background: #12354a; }
+:root[data-theme="dark"] .tournament-period-summary { color: #b8cce3; }
+:root[data-theme="dark"] .range-calendar { box-shadow: 0 18px 35px rgba(0, 0, 0, .42); }
+:root[data-theme="dark"] .range-calendar-header strong { color: #d9ecff; }
+:root[data-theme="dark"] .range-calendar-nav { color: #b6ecff; background: #112b3d; border-color: #2f6078; }
+:root[data-theme="dark"] .range-calendar-nav:hover { color: #fff; background: #075f92; }
+:root[data-theme="dark"] .range-calendar-weekdays { color: #a7bad2; }
+:root[data-theme="dark"] .range-calendar-day { color: #dceaff; background: #142235; }
+:root[data-theme="dark"] .range-calendar-day:hover { color: #effaff; background: #1a3c53; border-color: #56c5e7; }
+:root[data-theme="dark"] .range-calendar-day.is-in-range { color: #e1faff; background: #15516a; border-color: #15516a; }
+:root[data-theme="dark"] .range-calendar-day.is-boundary { color: #fff; background: linear-gradient(135deg, #0878ad, #13a9c4); border-color: #4bd2ef; }
+:root[data-theme="dark"] .range-calendar-actions { border-color: #2b405b; }
+
 @media (max-width: 640px) {
     .container { padding: 22px 14px; }
     .form-card { padding: 18px; }
+    .tournament-period-field { grid-column: 1 / -1; }
+    .range-calendar { width: 100%; padding: 11px; }
+    .range-calendar-day, .range-calendar-blank { min-height: 44px; }
     .category-workspace-header, .resultados-toolbar { align-items: flex-start; flex-direction: column; }
     .result-actions { grid-template-columns: 1fr; }
     .match-team-row { font-size: .96rem; }
