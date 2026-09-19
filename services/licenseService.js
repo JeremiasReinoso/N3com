@@ -27,6 +27,10 @@ export class LocalLicenseService {
     async initialize() {
         await mkdir(this.privateDirectory, { recursive: true });
         if (!existsSync(this.licensesPath)) await writeFile(this.licensesPath, `${JSON.stringify(initialStore(), null, 2)}\n`, 'utf8');
+        else {
+            const data = await this.#read();
+            await writeFile(this.licensesPath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+        }
         if (!existsSync(this.adminPath)) await writeFile(this.adminPath, `${JSON.stringify({ version: '1.0', lastUpdated: null, admin: {} }, null, 2)}\n`, 'utf8');
     }
 
@@ -39,7 +43,7 @@ export class LocalLicenseService {
         return license ? clone(license) : null;
     }
 
-    async create({ clientName, organization = '', email = '', phone = '', tournamentsPurchased }) {
+    async create({ clientName, organization = '', phone = '', tournamentsPurchased }) {
         const name = clean(clientName); const purchased = credits(tournamentsPurchased);
         if (!name) throw new Error('INVALID_CLIENT');
         return this.#mutate(data => {
@@ -49,7 +53,6 @@ export class LocalLicenseService {
                 code: this.#nextCode(data.licenses, purchased),
                 clientName: name,
                 organization: clean(organization),
-                email: clean(email),
                 phone: clean(phone),
                 tournamentsPurchased: purchased,
                 tournamentsUsed: 0,
@@ -115,7 +118,7 @@ export class LocalLicenseService {
         });
     }
 
-    async update(id, { clientName, organization = '', email = '', phone = '', active }) {
+    async update(id, { clientName, organization = '', phone = '', active }) {
         const name = clean(clientName);
         if (!name) throw new Error('INVALID_CLIENT');
         return this.#mutate(data => {
@@ -123,7 +126,6 @@ export class LocalLicenseService {
             if (!license) throw new Error('LICENSE_NOT_FOUND');
             license.clientName = name;
             license.organization = clean(organization);
-            license.email = clean(email);
             license.phone = clean(phone);
             license.active = Boolean(active);
             license.history.push({ at: new Date().toISOString(), type: 'LICENSE_UPDATED', active: license.active });
@@ -140,21 +142,21 @@ export class LocalLicenseService {
     }
 
     #normalizeLegacy(item) {
-        if (item.clientName !== undefined) return item;
-        const now = item.license?.createdAt || new Date().toISOString();
+        const modern = item.clientName !== undefined;
+        const source = modern ? item : item.license || {};
+        const now = source.createdAt || new Date().toISOString();
         return {
             id: item.id,
             code: normalizeCode(item.code),
-            clientName: clean(item.client?.name),
-            organization: clean(item.client?.organization),
-            email: clean(item.client?.email),
-            phone: clean(item.client?.phone),
-            tournamentsPurchased: Number(item.license?.tournamentsPurchased || 0),
-            tournamentsUsed: Number(item.license?.tournamentsUsed || 0),
-            tournamentsRemaining: Math.max(0, Number(item.license?.tournamentsRemaining || 0)),
-            active: item.license?.active !== false,
+            clientName: clean(modern ? source.clientName : item.client?.name),
+            organization: clean(modern ? source.organization : item.client?.organization),
+            phone: clean(modern ? source.phone : item.client?.phone),
+            tournamentsPurchased: Number(source.tournamentsPurchased || 0),
+            tournamentsUsed: Number(source.tournamentsUsed || 0),
+            tournamentsRemaining: Math.max(0, Number(source.tournamentsRemaining || 0)),
+            active: source.active !== false,
             createdAt: now,
-            activatedAt: item.license?.activatedAt || null,
+            activatedAt: source.activatedAt || null,
             history: Array.isArray(item.history) ? item.history : []
         };
     }
@@ -187,7 +189,6 @@ export class LocalLicenseService {
             code,
             clientName: 'Licencia portátil',
             organization: '',
-            email: '',
             phone: '',
             tournamentsPurchased,
             tournamentsUsed: 0,
