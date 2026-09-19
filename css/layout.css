@@ -16,34 +16,41 @@
 }
 
 .logo-home {
-    padding: 3px 6px;
     color: var(--primary-color);
     background: transparent;
-    border: 1px solid transparent;
-    border-radius: 10px;
-    box-shadow: none;
+    border: 0;
     line-height: 1.2;
+    text-decoration: none;
+    cursor: pointer;
+    transition: opacity .18s ease, transform .18s ease;
 }
 
-.logo-home:hover { color: var(--primary-hover); background: rgba(9, 167, 198, .08); }
+.logo-home:hover { opacity: .78; transform: scale(1.015); }
 .logo-home:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 
 .tournament-context {
-    display: grid;
-    gap: 1px;
-    min-width: min(100%, 320px);
-    padding: 8px 14px;
+    display: flex;
+    width: min(100%, 1040px);
+    align-items: baseline;
+    justify-content: center;
+    gap: 12px;
+    padding: 11px 16px;
     color: #496682;
     background: var(--surface-soft);
     border: 1px solid var(--line-soft);
+    border-left: 4px solid var(--accent);
     border-radius: 10px;
     text-align: center;
 }
 
 .tournament-context span { font-size: .66rem; font-weight: 900; letter-spacing: .09em; }
-.tournament-context strong { color: var(--ink); font-size: .98rem; }
+.tournament-context strong { color: var(--ink); font-size: 1.08rem; }
 
-:root[data-theme="dark"] .logo-home:hover { color: #a9eaff; background: #112b3d; }
+.app-header.tournament-open { align-items: stretch; padding-block: 16px; }
+.app-header.tournament-open .logo-home { align-self: center; }
+.app-header.tournament-open #main-nav { width: min(100%, 1040px); align-self: center; }
+
+:root[data-theme="dark"] .logo-home:hover { color: var(--primary-color); }
 :root[data-theme="dark"] .tournament-context { color: #a9bed6; background: #101a29; border-color: #304866; }
 :root[data-theme="dark"] .tournament-context strong { color: #edf5ff; }
 
@@ -126,6 +133,7 @@
 
 /* Responsive */
 @media (max-width: 768px) {
+    .tournament-context { align-items: flex-start; flex-direction: column; gap: 2px; text-align: left; }
     .grid-cards {
         grid-template-columns: 1fr;
     }
