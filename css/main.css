@@ -319,6 +319,7 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
     outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px rgba(9, 167, 198, .14);
 }
 .form-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.license-create-actions { margin-top: 12px; }
 .btn-primary { border-radius: 10px; box-shadow: 0 5px 12px rgba(7, 87, 184, .18); }
 .btn-secondary { background: #e9f1fc; color: #0757b8; font-weight: 700; }
 .btn-danger { border: 1px solid #c9372c; border-radius: 10px; padding: 12px 16px; background: #fff1f0; color: #a61b16; font: inherit; font-weight: 800; cursor: pointer; }
