@@ -1,8 +1,11 @@
 import { Navigation } from './core/navigation.js';
+import { AppState } from './core/state.js';
+import { DataManager } from './data/dataManager.js';
 import { initThemeToggle } from './core/theme.js';
 import { renderCategoryWorkspace } from './core/categoryWorkspace.js';
 import { LicenciaRepo } from './data/licenseRepo.js';
 import { initTorneosVer } from './views/tournamentsView.js';
+import { initTournamentHomeView } from './views/tournamentHomeView.js';
 import { initEquiposView } from './views/teamsView.js';
 import { initZonasView } from './views/zonesView.js';
 import { initCalendarView } from './views/calendarView.js';
@@ -27,6 +30,30 @@ const showActivation = message => {
     });
 };
 
+const showTournamentShell = () => {
+    let tournamentId;
+    try { tournamentId = AppState.getTournament(); } catch { return false; }
+    const tournament = DataManager.getTournament(tournamentId);
+    if (!tournament) return false;
+    const nav = document.getElementById('main-nav');
+    const context = document.getElementById('tournament-context');
+    const name = document.getElementById('active-tournament-name');
+    if (nav) nav.hidden = false;
+    if (context) context.hidden = false;
+    if (name) name.textContent = tournament.nombre;
+    return true;
+};
+
+const showTournamentList = () => {
+    AppState.clear();
+    const nav = document.getElementById('main-nav');
+    const context = document.getElementById('tournament-context');
+    const workspace = document.getElementById('category-workspace-nav');
+    if (nav) nav.hidden = true;
+    if (context) context.hidden = true;
+    if (workspace) { workspace.hidden = true; workspace.innerHTML = ''; }
+};
+
 document.addEventListener('DOMContentLoaded', async () => {
     initThemeToggle();
     let license;
@@ -36,6 +63,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     Navigation.init();
     const renderers = {
         'btn-nav-torneos': initTorneosVer,
+        'btn-nav-inicio': initTournamentHomeView,
         'btn-nav-equipos': initEquiposView,
         'btn-nav-zonas': initZonasView,
         'btn-nav-calendario': initCalendarView,
@@ -46,9 +74,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
     const render = async buttonId => {
         try {
-            renderCategoryWorkspace();
+            const isTournamentList = buttonId === 'btn-nav-torneos';
+            if (isTournamentList) showTournamentList();
+            else if (!showTournamentShell()) return;
+            if (!isTournamentList) renderCategoryWorkspace();
             await renderers[buttonId]?.();
-            renderCategoryWorkspace();
+            if (!isTournamentList) renderCategoryWorkspace();
         }
         catch (error) { console.error(error); alert('No se pudo cargar esta sección. Revise los datos del torneo e intente nuevamente.'); }
     };
@@ -56,6 +87,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const button = document.getElementById(buttonId);
         if (button) button.addEventListener('click', () => { void render(buttonId); });
     });
+    document.getElementById('btn-newcom-home')?.addEventListener('click', () => document.getElementById('btn-nav-torneos')?.click());
     window.addEventListener('focus', () => {
         const active = document.querySelector('.nav-btn.active[id]');
         if (active) void render(active.id);
