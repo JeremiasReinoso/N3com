@@ -78,13 +78,13 @@ export function initCalendarView() {
         <h2>Calendario del torneo</h2>
         <section class="form-card panel-control">
             <div class="form-title"><div><h3>Disponibilidad general</h3><p>Definí el período; cada fecha tendrá su propio horario editable.</p></div><span class="calendar-chip">${tournament.nombre}</span></div>
-            <form id="form-calendario" class="form-grid">
+            <form id="form-calendario" class="calendar-settings-form">
+                <div class="form-grid calendar-settings-grid">
                 <div class="form-field tournament-period-field">
-                    <span id="periodo-torneo-label">Período del torneo</span>
+                    <span id="periodo-torneo-label" class="calendar-settings-label">Período del torneo</span>
                     <button id="periodo-torneo" class="tournament-period-picker" type="button" aria-labelledby="periodo-torneo-label periodo-torneo-value" aria-haspopup="dialog" aria-expanded="false">
                         <span id="periodo-torneo-value" class="tournament-period-value">${periodFieldText(fechaInicio, fechaFin)}</span><span class="tournament-period-icon" aria-hidden="true">📅</span>
                     </button>
-                    <p id="periodo-torneo-resumen" class="tournament-period-summary" aria-live="polite">${periodSummary(fechaInicio, fechaFin)}</p>
                     <section id="selector-periodo" class="range-calendar" role="dialog" aria-label="Selector de período del torneo" hidden>
                         <div class="range-calendar-header"><button id="mes-anterior" class="range-calendar-nav" type="button" aria-label="Mes anterior">‹</button><strong id="mes-periodo"></strong><button id="mes-siguiente" class="range-calendar-nav" type="button" aria-label="Mes siguiente">›</button></div>
                         <div class="range-calendar-weekdays" aria-hidden="true">${weekDays.map(day => `<span>${day}</span>`).join('')}</div>
@@ -94,10 +94,12 @@ export function initCalendarView() {
                         <div class="range-calendar-actions"><button id="borrar-periodo" class="btn-secondary range-calendar-clear" type="button">Borrar selección</button></div>
                     </section>
                 </div>
-                <label class="form-field">Horario predeterminado · desde<input id="hora-inicio" type="time" value="${defaultStart}" required></label>
-                <label class="form-field">Hasta<input id="hora-fin" type="time" value="${defaultEnd}" required></label>
-                <label class="form-field">Intervalo entre partidos (min)<input id="intervalo-partidos" type="number" min="0" max="120" value="${settings.intervaloPartidos}" required></label>
-                <div class="form-actions"><button class="btn-primary" type="submit">Guardar calendario</button></div>
+                <label class="form-field"><span class="calendar-settings-label">Horario predeterminado · desde</span><input id="hora-inicio" type="time" value="${defaultStart}" required></label>
+                <label class="form-field"><span class="calendar-settings-label">Hasta</span><input id="hora-fin" type="time" value="${defaultEnd}" required></label>
+                <label class="form-field"><span class="calendar-settings-label">Intervalo entre partidos (min)</span><input id="intervalo-partidos" type="number" min="0" max="120" value="${settings.intervaloPartidos}" required></label>
+                </div>
+                <p id="periodo-torneo-resumen" class="tournament-period-summary" aria-live="polite">${periodSummary(fechaInicio, fechaFin)}</p>
+                <div class="form-actions calendar-settings-actions"><button class="btn-primary" type="submit">Guardar calendario</button></div>
             </form>
         </section>
         <div class="calendar-intro"><span class="calendar-chip">${daySchedules.length} DÍAS</span><p>Personalizá el horario de cada jornada. Al confirmar el fixture, NEWCOM asignará automáticamente hora y cancha.</p></div>
