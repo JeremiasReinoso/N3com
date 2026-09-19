@@ -15,7 +15,7 @@ globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({}) 
 
 try {
     const { LicenciaRepo } = await import(`${pathToFileURL(resolve(root, 'js/data/licenseRepo.js')).href}?browser-storage-test=1`);
-    const created = await LicenciaRepo.crear({ cliente: 'Prueba', organization: 'Club', email: '', phone: '', cupoTotal: 3 });
+    const created = await LicenciaRepo.crear({ cliente: 'Prueba', organization: 'Club', phone: '', cupoTotal: 3 });
     if (!/^NWC-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(created.codigo) || created.disponibles !== 3) throw new Error('La licencia no se creó en el almacenamiento local del navegador.');
     const listed = await LicenciaRepo.obtenerTodas();
     if (listed.length !== 1 || listed[0].codigo !== created.codigo) throw new Error('El listado no leyó la licencia persistida en el navegador.');
