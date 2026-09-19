@@ -257,21 +257,23 @@ export const DataManager = {
         const data = this._getStorage();
         const prepared = matches.map(normalizeMatch);
         prepared.forEach(match => this._validateMatch(match, data));
-        data.matches = deduplicateGroupPairs(data.matches);
         assertUniqueGroupPairs([...data.matches, ...prepared]);
-        data.matches.push(...prepared.map(match => normalizeMatch({ id: makeId('partido'), ...match, sets: [], ganadorId: null })));
+        const created = prepared.map(match => normalizeMatch({ id: makeId('partido'), ...match, sets: [], ganadorId: null }));
+        data.matches.push(...created);
         this._validateScheduleConflicts(data.matches);
         this._setStorage(data);
+        return created;
     },
     updateMatches(matches) {
         const data = this._getStorage();
         const byId = new Map(matches.map(match => [match.id, normalizeMatch(match)]));
         byId.forEach((match, id) => {
             const original = data.matches.find(item => item.id === id);
+            if (!original) throw new Error('No se encontró el partido a modificar.');
             if (original?.estado === 'finalizado' && JSON.stringify(normalizeMatch(original)) !== JSON.stringify(match)) throw new Error('No se puede modificar un partido finalizado.');
             this._validateMatch(match, data);
         });
-        const updated = deduplicateGroupPairs(data.matches.map(match => byId.get(match.id) || match));
+        const updated = data.matches.map(match => byId.get(match.id) || match);
         assertUniqueGroupPairs(updated);
         this._validateScheduleConflicts(updated);
         data.matches = updated;
@@ -290,6 +292,10 @@ export const DataManager = {
         this._validateMatchPair(match); this._validateMatchDate(match);
         if (match.orden !== undefined && match.orden !== null && (!Number.isInteger(Number(match.orden)) || Number(match.orden) < 1)) throw new Error('El orden del partido debe ser un número entero mayor que cero.');
         if (match.hora && !/^\d{2}:\d{2}$/.test(match.hora)) throw new Error('El horario del partido no es válido.');
+        if (match.cancha) {
+            const courts = Array.from({ length: this.getTournamentCourtCount(match.torneoId) }, (_, index) => `Cancha ${index + 1}`);
+            if (!courts.includes(match.cancha)) throw new Error('La cancha seleccionada no existe en este torneo.');
+        }
         const local = data.teams.find(team => team.id === match.equipoLocalId);
         const visitante = data.teams.find(team => team.id === match.equipoVisitanteId);
         if (!local || !visitante || local.torneoId !== match.torneoId || visitante.torneoId !== match.torneoId || local.categoriaId !== match.categoriaId || visitante.categoriaId !== match.categoriaId) throw new Error('Los equipos deben pertenecer a la categoría del partido.');
@@ -298,6 +304,7 @@ export const DataManager = {
     _validateScheduleConflicts(matches) {
         matches.filter(match => match.fecha && match.hora).forEach((match, index, scheduled) => {
             scheduled.slice(index + 1).forEach(other => {
+                if (match.torneoId !== other.torneoId) return;
                 if (match.fecha !== other.fecha || match.hora !== other.hora) return;
                 if (match.cancha && other.cancha && match.cancha === other.cancha) throw new Error('No puede existir más de un partido en la misma cancha y horario.');
                 if ([match.equipoLocalId, match.equipoVisitanteId].some(id => [other.equipoLocalId, other.equipoVisitanteId].includes(id))) throw new Error('Un equipo no puede jugar dos partidos al mismo tiempo.');
@@ -307,6 +314,7 @@ export const DataManager = {
         // duración configurada. Se bloquean superposiciones de cancha y equipo.
         matches.filter(match => match.fecha && match.hora).forEach((match, index, scheduled) => {
             scheduled.slice(index + 1).forEach(other => {
+                if (match.torneoId !== other.torneoId) return;
                 if (match.fecha !== other.fecha || !other.hora) return;
                 const matchStart = minutesFromTime(match.hora);
                 const otherStart = minutesFromTime(other.hora);
