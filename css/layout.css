@@ -15,6 +15,38 @@
     color: var(--primary-color);
 }
 
+.logo-home {
+    padding: 3px 6px;
+    color: var(--primary-color);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    box-shadow: none;
+    line-height: 1.2;
+}
+
+.logo-home:hover { color: var(--primary-hover); background: rgba(9, 167, 198, .08); }
+.logo-home:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+
+.tournament-context {
+    display: grid;
+    gap: 1px;
+    min-width: min(100%, 320px);
+    padding: 8px 14px;
+    color: #496682;
+    background: var(--surface-soft);
+    border: 1px solid var(--line-soft);
+    border-radius: 10px;
+    text-align: center;
+}
+
+.tournament-context span { font-size: .66rem; font-weight: 900; letter-spacing: .09em; }
+.tournament-context strong { color: var(--ink); font-size: .98rem; }
+
+:root[data-theme="dark"] .logo-home:hover { color: #a9eaff; background: #112b3d; }
+:root[data-theme="dark"] .tournament-context { color: #a9bed6; background: #101a29; border-color: #304866; }
+:root[data-theme="dark"] .tournament-context strong { color: #edf5ff; }
+
 #main-nav {
     display: flex;
     gap: var(--spacing-sm);
