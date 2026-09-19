@@ -1,6 +1,7 @@
 import { AppState } from '../core/state.js';
 import { DataManager } from '../data/dataManager.js';
 import { LicenciaRepo } from '../data/licenseRepo.js';
+import { goToTournament } from '../core/tournamentRoute.js';
 
 const formatLabel = mode => mode === 'points' ? 'Por puntos' : 'Por sets ganados';
 
@@ -48,6 +49,6 @@ export const initTorneosVer = async () => {
         AppState.setTournament(button.dataset.id);
         const categories = DataManager.getCategoriesByTournament(button.dataset.id);
         if (categories.length) AppState.setCategory(categories[0].id);
-        document.getElementById('btn-nav-inicio').click();
+        goToTournament(button.dataset.id);
     }));
 };
