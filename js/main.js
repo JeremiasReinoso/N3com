@@ -37,12 +37,8 @@ const showTournamentShell = () => {
     const tournament = DataManager.getTournament(tournamentId);
     if (!tournament) return false;
     const nav = document.getElementById('main-nav');
-    const context = document.getElementById('tournament-context');
-    const name = document.getElementById('active-tournament-name');
     const header = document.querySelector('.app-header');
     if (nav) nav.hidden = false;
-    if (context) context.hidden = false;
-    if (name) name.textContent = tournament.nombre;
     header?.classList.add('tournament-open');
     return true;
 };
@@ -50,11 +46,9 @@ const showTournamentShell = () => {
 const showTournamentList = () => {
     AppState.clear();
     const nav = document.getElementById('main-nav');
-    const context = document.getElementById('tournament-context');
     const workspace = document.getElementById('category-workspace-nav');
     const header = document.querySelector('.app-header');
     if (nav) nav.hidden = true;
-    if (context) context.hidden = true;
     if (workspace) { workspace.hidden = true; workspace.innerHTML = ''; }
     header?.classList.remove('tournament-open');
 };
