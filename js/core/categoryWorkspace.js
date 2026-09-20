@@ -24,11 +24,13 @@ export const renderCategoryWorkspace = () => {
         return;
     }
 
-    const tournament = DataManager.getTournament(tournamentId);
+    const teams = categories.reduce((total, category) => total + DataManager.getTeamsByTournamentAndCategory(tournamentId, category.id).length, 0);
+    const matches = categories.reduce((total, category) => total + DataManager.getMatchesByTournamentAndCategory(tournamentId, category.id).length, 0);
     host.hidden = false;
-    host.innerHTML = `<section class="category-shell" aria-label="Espacios de categorías">
-        <div class="category-shell-head"><div><span>TORNEO ACTIVO</span><strong>${tournament?.nombre || 'Torneo'}</strong></div><p>Elegí una categoría para abrir su espacio de trabajo.</p></div>
+    host.innerHTML = `<section class="category-shell" aria-labelledby="active-categories-title">
+        <div class="category-shell-head"><div><h2 id="active-categories-title">Categorías Activas</h2><p>Seleccioná una categoría para ver los equipos y partidos.</p></div></div>
         <div class="category-page-list" role="list">${categories.map(category => `<button type="button" class="category-page ${category.id === activeId ? 'active' : ''}" data-category-id="${category.id}" aria-pressed="${category.id === activeId}"><strong>${category.nombre}</strong><small>${categorySummary(tournamentId, category)}</small></button>`).join('')}</div>
+        <div class="tournament-home-summary" aria-label="Resumen del torneo"><div><span>Categorías</span><strong>${categories.length}</strong></div><div><span>Equipos</span><strong>${teams}</strong></div><div><span>Partidos</span><strong>${matches}</strong></div></div>
     </section>`;
 
     host.querySelectorAll('[data-category-id]').forEach(button => button.addEventListener('click', () => {
