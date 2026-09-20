@@ -25,7 +25,7 @@ const createElement = id => {
             listeners.set(type, callbacks);
         },
         listenerCount: type => (listeners.get(type) || []).length,
-        click: () => (listeners.get('click') || []).forEach(callback => callback({ currentTarget: null })),
+        click: (event = { currentTarget: null }) => (listeners.get('click') || []).forEach(callback => callback(event)),
         querySelector: () => form,
         querySelectorAll: () => [],
         innerHTML: ''
@@ -38,6 +38,7 @@ const form = {
     trim: () => ''
 };
 const buttons = Object.fromEntries(buttonIds.map(id => [id, createElement(id)]));
+const logo = createElement('newcom-home');
 const views = Object.fromEntries(buttonIds.map(id => {
     const viewId = id.replace('btn-nav-', 'view-');
     return [viewId, createElement(viewId)];
@@ -55,7 +56,7 @@ globalThis.document = {
     addEventListener: (type, callback) => {
         if (type === 'DOMContentLoaded') domReadyListeners.push(callback);
     },
-    getElementById: id => buttons[id] || views[id] || null,
+    getElementById: id => buttons[id] || views[id] || (id === 'newcom-home' ? logo : null),
     querySelectorAll: selector => {
         if (selector.includes('nav-btn')) return Object.values(buttons);
         if (selector === '.view-section') return Object.values(views);
@@ -78,5 +79,12 @@ buttons['btn-nav-equipos'].click();
 assert.equal(buttons['btn-nav-equipos'].classList.contains('active'), true, 'Equipos debe quedar activo al hacer clic.');
 assert.equal(views['view-equipos'].classList.contains('active'), true, 'La vista Equipos debe mostrarse al hacer clic.');
 assert.equal(views['view-torneos'].classList.contains('active'), false, 'La vista anterior debe ocultarse al navegar.');
+
+assert.equal(logo.listenerCount('click'), 1, 'El logo debe usar la navegación global al listado de torneos.');
+let defaultPrevented = false;
+logo.click({ preventDefault: () => { defaultPrevented = true; } });
+assert.equal(defaultPrevented, true, 'El logo debe delegar la navegación al sistema de rutas existente.');
+assert.equal(views['view-torneos'].classList.contains('active'), true, 'El logo debe volver a mostrar Mis torneos.');
+assert.equal(views['view-equipos'].classList.contains('active'), false, 'El logo debe ocultar la vista anterior al volver a Mis torneos.');
 
 console.log('Los botones de navegación se registran y cambian de vista correctamente.');
