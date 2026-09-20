@@ -97,12 +97,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         catch (error) { console.error(error); alert('No se pudo cargar esta sección. Revise los datos del torneo e intente nuevamente.'); }
     };
+    const navigateToTournamentList = () => {
+        if (!goToTournamentList()) void renderRoute();
+    };
+    document.getElementById('newcom-home')?.addEventListener('click', event => {
+        event.preventDefault();
+        navigateToTournamentList();
+    });
     Object.keys(renderers).forEach(buttonId => {
         const button = document.getElementById(buttonId);
         if (!button) return;
         button.addEventListener('click', () => {
             if (buttonId === 'btn-nav-torneos') {
-                if (!goToTournamentList()) void renderRoute();
+                navigateToTournamentList();
                 return;
             }
             let tournamentId;
