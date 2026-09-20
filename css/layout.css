@@ -4,7 +4,7 @@
     padding: var(--spacing-md);
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
     gap: var(--spacing-md);
 }
@@ -28,9 +28,8 @@
 .logo-home:hover { opacity: .78; transform: scale(1.015); }
 .logo-home:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 
-.app-header.tournament-open { align-items: stretch; padding-block: 16px; }
-.app-header.tournament-open .logo-home { align-self: center; }
-.app-header.tournament-open #main-nav { width: min(100%, 1040px); align-self: center; }
+.app-header.tournament-open { padding-block: 16px; }
+.app-header.tournament-open #main-nav { flex: 1; }
 
 :root[data-theme="dark"] .logo-home:hover { color: var(--primary-color); }
 
@@ -39,6 +38,12 @@
     gap: var(--spacing-sm);
     flex-wrap: wrap;
     justify-content: center;
+}
+
+@media (max-width: 768px) {
+    .app-header { align-items: flex-start; padding-top: 64px; }
+    .app-header.tournament-open { flex-direction: column; }
+    #main-nav { width: 100%; justify-content: flex-start; }
 }
 
 .nav-btn {
