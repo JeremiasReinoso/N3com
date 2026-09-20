@@ -1,13 +1,19 @@
+import { AppContext } from './state.js';
+
 const homeHash = '#/torneos';
 const sections = new Set(['inicio', 'equipos', 'zonas', 'calendario', 'programacion', 'resultados', 'posiciones', 'eliminatorias']);
 
 export const readTournamentRoute = () => {
     const hash = globalThis.location?.hash || '';
     const match = hash.match(/^#\/torneo\/([^/]+)(?:\/([^/]+))?$/);
-    if (!match) return { type: 'home' };
-    const tournamentId = decodeURIComponent(match[1]);
+    if (!match) return { type: 'home', context: AppContext.TOURNAMENT_LIST };
+    let tournamentId;
+    try { tournamentId = decodeURIComponent(match[1]); }
+    catch { return { type: 'home', context: AppContext.TOURNAMENT_LIST }; }
     const section = sections.has(match[2]) ? match[2] : 'inicio';
-    return tournamentId ? { type: 'tournament', tournamentId, section } : { type: 'home' };
+    return tournamentId
+        ? { type: 'tournament', context: AppContext.TOURNAMENT, tournamentId, section }
+        : { type: 'home', context: AppContext.TOURNAMENT_LIST };
 };
 
 const setHash = hash => {
