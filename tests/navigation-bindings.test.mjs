@@ -3,88 +3,88 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const buttonIds = [
-    'btn-nav-torneos', 'btn-nav-equipos', 'btn-nav-zonas', 'btn-nav-calendario',
-    'btn-nav-programacion', 'btn-nav-resultados', 'btn-nav-posiciones', 'btn-nav-eliminatorias'
-];
+const sections = ['inicio', 'equipos', 'zonas', 'calendario', 'programacion', 'resultados', 'posiciones', 'eliminatorias'];
 
-const createElement = id => {
-    const listeners = new Map();
-    const classes = new Set(id === 'btn-nav-torneos' || id === 'view-torneos' ? ['active'] : []);
+const classList = () => {
+    const values = new Set();
+    return { add: value => values.add(value), remove: value => values.delete(value), contains: value => values.has(value) };
+};
+
+const createButton = (id, section) => {
+    const listeners = [];
     return {
         id,
+        dataset: { section },
         disabled: false,
-        classList: {
-            add: value => classes.add(value),
-            remove: value => classes.delete(value),
-            contains: value => classes.has(value)
-        },
-        addEventListener: (type, callback) => {
-            const callbacks = listeners.get(type) || [];
-            callbacks.push(callback);
-            listeners.set(type, callbacks);
-        },
-        listenerCount: type => (listeners.get(type) || []).length,
-        click: (event = { currentTarget: null }) => (listeners.get('click') || []).forEach(callback => callback(event)),
-        querySelector: () => form,
-        querySelectorAll: () => [],
-        innerHTML: ''
+        classList: classList(),
+        addEventListener: (type, callback) => { if (type === 'click') listeners.push(callback); },
+        click: () => listeners.forEach(callback => callback()),
     };
 };
 
-const form = {
-    addEventListener: () => {},
-    value: '',
-    trim: () => ''
+const buttons = [];
+const nav = {
+    hidden: true,
+    _innerHTML: '',
+    set innerHTML(value) {
+        this._innerHTML = value;
+        buttons.length = 0;
+        [...value.matchAll(/id="(btn-nav-([^"]+))"[^>]*data-section="([^"]+)"/g)].forEach(([, id, , section]) => {
+            const button = createButton(id, section);
+            if (new RegExp(`id="${id}" class="nav-btn active"`).test(value)) button.classList.add('active');
+            buttons.push(button);
+        });
+    },
+    get innerHTML() { return this._innerHTML; },
+    querySelectorAll: selector => selector === '[data-section]' ? buttons : []
 };
-const buttons = Object.fromEntries(buttonIds.map(id => [id, createElement(id)]));
-const logo = createElement('newcom-home');
-const views = Object.fromEntries(buttonIds.map(id => {
-    const viewId = id.replace('btn-nav-', 'view-');
-    return [viewId, createElement(viewId)];
-}));
-const domReadyListeners = [];
+const header = { classList: classList() };
+const views = Object.fromEntries(['torneos', ...sections].map(id => [`view-${id}`, { id: `view-${id}`, classList: classList() }]));
 
-globalThis.localStorage = {
-    values: new Map(),
-    getItem(key) { return this.values.get(key) || null; },
-    setItem(key, value) { this.values.set(key, value); }
-};
-localStorage.setItem('newcom_active_license_code_v1', 'NWC-TEST-2026-001');
-globalThis.fetch = async () => ({ ok: true, json: async () => ({ id: 'CLI-0001', code: 'NWC-TEST-2026-001', clientName: 'Club de prueba', organization: '', phone: '', tournamentsPurchased: 1, tournamentsUsed: 0, tournamentsRemaining: 1, active: true, createdAt: '', activatedAt: null, history: [] }) });
 globalThis.document = {
-    addEventListener: (type, callback) => {
-        if (type === 'DOMContentLoaded') domReadyListeners.push(callback);
-    },
-    getElementById: id => buttons[id] || views[id] || (id === 'newcom-home' ? logo : null),
+    getElementById: id => id === 'main-nav' ? nav : views[id] || null,
+    querySelector: selector => selector === '.app-header' ? header : null,
     querySelectorAll: selector => {
-        if (selector.includes('nav-btn')) return Object.values(buttons);
         if (selector === '.view-section') return Object.values(views);
+        if (selector === '#main-nav .nav-btn') return buttons;
         return [];
-    },
-    querySelector: () => null
+    }
 };
-globalThis.alert = () => {};
-globalThis.window = { addEventListener: () => {} };
 
-await import(`${pathToFileURL(resolve(root, 'js/main.js')).href}?navigation-test=1`);
-assert.equal(domReadyListeners.length, 1, 'La aplicación debe esperar al DOM antes de inicializarse.');
-await domReadyListeners[0]();
+const { Navigation } = await import(`${pathToFileURL(resolve(root, 'js/core/navigation.js')).href}?navigation-test=1`);
+const { AppContext, AppState } = await import(`${pathToFileURL(resolve(root, 'js/core/state.js')).href}?navigation-test=1`);
+globalThis.location = { hash: '#/torneo/torneo%20prueba/resultados' };
+const { readTournamentRoute } = await import(`${pathToFileURL(resolve(root, 'js/core/tournamentRoute.js')).href}?navigation-test=1`);
+const restoredRoute = readTournamentRoute();
+assert.deepEqual(restoredRoute, { type: 'tournament', context: AppContext.TOURNAMENT, tournamentId: 'torneo prueba', section: 'resultados' }, 'La ruta debe restaurar el torneo y la sección luego de recargar.');
 
-for (const id of buttonIds) {
-    assert.equal(buttons[id].listenerCount('click'), 2, `${id} debe tener navegación y carga de vista.`);
-}
+Navigation.render({ context: AppContext.TOURNAMENT_LIST });
+assert.equal(nav.hidden, true, 'Mis torneos no debe conservar la navegación interna.');
+assert.equal(nav.innerHTML, '', 'Los enlaces internos no se deben renderizar fuera de un torneo.');
+assert.equal(header.classList.contains('tournament-open'), false, 'El encabezado debe salir del contexto de torneo.');
 
-buttons['btn-nav-equipos'].click();
-assert.equal(buttons['btn-nav-equipos'].classList.contains('active'), true, 'Equipos debe quedar activo al hacer clic.');
-assert.equal(views['view-equipos'].classList.contains('active'), true, 'La vista Equipos debe mostrarse al hacer clic.');
-assert.equal(views['view-torneos'].classList.contains('active'), false, 'La vista anterior debe ocultarse al navegar.');
+let selectedSection = null;
+Navigation.render({ context: AppContext.TOURNAMENT, section: 'equipos', onSectionChange: section => { selectedSection = section; } });
+assert.equal(nav.hidden, false, 'Al abrir un torneo debe aparecer la navegación interna.');
+assert.equal(buttons.length, sections.length, 'La navegación interna debe contener todas las secciones del torneo.');
+assert.equal(buttons.find(button => button.id === 'btn-nav-equipos').classList.contains('active'), true, 'La sección actual debe quedar activa.');
+buttons.find(button => button.id === 'btn-nav-resultados').click();
+assert.equal(selectedSection, 'resultados', 'Cada enlace interno debe comunicar su sección al router central.');
 
-assert.equal(logo.listenerCount('click'), 1, 'El logo debe usar la navegación global al listado de torneos.');
-let defaultPrevented = false;
-logo.click({ preventDefault: () => { defaultPrevented = true; } });
-assert.equal(defaultPrevented, true, 'El logo debe delegar la navegación al sistema de rutas existente.');
-assert.equal(views['view-torneos'].classList.contains('active'), true, 'El logo debe volver a mostrar Mis torneos.');
-assert.equal(views['view-equipos'].classList.contains('active'), false, 'El logo debe ocultar la vista anterior al volver a Mis torneos.');
+Navigation.activateView('view-equipos');
+assert.equal(views['view-equipos'].classList.contains('active'), true, 'La vista solicitada debe activarse.');
+assert.equal(views['view-torneos'].classList.contains('active'), false, 'La lista no debe permanecer activa dentro del torneo.');
 
-console.log('Los botones de navegación se registran y cambian de vista correctamente.');
+buttons.forEach(button => { button.disabled = true; });
+Navigation.habilitarMenu();
+assert.equal(buttons.every(button => !button.disabled), true, 'La habilitación del menú debe limitarse a sus enlaces renderizados.');
+
+AppState.clear();
+assert.equal(AppState.getContext(), AppContext.TOURNAMENT_LIST, 'Al salir no debe conservarse el contexto interno.');
+AppState.setTournament('torneo-prueba');
+assert.equal(AppState.getContext(), AppContext.TOURNAMENT, 'Al abrir debe establecerse el contexto tournament.');
+assert.equal(AppState.getTournament(), 'torneo-prueba', 'El ID del torneo abierto debe conservarse en el estado actual.');
+AppState.clear();
+assert.equal(AppState.getContext(), AppContext.TOURNAMENT_LIST, 'Al volver al listado debe limpiarse el torneo actual.');
+
+console.log('La navegación se renderiza exclusivamente según tournament-list o tournament.');
