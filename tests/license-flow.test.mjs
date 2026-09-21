@@ -14,8 +14,11 @@ const nativeFetch = globalThis.fetch;
 try {
     const indexMarkup = await readFile(join(root, 'index.html'), 'utf8');
     const mainSource = await readFile(join(root, 'js', 'main.js'), 'utf8');
+    const adminMarkup = await readFile(join(root, 'admin.html'), 'utf8');
+    const adminSource = await readFile(join(root, 'js', 'views', 'adminView.js'), 'utf8');
     if (/admin\.html|Administración/i.test(indexMarkup)) throw new Error('El cliente todavía muestra un acceso al panel administrativo.');
     if (!mainSource.includes('Para utilizar NEWCOM necesitás activar tu licencia.')) throw new Error('La pantalla de activación no contiene el texto requerido.');
+    if (/btn-limpiar-licencias|Limpiar licencias/i.test(adminMarkup) || !adminSource.includes('delete-license')) throw new Error('El panel administrativo no usa la eliminación individual de licencias.');
     for (let attempt = 0; attempt < 30; attempt += 1) {
         try { if ((await nativeFetch(`${origin}/api/licenses`)).ok) break; } catch {}
         await new Promise(resolveWait => setTimeout(resolveWait, 50));
@@ -63,6 +66,10 @@ try {
 
     await LicenciaRepo.actualizar(created.id, { cliente: 'Club X', organizacion: 'Club X', telefono: '1234', activa: false });
     if (await LicenciaRepo.obtenerActiva()) throw new Error('Una licencia deshabilitada siguió activa en el cliente.');
+    const preserved = await LicenciaRepo.crear({ cliente: 'Club Y', organization: 'Club Y', phone: '5678', cupoTotal: 2 });
+    const deleted = await LicenciaRepo.eliminar(created.id);
+    const remainingLicenses = await LicenciaRepo.obtenerTodas();
+    if (deleted.id !== created.id || remainingLicenses.length !== 1 || remainingLicenses[0].id !== preserved.id) throw new Error('La eliminación individual no preservó las demás licencias.');
     const cleared = await LicenciaRepo.limpiarTodas();
     if (cleared.deleted !== 1 || (await LicenciaRepo.obtenerTodas()).length !== 0) throw new Error('La limpieza administrativa no eliminó las licencias locales.');
     console.log('El flujo local de licencia activa, persiste 3→2, amplía 2→7, bloquea en cero y conserva el código.');
