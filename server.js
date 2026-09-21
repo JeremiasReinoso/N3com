@@ -38,6 +38,9 @@ const api = async (request, response, url) => {
         return send(response, 200, await licenseService.clear());
     }
     const id = url.pathname.match(/^\/api\/licenses\/([^/]+)$/)?.[1];
+    if (request.method === 'DELETE' && id) {
+        return send(response, 200, await licenseService.remove(decodeURIComponent(id)));
+    }
     if (request.method === 'PATCH' && id) {
         const body = await readBody(request); const licenseId = decodeURIComponent(id);
         const license = body.action === 'add-credits'
