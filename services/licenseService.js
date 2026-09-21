@@ -118,6 +118,15 @@ export class LocalLicenseService {
         });
     }
 
+    async remove(id) {
+        return this.#mutate(data => {
+            const index = data.licenses.findIndex(item => item.id === id);
+            if (index < 0) throw new Error('LICENSE_NOT_FOUND');
+            const [license] = data.licenses.splice(index, 1);
+            return { id: license.id, code: license.code };
+        });
+    }
+
     async update(id, { clientName, organization = '', phone = '', active }) {
         const name = clean(clientName);
         if (!name) throw new Error('INVALID_CLIENT');
