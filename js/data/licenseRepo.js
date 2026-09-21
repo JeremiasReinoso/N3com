@@ -82,6 +82,10 @@ const requireClearResult = value => {
     if (!Number.isInteger(value?.deleted) || value.deleted < 0) throw unavailable();
     return value;
 };
+const requireDeletedLicense = value => {
+    if (!value?.id) throw unavailable();
+    return value;
+};
 const useSource = async (remoteOperation, localOperation) => {
     if (backend === 'browser') return localOperation();
     try {
@@ -158,6 +162,12 @@ const clearBrowserLicenses = () => browserOperation(store => {
     store.licenses = [];
     return { deleted };
 });
+const deleteBrowserLicense = id => browserOperation(store => {
+    const index = store.licenses.findIndex(item => item.id === id);
+    if (index < 0) throw new Error('No se encontró la licencia seleccionada.');
+    const [license] = store.licenses.splice(index, 1);
+    return { id: license.id, code: license.code };
+});
 const updateBrowserLicense = (id, changes) => browserOperation(store => {
     const license = store.licenses.find(item => item.id === id);
     const name = clean(changes.clientName);
@@ -199,6 +209,12 @@ export const LicenciaRepo = {
         const result = await useSource(() => apiRequest('/api/licenses', 'DELETE').then(requireClearResult), clearBrowserLicenses);
         localStorage.removeItem(ACTIVE_CODE_KEY);
         return result;
+    },
+    async eliminar(id) {
+        if (!id) throw new Error('No se encontró la licencia seleccionada.');
+        const deleted = await useSource(() => apiRequest(`/api/licenses/${encodeURIComponent(id)}`, 'DELETE').then(requireDeletedLicense), () => deleteBrowserLicense(id));
+        if (normalizeCode(localStorage.getItem(ACTIVE_CODE_KEY)) === normalizeCode(deleted.code)) localStorage.removeItem(ACTIVE_CODE_KEY);
+        return deleted;
     },
     async activar(codigo) {
         const code = normalizeCode(codigo);
