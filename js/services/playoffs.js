@@ -6,9 +6,11 @@ const TOP_16_PAIRS = [[1, 16], [8, 9], [5, 12], [4, 13], [6, 11], [3, 14], [7, 1
 const STAGE_LIMITS = { TOP_16: 8, TOP_8: 4, SEMIFINAL: 2, THIRD_PLACE: 1, FINAL: 1 };
 const PREVIOUS_PHASE = { TOP_16: 'ZONAS', TOP_8: 'TOP_16', SEMIFINAL: 'TOP_8', THIRD_PLACE: 'SEMIFINAL', FINAL: 'SEMIFINAL' };
 const tournamentMode = torneoId => DataManager.getTournamentClassificationMode(torneoId);
-const supportsTopStages = torneoId => tournamentMode(torneoId) === 'points';
+const isAllVsAllTournament = torneoId => DataManager.getTournamentMethod(torneoId) === 'all_vs_all';
+const supportsTopStages = torneoId => !isAllVsAllTournament(torneoId) && tournamentMode(torneoId) === 'points';
 const previousPhaseFor = (torneoId, phase) => (
-    phase === 'SEMIFINAL' && !supportsTopStages(torneoId) ? 'ZONAS' : PREVIOUS_PHASE[phase]
+    phase === 'SEMIFINAL' && isAllVsAllTournament(torneoId) ? 'ALL_VS_ALL'
+        : (phase === 'SEMIFINAL' && !supportsTopStages(torneoId) ? 'ZONAS' : PREVIOUS_PHASE[phase])
 );
 const winner = match => match.ganadorId;
 const phaseMatches = (torneoId, categoriaId, phase) => DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => match.phase === phase);
@@ -56,6 +58,14 @@ const eligibleTeams = (torneoId, categoriaId, phase) => {
         const table = PosicionesService.calcularPosiciones(torneoId, categoriaId);
         if (table.length < 16) throw new Error('Se necesitan al menos 16 equipos para generar el Top 16.');
         return table.slice(0, 16).map(row => row.id);
+    }
+    if (phase === 'SEMIFINAL' && isAllVsAllTournament(torneoId)) {
+        if (SchedulerService.getTournamentPhase(torneoId, categoriaId) !== 'SEMIFINALS') {
+            throw new Error('Cierre la fase de cruces y registre sus resultados antes de generar semifinales.');
+        }
+        const table = PosicionesService.calcularPosiciones(torneoId, categoriaId);
+        if (table.length < 4) throw new Error('Se necesitan al menos 4 equipos para generar semifinales.');
+        return table.slice(0, 4).map(row => row.id);
     }
     if (phase === 'SEMIFINAL' && !supportsTopStages(torneoId)) {
         const completion = SchedulerService.estadoFaseClasificatoria(torneoId, categoriaId);
