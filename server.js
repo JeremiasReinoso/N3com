@@ -1,13 +1,10 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { LocalLicenseService } from './services/licenseService.js';
 
 const root = resolve(fileURLToPath(new URL('.', import.meta.url)));
-const privateDirectory = resolve(process.env.NEWCOM_PRIVATE_DIR || resolve(root, 'private'));
-const licenseService = new LocalLicenseService(privateDirectory);
-const port = Number(process.env.PORT || 4173);
 const mimeTypes = { '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 
 const send = (response, status, body) => {
@@ -22,7 +19,7 @@ const readBody = request => new Promise((resolveBody, reject) => {
 });
 const fail = (response, status, message) => send(response, status, { error: message });
 
-const api = async (request, response, url) => {
+const api = async (request, response, url, licenseService) => {
     if (request.method === 'GET' && url.pathname === '/api/licenses') return send(response, 200, { licenses: await licenseService.list() });
     if (request.method === 'POST' && url.pathname === '/api/licenses') {
         const body = await readBody(request);
@@ -51,7 +48,7 @@ const api = async (request, response, url) => {
     return fail(response, 404, 'Recurso no encontrado.');
 };
 
-const serveStatic = async (response, url) => {
+const serveStatic = async (response, url, privateDirectory) => {
     const requested = url.pathname === '/' ? '/index.html' : decodeURIComponent(url.pathname);
     if (requested === '/private' || requested.startsWith('/private/')) { response.writeHead(404); response.end(); return; }
     const filePath = resolve(root, `.${requested}`);
@@ -63,19 +60,48 @@ const serveStatic = async (response, url) => {
     } catch { response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); response.end('No encontrado'); }
 };
 
-await licenseService.initialize();
-createServer(async (request, response) => {
-    const url = new URL(request.url, `http://${request.headers.host || '127.0.0.1'}`);
-    try { if (url.pathname.startsWith('/api/')) await api(request, response, url); else await serveStatic(response, url); }
-    catch (error) {
-        const messages = {
-            LICENSE_INVALID: 'El código de licencia no es válido o está deshabilitado.',
-            NO_CREDITS: 'No tenés torneos disponibles. Contactá al administrador para adquirir más.',
-            INVALID_CREDITS: 'Ingrese una cantidad de torneos válida.',
-            INVALID_CLIENT: 'Ingrese los datos del cliente.',
-            INVALID_BODY: 'Los datos enviados no son válidos.',
-            LICENSE_NOT_FOUND: 'No se encontró la licencia seleccionada.'
-        };
-        fail(response, 400, messages[error.message] || 'No se pudo actualizar la licencia.');
-    }
-}).listen(port, '127.0.0.1', () => console.log(`NEWCOM local: http://127.0.0.1:${port}`));
+// Electron reutiliza exactamente este servidor para no duplicar el frontend ni
+// la API de licencias. En escritorio los datos privados viven bajo userData;
+// al ejecutar `node server.js` se conserva el directorio local histórico.
+export const startLocalServer = async ({
+    port = Number(process.env.PORT || 4173),
+    privateDirectory = resolve(process.env.NEWCOM_PRIVATE_DIR || resolve(root, 'private'))
+} = {}) => {
+    const resolvedPrivateDirectory = resolve(privateDirectory);
+    const licenseService = new LocalLicenseService(resolvedPrivateDirectory);
+    await licenseService.initialize();
+    const server = createServer(async (request, response) => {
+        const url = new URL(request.url, `http://${request.headers.host || '127.0.0.1'}`);
+        try {
+            if (url.pathname.startsWith('/api/')) await api(request, response, url, licenseService);
+            else await serveStatic(response, url, resolvedPrivateDirectory);
+        }
+        catch (error) {
+            const messages = {
+                LICENSE_INVALID: 'El código de licencia no es válido o está deshabilitado.',
+                NO_CREDITS: 'No tenés torneos disponibles. Contactá al administrador para adquirir más.',
+                INVALID_CREDITS: 'Ingrese una cantidad de torneos válida.',
+                INVALID_CLIENT: 'Ingrese los datos del cliente.',
+                INVALID_BODY: 'Los datos enviados no son válidos.',
+                LICENSE_NOT_FOUND: 'No se encontró la licencia seleccionada.'
+            };
+            fail(response, 400, messages[error.message] || 'No se pudo actualizar la licencia.');
+        }
+    });
+
+    await new Promise((resolveListening, rejectListening) => {
+        server.once('error', rejectListening);
+        server.listen(port, '127.0.0.1', resolveListening);
+    });
+    const address = server.address();
+    const listeningPort = typeof address === 'object' && address ? address.port : port;
+    return { server, port: listeningPort, url: `http://127.0.0.1:${listeningPort}` };
+};
+
+const isDirectExecution = process.argv[1]
+    && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+
+if (isDirectExecution) {
+    const localServer = await startLocalServer();
+    console.log(`NEWCOM local: ${localServer.url}`);
+}
