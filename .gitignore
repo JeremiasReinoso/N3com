@@ -2,3 +2,6 @@
 !/private/
 /private/*
 !/private/.gitkeep
+
+/node_modules/
+/release/
