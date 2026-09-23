@@ -2,7 +2,11 @@
 // forma autónoma y no depende de la gestión de licencias.
 const STORAGE_KEY = 'newcom_data';
 const CLASSIFICATION_MODE = { SETS: 'sets', POINTS: 'points' };
+const TOURNAMENT_METHOD = { STANDARD: 'standard', ALL_VS_ALL: 'all_vs_all' };
 const normalizeClassificationMode = value => value === CLASSIFICATION_MODE.POINTS ? CLASSIFICATION_MODE.POINTS : CLASSIFICATION_MODE.SETS;
+// Los torneos guardados antes de incorporar métodos conservan exactamente el
+// flujo histórico. No se migra ni se infiere un método nuevo para ellos.
+const normalizeTournamentMethod = value => value === TOURNAMENT_METHOD.ALL_VS_ALL ? TOURNAMENT_METHOD.ALL_VS_ALL : TOURNAMENT_METHOD.STANDARD;
 let sequence = 0;
 
 const emptyData = () => ({ tournaments: [], categories: [], teams: [], zones: [], matches: [], calendar: [] });
@@ -22,7 +26,7 @@ const minutesFromTime = time => {
     return hour * 60 + minute;
 };
 const validHours = (start, end) => /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end) && minutesFromTime(start) < minutesFromTime(end);
-const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', top_16: 'TOP_16', top_8: 'TOP_8', semifinal: 'SEMIFINAL', tercer_puesto: 'THIRD_PLACE', final: 'FINAL' };
+const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', cruces_todos_contra_todos: 'ALL_VS_ALL', top_16: 'TOP_16', top_8: 'TOP_8', semifinal: 'SEMIFINAL', tercer_puesto: 'THIRD_PLACE', final: 'FINAL' };
 const TYPE_BY_PHASE = Object.fromEntries(Object.entries(PHASE_BY_TYPE).map(([type, phase]) => [phase, type]));
 const phaseFor = match => match.phase || PHASE_BY_TYPE[match.tipo] || 'ZONAS';
 const isZonePhaseMatch = match => phaseFor(match) === 'ZONAS';
@@ -115,7 +119,8 @@ export const DataManager = {
             // histórico basado en sets ganados.
             data.tournaments = data.tournaments.map(tournament => ({
                 ...tournament,
-                classificationMode: normalizeClassificationMode(tournament.classificationMode)
+                classificationMode: normalizeClassificationMode(tournament.classificationMode),
+                method: normalizeTournamentMethod(tournament.method)
             }));
             // Compatibilidad con las zonas locales creadas por la versión
             // anterior, que guardaba sólo la categoría.
@@ -149,9 +154,10 @@ export const DataManager = {
     getTournaments() { return this._getStorage().tournaments; },
     getTournament(id) { return this.getTournaments().find(tournament => tournament.id === id) || null; },
     getTournamentClassificationMode(id) { return normalizeClassificationMode(this.getTournament(id)?.classificationMode); },
-    createTournament(nombre, partidosAsegurados, classificationMode = CLASSIFICATION_MODE.SETS) {
+    getTournamentMethod(id) { return normalizeTournamentMethod(this.getTournament(id)?.method); },
+    createTournament(nombre, partidosAsegurados, classificationMode = CLASSIFICATION_MODE.SETS, method = TOURNAMENT_METHOD.STANDARD) {
         const data = this._getStorage();
-        const tournament = { id: makeId('torneo'), nombre: nombre.trim(), partidos_asegurados: Number(partidosAsegurados), classificationMode: normalizeClassificationMode(classificationMode), duracionPartido: 60, intervaloPartidos: 0, creado: new Date().toISOString() };
+        const tournament = { id: makeId('torneo'), nombre: nombre.trim(), partidos_asegurados: Number(partidosAsegurados), classificationMode: normalizeClassificationMode(classificationMode), method: normalizeTournamentMethod(method), duracionPartido: 60, intervaloPartidos: 0, creado: new Date().toISOString() };
         data.tournaments.push(tournament);
         this._setStorage(data);
         return tournament;
@@ -159,6 +165,13 @@ export const DataManager = {
 
     getCategoriesByTournament(torneoId) { return this._getStorage().categories.filter(category => category.torneoId === torneoId); },
     getCategory(id) { return this._getStorage().categories.find(category => category.id === id) || null; },
+    setAllVsAllCrossesClosed(torneoId, categoriaId, closed = true) {
+        const data = this._getStorage();
+        const category = data.categories.find(item => item.id === categoriaId && item.torneoId === torneoId);
+        if (!category) throw new Error('La categoría no pertenece al torneo seleccionado.');
+        category.allVsAllCrossesClosed = Boolean(closed);
+        this._setStorage(data);
+    },
     createCategory(nombre, torneoId) {
         return this.createCategories([nombre], torneoId)[0];
     },
@@ -178,7 +191,12 @@ export const DataManager = {
     getTeamsByTournamentAndCategory(torneoId, categoriaId) { return this._getStorage().teams.filter(team => team.torneoId === torneoId && team.categoriaId === categoriaId); },
     createTeam(nombre, categoriaId, torneoId) {
         const data = this._getStorage();
-        const team = { id: makeId('equipo'), nombre: nombre.trim(), categoriaId, torneoId, zonaId: null };
+        const name = String(nombre || '').trim();
+        const category = data.categories.find(item => item.id === categoriaId && item.torneoId === torneoId);
+        if (!category) throw new Error('La categoría seleccionada no pertenece al torneo.');
+        if (!name) throw new Error('Ingrese un nombre de equipo válido.');
+        if (data.teams.some(team => team.torneoId === torneoId && team.categoriaId === categoriaId && team.nombre.trim().toLocaleLowerCase('es') === name.toLocaleLowerCase('es'))) throw new Error('Ya existe un equipo con ese nombre en esta categoría.');
+        const team = { id: makeId('equipo'), nombre: name, categoriaId, torneoId, zonaId: null };
         data.teams.push(team);
         this._setStorage(data);
         return team;
