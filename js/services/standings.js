@@ -1,6 +1,8 @@
 import { DataManager } from '../data/dataManager.js';
 
-const isGroupStandingMatch = match => match.phase === 'ZONAS' || !match.tipo || match.tipo === 'fase_zonas';
+// La tabla general del método Todos contra todos acumula también los cruces
+// libres. Las eliminatorias siguen sin alterar los puntos de clasificación.
+const isGroupStandingMatch = match => match.phase === 'ZONAS' || match.phase === 'ALL_VS_ALL' || !match.tipo || match.tipo === 'fase_zonas' || match.tipo === 'cruces_todos_contra_todos';
 const hasSetResult = match => match.estado === 'finalizado' && Array.isArray(match.sets) && match.sets.length >= 2 && match.ganadorId;
 
 // Por puntos se prioriza el rendimiento real: partidos ganados → diferencia de
