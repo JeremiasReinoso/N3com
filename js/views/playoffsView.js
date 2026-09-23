@@ -2,13 +2,84 @@ import { AppState } from '../core/state.js';
 import { DataManager } from '../data/dataManager.js';
 import { PlayoffsService } from '../services/playoffs.js';
 import { SchedulerService } from '../services/scheduler.js';
+import { PosicionesService } from '../services/standings.js';
 
 const PHASE_LABELS = { TOP_16: 'Top 16 → Top 8', TOP_8: 'Top 8 → Top 4', SEMIFINAL: 'Semifinales', THIRD_PLACE: 'Tercer puesto', FINAL: 'Final' };
+
+const ALL_VS_ALL_PHASE_LABELS = {
+    GUARANTEED_MATCHES: 'Partidos garantizados',
+    ALL_VS_ALL: 'Cruces — Todos contra todos',
+    SEMIFINALS: 'Semifinales',
+    FINAL: 'Final',
+    FINISHED: 'Campeón definido'
+};
+
+const renderAllVsAll = (tournamentId, categoryId, controls, container) => {
+    const tournament = DataManager.getTournament(tournamentId);
+    const category = DataManager.getCategory(categoryId);
+    const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId);
+    const phase = SchedulerService.getTournamentPhase(tournamentId, categoryId);
+    const guaranteed = SchedulerService.estadoFaseClasificatoria(tournamentId, categoryId);
+    const crosses = SchedulerService.getAllVsAllCrosses(tournamentId, categoryId);
+    const pending = crosses.filter(match => match.estado !== 'finalizado');
+    const table = PosicionesService.calcularPosiciones(tournamentId, categoryId);
+    const teamName = id => teams.find(team => team.id === id)?.nombre || 'Equipo';
+    const courtCount = DataManager.getTournamentCourtCount(tournamentId);
+    const dates = DataManager.getCalendarDates(tournamentId);
+    const teamOptions = teams.map(team => `<option value="${team.id}">${team.nombre}</option>`).join('');
+    const dateOptions = dates.map(date => `<option value="${date}">${date}</option>`).join('');
+    const courtOptions = Array.from({ length: courtCount }, (_, index) => `<option value="Cancha ${index + 1}">Cancha ${index + 1}</option>`).join('');
+    const phaseMatches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId)
+        .filter(match => ['SEMIFINAL', 'THIRD_PLACE', 'FINAL'].includes(match.phase));
+    const crossList = crosses.length ? crosses.map(match => `<article class="schedule-match"><div class="schedule-match-time"><strong>${match.hora || 'Horario pendiente'}</strong><span>${match.fecha || 'Fecha pendiente'}${match.cancha ? ` · ${match.cancha}` : ''}</span></div><div class="schedule-match-main"><div><strong>${teamName(match.equipoLocalId)} <b>vs</b> ${teamName(match.equipoVisitanteId)}</strong><span class="schedule-stage">${match.manual ? 'MANUAL' : 'AUTOMÁTICO'}</span></div>${match.estado === 'finalizado' ? `<span class="schedule-score">${match.setsLocal} – ${match.setsVisitante}</span>` : '<span class="match-status pending">PENDIENTE</span>'}</div></article>`).join('') : '<div class="empty-state compact">Aún no hay cruces creados.</div>';
+    const tableRows = table.map((row, index) => `<tr><td>${index + 1}</td><td>${row.nombre}</td><td>${row.jugados}</td><td>${row.ganados}</td><td>${row.perdidos}</td><td>${row.setsFavor}-${row.setsContra}</td><td>${row.puntosClasificacion}</td></tr>`).join('');
+    const knockoutList = phaseMatches.length ? `<section class="schedule-day"><header><div><span class="calendar-chip">ELIMINATORIAS</span><h4>Semifinales y final</h4></div><strong>${phaseMatches.length} partidos</strong></header><div class="schedule-match-list">${phaseMatches.map(match => `<article class="schedule-match"><div class="schedule-match-main"><div><span class="schedule-stage">${PHASE_LABELS[match.phase]}</span><strong>${teamName(match.equipoLocalId)} <b>vs</b> ${teamName(match.equipoVisitanteId)}</strong></div>${match.estado === 'finalizado' ? `<span class="schedule-score">${match.setsLocal} – ${match.setsVisitante}</span>` : '<span class="match-status pending">PENDIENTE</span>'}</div></article>`).join('')}</div></section>` : '';
+
+    const laterManual = phase === 'SEMIFINALS' ? `<details class="schedule-editor"><summary>+ Crear semifinal manual</summary><form id="manual-all-vs-all-playoff-form"><div class="form-grid"><label class="form-field">Local<select name="local" required>${teamOptions}</select></label><label class="form-field">Visitante<select name="visitante" required>${teamOptions}</select></label><label class="form-field">Orden<input name="orden" type="number" min="1"></label></div><p class="helper-text">Disponible mientras se completa la llave; sólo acepta los cuatro equipos clasificados y programa el partido con las reglas existentes.</p><button class="btn-secondary" type="submit">Crear semifinal manual</button></form></details>` : '<p class="helper-text">Los partidos manuales de garantizados se crean desde Programación. Durante los cruces libres se habilita el editor sin restricción de zona.</p>';
+    controls.innerHTML = `<div class="form-title"><div><h3>${tournament.nombre} · ${category.nombre}</h3><p>Fase actual: <strong>${ALL_VS_ALL_PHASE_LABELS[phase]}</strong>. ${guaranteed.mensaje}</p></div><span class="calendar-chip">${ALL_VS_ALL_PHASE_LABELS[phase]}</span></div>${phase === 'ALL_VS_ALL' ? `<div class="form-actions"><button id="btn-proponer-cruces" class="btn-primary">Generar cruces automáticamente</button><button id="btn-cerrar-cruces" class="btn-secondary">Cerrar cruces y generar semifinales</button></div><div id="all-vs-all-preview"></div><details class="schedule-editor"><summary>+ Crear partido manual</summary><form id="manual-all-vs-all-form"><div class="form-grid"><label class="form-field">Equipo 1<select name="local" required><option value="">Seleccionar</option>${teamOptions}</select></label><label class="form-field">Equipo 2<select name="visitante" required><option value="">Seleccionar</option>${teamOptions}</select></label><label class="form-field">Fecha<select name="fecha" required><option value="">Seleccionar</option>${dateOptions}</select></label><label class="form-field">Hora<input name="hora" type="time" required></label><label class="form-field">Cancha<select name="cancha" required><option value="">Seleccionar</option>${courtOptions}</select></label><label class="form-field">Orden<input name="orden" type="number" min="1"></label></div><p class="helper-text">Cualquier equipo de esta categoría puede enfrentarse: las zonas ya no restringen estos cruces. Si existe un antecedente, se solicitará confirmación para crear una revancha.</p><button class="btn-secondary" type="submit">Crear partido manual</button></form></details>` : laterManual}`;
+    container.innerHTML = `<section class="card standings-card"><div class="standings-head"><div><h3>Tabla general</h3><p>Incluye garantizados y cruces de todos contra todos; las zonas no la separan.</p></div><span class="calendar-chip">${table.length} EQUIPOS</span></div><div class="standings-table-wrap"><table class="standings-table"><thead><tr><th>#</th><th>Equipo</th><th>PJ</th><th>PG</th><th>PP</th><th>Sets</th><th>Pts.</th></tr></thead><tbody>${tableRows}</tbody></table></div></section><section class="schedule-board"><div class="schedule-board-head"><div><h3>Cruces — Todos contra todos</h3><p>${crosses.length} creados · ${pending.length} pendientes · ${crosses.length - pending.length} finalizados.</p></div><span class="calendar-chip">${pending.length} PENDIENTES</span></div><div class="schedule-match-list">${crossList}</div></section>${knockoutList}`;
+
+    document.getElementById('btn-proponer-cruces')?.addEventListener('click', () => {
+        try {
+            const proposal = SchedulerService.proponerCrucesTodosContraTodos(tournamentId, categoryId);
+            const preview = document.getElementById('all-vs-all-preview');
+            if (!proposal.length) { preview.innerHTML = '<p class="helper-text">No quedan rivales disponibles sin repetir enfrentamientos.</p>'; return; }
+            preview.innerHTML = `<section class="schedule-editor" open><h4>Cruces propuestos</h4><div class="draft-fixture-list">${proposal.map(pair => `<div class="draft-fixture-row"><strong>${pair.local.nombre} <b>vs</b> ${pair.visitante.nombre}</strong></div>`).join('')}</div><div class="form-actions"><button id="cancelar-cruces" type="button" class="btn-secondary">Cancelar</button><button id="confirmar-cruces" type="button" class="btn-primary">Confirmar cruces</button></div></section>`;
+            document.getElementById('cancelar-cruces').addEventListener('click', () => { preview.innerHTML = ''; });
+            document.getElementById('confirmar-cruces').addEventListener('click', () => {
+                try { SchedulerService.crearCrucesTodosContraTodos(tournamentId, categoryId, proposal); initPlayoffsView(); } catch (error) { alert(error.message); }
+            });
+        } catch (error) { alert(error.message); }
+    });
+    document.getElementById('manual-all-vs-all-form')?.addEventListener('submit', event => {
+        event.preventDefault();
+        try {
+            const values = new FormData(event.currentTarget);
+            const local = values.get('local'); const visitante = values.get('visitante');
+            const duplicate = SchedulerService.existeEnfrentamiento(tournamentId, categoryId, local, visitante);
+            if (duplicate && !window.confirm('Estos equipos ya se enfrentaron. ¿Deseas crear igualmente un nuevo partido?')) return;
+            SchedulerService.crearCruceManualTodosContraTodos(tournamentId, categoryId, local, visitante, { fecha: values.get('fecha'), hora: values.get('hora'), cancha: values.get('cancha'), orden: values.get('orden') }, duplicate);
+            initPlayoffsView();
+        } catch (error) { alert(error.message); }
+    });
+    document.getElementById('manual-all-vs-all-playoff-form')?.addEventListener('submit', event => {
+        event.preventDefault();
+        try {
+            const values = new FormData(event.currentTarget);
+            PlayoffsService.crearPartidoManual(tournamentId, categoryId, 'SEMIFINAL', values.get('local'), values.get('visitante'), { orden: values.get('orden') });
+            initPlayoffsView();
+        } catch (error) { alert(error.message); }
+    });
+    document.getElementById('btn-cerrar-cruces')?.addEventListener('click', () => {
+        try { SchedulerService.cerrarCrucesTodosContraTodos(tournamentId, categoryId); PlayoffsService.generarSemifinales(tournamentId, categoryId); initPlayoffsView(); } catch (error) { alert(error.message); }
+    });
+};
 
 export function initPlayoffsView() {
     let tournamentId; try { tournamentId = AppState.getTournament(); } catch { tournamentId = null; }
     const container = document.getElementById('eliminatorias-list'); const controls = document.querySelector('#view-eliminatorias .panel-control'); const categoryId = AppState.getCategory();
     if (!tournamentId || !categoryId) { controls.innerHTML = '<p>Seleccione un torneo y una categoría desde Equipos.</p>'; container.innerHTML = ''; return; }
+    if (DataManager.getTournamentMethod(tournamentId) === 'all_vs_all') { renderAllVsAll(tournamentId, categoryId, controls, container); return; }
     const byPoints = DataManager.getTournamentClassificationMode(tournamentId) === 'points';
     const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId); const team = id => teams.find(item => item.id === id)?.nombre || 'Equipo';
     const progress = SchedulerService.estadoFaseClasificatoria(tournamentId, categoryId);
