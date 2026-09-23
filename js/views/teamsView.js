@@ -90,7 +90,6 @@ export const initEquiposView = () => {
         event.preventDefault();
         const name = view.querySelector('#equipo-nombre').value.trim();
         if (!name) return;
-        DataManager.createTeam(name, categoryId, tournamentId);
-        initEquiposView();
+        try { DataManager.createTeam(name, categoryId, tournamentId); initEquiposView(); } catch (error) { alert(error.message); }
     });
 };
