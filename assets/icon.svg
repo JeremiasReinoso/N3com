@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="N3com">
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b5cab"/>
+      <stop offset="1" stop-color="#082b56"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="216" fill="url(#background)"/>
+  <circle cx="512" cy="512" r="355" fill="none" stroke="#ffffff" stroke-width="42" opacity=".93"/>
+  <path d="M259 426c120-67 260-67 380 0M259 598c120 67 260 67 380 0" fill="none" stroke="#ffffff" stroke-width="42" stroke-linecap="round"/>
+  <text x="512" y="555" text-anchor="middle" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="244" font-weight="700">N3</text>
+</svg>
