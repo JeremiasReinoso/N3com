@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { findTeamMatches, normalizeTeamSearch } from '../js/views/resultsView.js';
+import { findTeamMatches, getVisibleMatches, normalizeTeamSearch } from '../js/views/resultsView.js';
 
 const teams = [
     { id: 'aguilas', nombre: 'Águilas Doradas', torneoId: 'actual', categoriaId: '40m' },
@@ -16,6 +16,7 @@ const matches = [
     { id: 'otro-torneo', torneoId: 'anterior', categoriaId: '40m', equipoLocalId: 'torino-viejo', equipoVisitanteId: 'pumas' }
 ];
 const search = query => findTeamMatches({ matches, teams, tournamentId: 'actual', categoryId: '40m', query });
+const visible = query => getVisibleMatches({ matches, teams, tournamentId: 'actual', categoryId: '40m', query });
 
 assert.equal(normalizeTeamSearch('  ÁGUILAS '), 'aguilas');
 assert.deepEqual(search('agu').map(match => match.id), ['m1', 'm2'], 'Debe buscar parcialmente, sin distinguir acentos ni mayúsculas, y ordenar por fecha y hora.');
@@ -23,6 +24,9 @@ assert.deepEqual(search('DORADAS').map(match => match.id), ['m1', 'm2'], 'Debe e
 assert.deepEqual(search('torino').map(match => match.id), ['m1', 'm3'], 'Debe encontrar al equipo como local o visitante.');
 assert.deepEqual(search('inexistente'), [], 'Una búsqueda sin coincidencias no debe devolver partidos.');
 assert.deepEqual(search(''), [], 'Sin búsqueda no debe listar partidos.');
+assert.strictEqual(visible(''), matches, 'Sin búsqueda debe conservar el listado completo y su orden original.');
+assert.deepEqual(visible('torino').map(match => match.id), ['m1', 'm3'], 'Con búsqueda debe filtrar el listado por cualquiera de los dos equipos.');
+assert.strictEqual(visible('   '), matches, 'Al borrar la búsqueda debe volver inmediatamente al listado completo.');
 assert.equal(search('torino').some(match => match.id === 'otro-torneo'), false, 'No debe mezclar torneos.');
 assert.equal(search('aguilas').some(match => match.id === 'otra-categoria'), false, 'No debe mezclar categorías.');
 
