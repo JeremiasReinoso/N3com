@@ -38,6 +38,10 @@ export const findTeamMatches = ({ matches, teams, tournamentId, categoryId, quer
         .sort(compareMatches);
 };
 
+export const getVisibleMatches = filters => normalizeTeamSearch(filters.query)
+    ? findTeamMatches(filters)
+    : filters.matches;
+
 const previewFromInputs = card => {
     const entries = [...card.querySelectorAll('.set-points')].map(row => ({
         local: row.querySelector('[data-side="local"]').value,
@@ -151,13 +155,12 @@ export function initResultadosView(options = {}) {
     };
     const renderSearch = () => {
         const query = searchInput.value;
-        const found = findTeamMatches({ matches, teams, tournamentId, categoryId, query });
-        count.textContent = normalizeTeamSearch(query) ? `${found.length} ENCONTRADOS` : `${matches.length} PARTIDOS`;
-        if (!normalizeTeamSearch(query)) {
-            list.innerHTML = '<div class="empty-state">Escribí el nombre de un equipo para ver todos sus partidos.</div>';
-            return;
-        }
-        list.innerHTML = found.length ? found.map(matchCard).join('') : '<div class="empty-state">No se encontraron partidos para este equipo.</div>';
+        const hasQuery = Boolean(normalizeTeamSearch(query));
+        const visibleMatches = getVisibleMatches({ matches, teams, tournamentId, categoryId, query });
+        count.textContent = hasQuery ? `${visibleMatches.length} PARTIDOS ENCONTRADOS` : `${matches.length} PARTIDOS`;
+        list.innerHTML = visibleMatches.length
+            ? visibleMatches.map(matchCard).join('')
+            : `<div class="empty-state">${hasQuery ? 'No se encontraron partidos para este equipo.' : 'No hay partidos confirmados en esta categoría. Confirmalos desde Programación para poder cargar resultados.'}</div>`;
         bindMatchActions();
     };
 
