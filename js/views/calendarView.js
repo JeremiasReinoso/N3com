@@ -1,6 +1,5 @@
 import { AppState } from '../core/state.js';
 import { DataManager } from '../data/dataManager.js';
-import { SchedulerService } from '../services/scheduler.js';
 
 let disposePeriodPicker = () => {};
 
@@ -196,13 +195,10 @@ export function initCalendarView() {
         }
         renderPeriodPicker();
         if (fechaInicio && fechaFin) {
-            try {
-                // El selector actualiza la misma fuente de verdad que usan
-                // Calendario y Programación; el formulario conserva el guardado
-                // de horarios por día como hasta ahora.
-                DataManager.setTournamentPeriod(tournamentId, fechaInicio, fechaFin);
-                setPickerOpen(false);
-            } catch (error) { alert(error.message); }
+            // La selección queda en borrador hasta Guardar. De este modo una
+            // reducción del calendario nunca deja fuera partidos o jornadas
+            // planificadas sin una confirmación explícita.
+            setPickerOpen(false);
         } else positionPicker();
     });
     view.querySelector('#borrar-periodo').addEventListener('click', () => {
@@ -224,23 +220,23 @@ export function initCalendarView() {
         })).filter(schedule => schedule.inicio && schedule.fin);
         try {
             if (!fechaInicio || !fechaFin) throw new Error('Seleccioná el primer y último día del torneo antes de guardar.');
-            DataManager.setTournamentCalendar(
-                tournamentId,
-                fechaInicio,
-                fechaFin,
+            const saveCalendar = allowUsedDateRemoval => DataManager.setTournamentCalendar(
+                tournamentId, fechaInicio, fechaFin,
                 view.querySelector('#hora-inicio').value,
                 view.querySelector('#hora-fin').value,
-                schedules
+                schedules, { allowUsedDateRemoval }
             );
-            DataManager.setTournamentSchedulingSettings(tournamentId, settings.duracionPartido, view.querySelector('#intervalo-partidos').value);
-            const categoryId = AppState.getCategory();
-            if (categoryId) {
-                const groupMatches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId)
-                    .filter(match => !match.phase || match.phase === 'ZONAS');
-                const allConfirmed = groupMatches.length && groupMatches.every(match => match.confirmado || ['pendiente', 'programado', 'finalizado'].includes(match.estado));
-                if (allConfirmed) SchedulerService.programarEmparejamientos(tournamentId, categoryId);
-                else SchedulerService.redistribuirFechas(tournamentId, categoryId);
+            try { saveCalendar(false); }
+            catch (error) {
+                if (error.code !== 'CALENDAR_DATE_IN_USE') throw error;
+                const details = error.usage.map(item => `${displayDate(item.date)}: ${item.categoryNames.join(', ') || 'categoría sin nombre'} (${item.matchCount} partido${item.matchCount === 1 ? '' : 's'})`).join('\n');
+                const confirmed = window.confirm(`${error.message}\n\n${details}\n\nLos partidos y la planificación se conservarán, pero quedarán señalados como fuera del calendario. ¿Querés continuar?`);
+                if (!confirmed) return;
+                saveCalendar(true);
             }
+            DataManager.setTournamentSchedulingSettings(tournamentId, settings.duracionPartido, view.querySelector('#intervalo-partidos').value);
+            // Guardar disponibilidad no mueve partidos reales. La nueva
+            // distribución se solicita desde Programación, con contexto.
             initCalendarView();
         } catch (error) { alert(error.message); }
     });
