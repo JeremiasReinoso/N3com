@@ -35,6 +35,11 @@ const minutesFromTime = time => {
     const [hour, minute] = String(time).split(':').map(Number);
     return hour * 60 + minute;
 };
+const defaultCourts = count => Array.from({ length: Number(count || 2) }, (_, index) => ({ id: `court_${index + 1}`, name: `Cancha ${index + 1}` }));
+const normalizeCourt = (court, index) => ({
+    id: String(court?.id || `court_${index + 1}`),
+    name: String(court?.name || court?.nombre || `Cancha ${index + 1}`).trim() || `Cancha ${index + 1}`
+});
 const validHours = (start, end) => /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end) && minutesFromTime(start) < minutesFromTime(end);
 const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', cruces_todos_contra_todos: 'ALL_VS_ALL', top_16: 'TOP_16', top_8: 'TOP_8', semifinal: 'SEMIFINAL', tercer_puesto: 'THIRD_PLACE', final: 'FINAL' };
 const TYPE_BY_PHASE = Object.fromEntries(Object.entries(PHASE_BY_TYPE).map(([type, phase]) => [phase, type]));
@@ -130,7 +135,14 @@ export const DataManager = {
             data.tournaments = data.tournaments.map(tournament => ({
                 ...tournament,
                 classificationMode: normalizeClassificationMode(tournament.classificationMode),
-                method: normalizeTournamentMethod(tournament.method)
+                method: normalizeTournamentMethod(tournament.method),
+                courts: Array.isArray(tournament.courts) && tournament.courts.length
+                    ? tournament.courts.map(normalizeCourt)
+                    : defaultCourts(tournament.cantidadCanchas || 2)
+            }));
+            data.categories = data.categories.map(category => ({
+                ...category,
+                minimumRestBlocks: Math.max(0, Number(category.minimumRestBlocks || 0))
             }));
             // Compatibilidad con las zonas locales creadas por la versión
             // anterior, que guardaba sólo la categoría.
@@ -154,6 +166,11 @@ export const DataManager = {
                 }
                 return normalizeMatch({ ...normalizedMatch, estado: 'pendiente', confirmado: true, sets: [], setsLocal: null, setsVisitante: null, ganadorId: null });
             });
+            data.matches = data.matches.map(match => {
+                const tournament = data.tournaments.find(item => item.id === match.torneoId);
+                const court = tournament?.courts?.find(item => item.id === match.courtId || item.name === match.cancha);
+                return { ...match, courtId: court?.id || match.courtId || null, cancha: court?.name || match.cancha || null };
+            });
             return data;
         } catch {
             return emptyData();
@@ -167,7 +184,7 @@ export const DataManager = {
     getTournamentMethod(id) { return normalizeTournamentMethod(this.getTournament(id)?.method); },
     createTournament(nombre, partidosAsegurados, classificationMode = CLASSIFICATION_MODE.SETS, method = TOURNAMENT_METHOD.STANDARD) {
         const data = this._getStorage();
-        const tournament = { id: makeId('torneo'), nombre: nombre.trim(), partidos_asegurados: Number(partidosAsegurados), classificationMode: normalizeClassificationMode(classificationMode), method: normalizeTournamentMethod(method), duracionPartido: 60, intervaloPartidos: 0, creado: new Date().toISOString() };
+        const tournament = { id: makeId('torneo'), nombre: nombre.trim(), partidos_asegurados: Number(partidosAsegurados), classificationMode: normalizeClassificationMode(classificationMode), method: normalizeTournamentMethod(method), courts: defaultCourts(2), cantidadCanchas: 2, blockDuration: 30, duracionPartido: 30, intervaloPartidos: 0, creado: new Date().toISOString() };
         data.tournaments.push(tournament);
         this._setStorage(data);
         return tournament;
@@ -175,6 +192,16 @@ export const DataManager = {
 
     getCategoriesByTournament(torneoId) { return this._getStorage().categories.filter(category => category.torneoId === torneoId); },
     getCategory(id) { return this._getStorage().categories.find(category => category.id === id) || null; },
+    getCategoryRestBlocks(id) { return Math.max(0, Number(this.getCategory(id)?.minimumRestBlocks || 0)); },
+    setCategoryRestBlocks(torneoId, categoriaId, blocks) {
+        const value = Number(blocks);
+        if (!Number.isInteger(value) || value < 0 || value > 20) throw new Error('El descanso mínimo debe ser una cantidad de bloques entre 0 y 20.');
+        const data = this._getStorage();
+        const category = data.categories.find(item => item.id === categoriaId && item.torneoId === torneoId);
+        if (!category) throw new Error('La categoría no pertenece al torneo seleccionado.');
+        category.minimumRestBlocks = value;
+        this._setStorage(data);
+    },
     getCategoryPlanning(torneoId, categoriaId) {
         const category = this._getStorage().categories.find(item => item.id === categoriaId && item.torneoId === torneoId);
         if (!category?.planning || !Array.isArray(category.planning.days)) return null;
@@ -228,7 +255,7 @@ export const DataManager = {
         if (!names.length) throw new Error('Seleccione al menos una categoría válida.');
         const existing = new Set(data.categories.filter(category => category.torneoId === torneoId).map(category => category.nombre.trim().toLocaleLowerCase('es')));
         if (names.some(name => existing.has(name.toLocaleLowerCase('es')))) throw new Error('Una de las categorías seleccionadas ya fue agregada al torneo.');
-        const categories = names.map(nombre => ({ id: makeId('categoria'), nombre, torneoId }));
+        const categories = names.map(nombre => ({ id: makeId('categoria'), nombre, torneoId, minimumRestBlocks: 0 }));
         data.categories.push(...categories);
         this._setStorage(data);
         return categories;
@@ -379,24 +406,49 @@ export const DataManager = {
     },
     _validateMatch(match, data) {
         this._validateMatchPair(match); this._validateMatchDate(match);
+        const category = data.categories.find(item => item.id === match.categoriaId && item.torneoId === match.torneoId);
+        if (!category) throw new Error('La categoría del partido no existe en este torneo.');
+        if (!match.equipoLocalId || !match.equipoVisitanteId) throw new Error('El partido debe tener dos equipos asignados.');
         if (match.orden !== undefined && match.orden !== null && (!Number.isInteger(Number(match.orden)) || Number(match.orden) < 1)) throw new Error('El orden del partido debe ser un número entero mayor que cero.');
-        if (match.hora && !/^\d{2}:\d{2}$/.test(match.hora)) throw new Error('El horario del partido no es válido.');
+        if (match.hora && (!/^\d{2}:\d{2}$/.test(match.hora) || minutesFromTime(match.hora) >= 1440)) throw new Error('El horario del partido no es válido.');
+        if (match.fecha && match.hora) {
+            const day = this.getDaySchedules(match.torneoId).find(item => item.fecha === match.fecha);
+            const block = this.getTournamentSchedulingSettings(match.torneoId).blockDuration;
+            const start = minutesFromTime(match.hora);
+            if (!day || start < minutesFromTime(day.inicio) || start + block > minutesFromTime(day.fin) || (start - minutesFromTime(day.inicio)) % block !== 0) {
+                throw new Error('El horario debe coincidir con un bloque válido dentro de la jornada.');
+            }
+        }
         if (match.cancha) {
-            const courts = Array.from({ length: this.getTournamentCourtCount(match.torneoId) }, (_, index) => `Cancha ${index + 1}`);
-            if (!courts.includes(match.cancha)) throw new Error('La cancha seleccionada no existe en este torneo.');
+            const courts = this.getTournamentCourts(match.torneoId);
+            const court = courts.find(item => item.id === match.courtId || item.name === match.cancha);
+            if (!court) throw new Error('La cancha seleccionada no existe en este torneo.');
+            match.courtId = court.id;
+            match.cancha = court.name;
         }
         const local = data.teams.find(team => team.id === match.equipoLocalId);
         const visitante = data.teams.find(team => team.id === match.equipoVisitanteId);
         if (!local || !visitante || local.torneoId !== match.torneoId || visitante.torneoId !== match.torneoId || local.categoriaId !== match.categoriaId || visitante.categoriaId !== match.categoriaId) throw new Error('Los equipos deben pertenecer a la categoría del partido.');
         if (phaseFor(match) === 'ZONAS' && (local.zonaId !== visitante.zonaId || !local.zonaId || match.zonaId !== local.zonaId)) throw new Error('No se pueden enfrentar equipos de zonas diferentes durante esta fase.');
+        if (match.fecha && category.planning?.days) {
+            const planningPhase = phaseFor(match) === 'THIRD_PLACE' ? 'FINAL' : phaseFor(match);
+            const day = category.planning.days.find(item => item.date === match.fecha);
+            const accepted = planningPhase === 'ZONAS' ? ['ZONAS', 'GARANTIZADOS'] : [planningPhase];
+            if (!day?.stages?.some(stage => accepted.includes(stage))) throw new Error('La etapa de este partido no está permitida en la jornada elegida para su categoría.');
+        }
     },
     _validateScheduleConflicts(matches) {
-        matches.filter(match => match.fecha && match.hora).forEach((match, index, scheduled) => {
+        const scheduledMatches = matches.filter(match => match.fecha && match.hora);
+        scheduledMatches.forEach((match, index, scheduled) => {
             scheduled.slice(index + 1).forEach(other => {
                 if (match.torneoId !== other.torneoId) return;
                 if (match.fecha !== other.fecha || match.hora !== other.hora) return;
-                if (match.cancha && other.cancha && match.cancha === other.cancha) throw new Error('No puede existir más de un partido en la misma cancha y horario.');
-                if ([match.equipoLocalId, match.equipoVisitanteId].some(id => [other.equipoLocalId, other.equipoVisitanteId].includes(id))) throw new Error('Un equipo no puede jugar dos partidos al mismo tiempo.');
+                if (match.cancha && other.cancha && (match.courtId && other.courtId ? match.courtId === other.courtId : match.cancha === other.cancha)) throw new Error(`${match.cancha} ya está ocupada a las ${match.hora} (conflicto de cancha y horario).`);
+                const busyTeamId = [match.equipoLocalId, match.equipoVisitanteId].find(id => [other.equipoLocalId, other.equipoVisitanteId].includes(id));
+                if (busyTeamId) {
+                    const name = this._getStorage().teams.find(team => team.id === busyTeamId)?.nombre || 'El equipo';
+                    throw new Error(`${name} ya tiene un partido programado a las ${match.hora}.`);
+                }
             });
         });
         // No alcanza con comparar horas iguales: cada partido ocupa toda su
@@ -407,11 +459,31 @@ export const DataManager = {
                 if (match.fecha !== other.fecha || !other.hora) return;
                 const matchStart = minutesFromTime(match.hora);
                 const otherStart = minutesFromTime(other.hora);
-                const matchEnd = matchStart + this.getTournamentSchedulingSettings(match.torneoId).duracionPartido;
-                const otherEnd = otherStart + this.getTournamentSchedulingSettings(other.torneoId).duracionPartido;
+                const matchEnd = matchStart + this.getTournamentSchedulingSettings(match.torneoId).blockDuration;
+                const otherEnd = otherStart + this.getTournamentSchedulingSettings(other.torneoId).blockDuration;
                 if (matchStart >= otherEnd || otherStart >= matchEnd) return;
-                if (match.cancha && other.cancha && match.cancha === other.cancha) throw new Error('Los horarios se superponen en la misma cancha.');
+                if (match.cancha && other.cancha && (match.courtId && other.courtId ? match.courtId === other.courtId : match.cancha === other.cancha)) throw new Error(`${match.cancha} ya está ocupada durante ese bloque (conflicto de cancha y horario).`);
                 if ([match.equipoLocalId, match.equipoVisitanteId].some(id => [other.equipoLocalId, other.equipoVisitanteId].includes(id))) throw new Error('Un equipo no puede tener partidos con horarios superpuestos.');
+            });
+        });
+        const data = this._getStorage();
+        const byTeam = new Map();
+        scheduledMatches.forEach(match => [match.equipoLocalId, match.equipoVisitanteId].forEach(teamId => {
+            const list = byTeam.get(teamId) || [];
+            list.push(match);
+            byTeam.set(teamId, list);
+        }));
+        byTeam.forEach((teamMatches, teamId) => {
+            teamMatches.sort((left, right) => `${left.fecha}T${left.hora}`.localeCompare(`${right.fecha}T${right.hora}`));
+            teamMatches.forEach((match, index) => {
+                const other = teamMatches[index + 1];
+                if (!other || match.torneoId !== other.torneoId || match.fecha !== other.fecha) return;
+                const restBlocks = Math.max(this.getCategoryRestBlocks(match.categoriaId), this.getCategoryRestBlocks(other.categoriaId));
+                const block = this.getTournamentSchedulingSettings(match.torneoId).blockDuration;
+                if (minutesFromTime(other.hora) - minutesFromTime(match.hora) < block * (restBlocks + 1)) {
+                    const teamName = data.teams.find(team => team.id === teamId)?.nombre || 'El equipo';
+                    throw new Error(`${teamName} no cumple el descanso mínimo de ${restBlocks} bloque${restBlocks === 1 ? '' : 's'}.`);
+                }
             });
         });
     },
@@ -457,18 +529,26 @@ export const DataManager = {
         this._setStorage(data);
     },
     getTournamentCourtCount(torneoId) {
-        return this.getTournament(torneoId)?.cantidadCanchas || 2;
+        return this.getTournamentCourts(torneoId).length;
+    },
+    getTournamentCourts(torneoId) {
+        const tournament = this.getTournament(torneoId);
+        return Array.isArray(tournament?.courts) && tournament.courts.length ? tournament.courts.map(normalizeCourt) : defaultCourts(tournament?.cantidadCanchas || 2);
     },
     getTournamentSchedulingSettings(torneoId) {
         const tournament = this.getTournament(torneoId);
-        return { duracionPartido: Number(tournament?.duracionPartido || 60), intervaloPartidos: Number(tournament?.intervaloPartidos || 0) };
+        const duration = Number(tournament?.duracionPartido || 60);
+        const interval = Number(tournament?.intervaloPartidos || 0);
+        return { duracionPartido: duration, intervaloPartidos: interval, blockDuration: Number(tournament?.blockDuration || duration + interval) };
     },
-    setTournamentSchedulingSettings(torneoId, duracionPartido, intervaloPartidos) {
+    setTournamentSchedulingSettings(torneoId, duracionPartido, intervaloPartidos, blockDuration = null) {
         const duration = Number(duracionPartido); const interval = Number(intervaloPartidos);
         if (!Number.isInteger(duration) || duration < 1 || duration > 240 || !Number.isInteger(interval) || interval < 0 || interval > 120) throw new Error('La duración y el intervalo deben ser valores válidos en minutos.');
+        const block = blockDuration === null ? duration + interval : Number(blockDuration);
+        if (!Number.isInteger(block) || block < 5 || block > 240) throw new Error('La duración del bloque debe ser un valor entre 5 y 240 minutos.');
         const data = this._getStorage(); const tournament = data.tournaments.find(item => item.id === torneoId);
         if (!tournament) throw new Error('No se encontró el torneo.');
-        tournament.duracionPartido = duration; tournament.intervaloPartidos = interval; this._setStorage(data);
+        tournament.duracionPartido = duration; tournament.intervaloPartidos = interval; tournament.blockDuration = block; this._setStorage(data);
     },
     setTournamentCourtCount(torneoId, cantidadCanchas) {
         const count = Number(cantidadCanchas);
@@ -476,8 +556,36 @@ export const DataManager = {
         const data = this._getStorage();
         const tournament = data.tournaments.find(item => item.id === torneoId);
         if (!tournament) throw new Error('No se encontró el torneo.');
+        const current = Array.isArray(tournament.courts) ? tournament.courts.map(normalizeCourt) : defaultCourts(tournament.cantidadCanchas || 2);
+        if (count < current.length) {
+            const removed = current.slice(count);
+            const used = data.matches.find(match => match.torneoId === torneoId && removed.some(court => court.id === match.courtId || court.name === match.cancha));
+            if (used) throw new Error('No se puede eliminar una cancha que está siendo utilizada por partidos.');
+        }
+        tournament.courts = Array.from({ length: count }, (_, index) => current[index] || normalizeCourt(null, index));
         tournament.cantidadCanchas = count;
         this._setStorage(data);
+    },
+    setTournamentCourts(torneoId, courts) {
+        const normalized = (courts || []).map(normalizeCourt);
+        if (!normalized.length || normalized.length > 20) throw new Error('El torneo debe tener entre 1 y 20 canchas.');
+        if (new Set(normalized.map(court => court.name.toLocaleLowerCase('es'))).size !== normalized.length) throw new Error('Los nombres de las canchas no pueden repetirse.');
+        const data = this._getStorage();
+        const tournament = data.tournaments.find(item => item.id === torneoId);
+        if (!tournament) throw new Error('No se encontró el torneo.');
+        const previous = Array.isArray(tournament.courts) ? tournament.courts.map(normalizeCourt) : defaultCourts(tournament.cantidadCanchas || 2);
+        const removed = previous.filter(court => !normalized.some(item => item.id === court.id));
+        const used = data.matches.find(match => match.torneoId === torneoId && removed.some(court => match.courtId === court.id || match.cancha === court.name));
+        if (used) throw new Error('No se puede eliminar una cancha que está siendo utilizada por partidos.');
+        data.matches.forEach(match => {
+            if (match.torneoId !== torneoId) return;
+            const court = normalized.find(item => item.id === match.courtId) || normalized.find(item => item.name === match.cancha);
+            if (court) { match.courtId = court.id; match.cancha = court.name; }
+        });
+        tournament.courts = normalized;
+        tournament.cantidadCanchas = normalized.length;
+        this._setStorage(data);
+        return normalized;
     },
     getDaySchedules(torneoId) {
         const tournament = this.getTournament(torneoId);
