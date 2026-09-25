@@ -95,6 +95,7 @@ export function initCalendarView() {
                 </div>
                 <label class="form-field"><span class="calendar-settings-label">Horario predeterminado · desde</span><input id="hora-inicio" type="time" value="${defaultStart}" required></label>
                 <label class="form-field"><span class="calendar-settings-label">Hasta</span><input id="hora-fin" type="time" value="${defaultEnd}" required></label>
+                <label class="form-field"><span class="calendar-settings-label">Duración del bloque (min)</span><input id="duracion-bloque" type="number" min="5" max="240" step="5" value="${settings.blockDuration}" required></label>
                 <label class="form-field"><span class="calendar-settings-label">Intervalo entre partidos (min)</span><input id="intervalo-partidos" type="number" min="0" max="120" value="${settings.intervaloPartidos}" required></label>
                 </div>
                 <p id="periodo-torneo-resumen" class="tournament-period-summary" aria-live="polite">${periodSummary(fechaInicio, fechaFin)}</p>
@@ -234,7 +235,7 @@ export function initCalendarView() {
                 if (!confirmed) return;
                 saveCalendar(true);
             }
-            DataManager.setTournamentSchedulingSettings(tournamentId, settings.duracionPartido, view.querySelector('#intervalo-partidos').value);
+            DataManager.setTournamentSchedulingSettings(tournamentId, settings.duracionPartido, view.querySelector('#intervalo-partidos').value, view.querySelector('#duracion-bloque').value);
             // Guardar disponibilidad no mueve partidos reales. La nueva
             // distribución se solicita desde Programación, con contexto.
             initCalendarView();
