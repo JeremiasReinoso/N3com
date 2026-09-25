@@ -3,6 +3,16 @@
 const STORAGE_KEY = 'newcom_data';
 const CLASSIFICATION_MODE = { SETS: 'sets', POINTS: 'points' };
 const TOURNAMENT_METHOD = { STANDARD: 'standard', ALL_VS_ALL: 'all_vs_all' };
+export const PLANNING_STAGES = Object.freeze({
+    ZONES: 'ZONAS',
+    GUARANTEED: 'GARANTIZADOS',
+    CROSSES: 'ALL_VS_ALL',
+    ROUND_OF_16: 'TOP_16',
+    QUARTERFINALS: 'TOP_8',
+    SEMIFINALS: 'SEMIFINAL',
+    FINAL: 'FINAL'
+});
+const VALID_PLANNING_STAGES = new Set(Object.values(PLANNING_STAGES));
 const normalizeClassificationMode = value => value === CLASSIFICATION_MODE.POINTS ? CLASSIFICATION_MODE.POINTS : CLASSIFICATION_MODE.SETS;
 // Los torneos guardados antes de incorporar métodos conservan exactamente el
 // flujo histórico. No se migra ni se infiere un método nuevo para ellos.
@@ -165,6 +175,43 @@ export const DataManager = {
 
     getCategoriesByTournament(torneoId) { return this._getStorage().categories.filter(category => category.torneoId === torneoId); },
     getCategory(id) { return this._getStorage().categories.find(category => category.id === id) || null; },
+    getCategoryPlanning(torneoId, categoriaId) {
+        const category = this._getStorage().categories.find(item => item.id === categoriaId && item.torneoId === torneoId);
+        if (!category?.planning || !Array.isArray(category.planning.days)) return null;
+        return {
+            ...category.planning,
+            days: category.planning.days.map(day => ({
+                date: day.date,
+                stages: [...new Set((day.stages || []).filter(stage => VALID_PLANNING_STAGES.has(stage)))]
+            })).sort((left, right) => left.date.localeCompare(right.date))
+        };
+    },
+    setCategoryPlanning(torneoId, categoriaId, days) {
+        const data = this._getStorage();
+        const category = data.categories.find(item => item.id === categoriaId && item.torneoId === torneoId);
+        if (!category) throw new Error('La categoría no pertenece al torneo seleccionado.');
+        const calendarDates = new Set(this.getCalendarDates(torneoId));
+        const previousByDate = new Map((category.planning?.days || []).map(day => [day.date, JSON.stringify(day.stages || [])]));
+        const seenDates = new Set();
+        const normalizedDays = (days || []).map(day => {
+            const date = String(day?.date || '');
+            if (!calendarDates.has(date) && previousByDate.get(date) !== JSON.stringify(day.stages || [])) throw new Error('Esta fecha no está habilitada en el calendario del torneo.');
+            if (seenDates.has(date)) throw new Error('Una jornada no puede aparecer dos veces en la planificación.');
+            seenDates.add(date);
+            const stages = [...new Set(day?.stages || [])];
+            if (stages.some(stage => !VALID_PLANNING_STAGES.has(stage))) throw new Error('La planificación contiene una etapa no válida.');
+            return { date, stages };
+        }).sort((left, right) => left.date.localeCompare(right.date));
+        category.planning = { days: normalizedDays, updatedAt: new Date().toISOString() };
+        this._setStorage(data);
+        return category.planning;
+    },
+    getPlanningDatesForStage(torneoId, categoriaId, phase) {
+        const planning = this.getCategoryPlanning(torneoId, categoriaId);
+        if (!planning) return [];
+        const accepted = phase === 'ZONAS' ? new Set(['ZONAS', 'GARANTIZADOS']) : new Set([phase]);
+        return planning.days.filter(day => day.stages.some(stage => accepted.has(stage))).map(day => day.date);
+    },
     setAllVsAllCrossesClosed(torneoId, categoriaId, closed = true) {
         const data = this._getStorage();
         const category = data.categories.find(item => item.id === categoriaId && item.torneoId === torneoId);
@@ -314,11 +361,18 @@ export const DataManager = {
         data.matches = updated;
         this._setStorage(data);
     },
-    createManualMatch(match) { this.addMatches([{ ...match, estado: 'pendiente', confirmado: true }]); },
+    createManualMatch(match) {
+        const planning = this.getCategoryPlanning(match.torneoId, match.categoriaId);
+        if (planning && match.fecha) {
+            const planningPhase = phaseFor(match) === 'THIRD_PLACE' ? 'FINAL' : phaseFor(match);
+            if (!this.getPlanningDatesForStage(match.torneoId, match.categoriaId, planningPhase).includes(match.fecha)) throw new Error('La etapa de este partido no está configurada para la jornada seleccionada.');
+        }
+        return this.addMatches([{ ...match, estado: 'pendiente', confirmado: true }]);
+    },
     _validateMatchDate(match) {
         if (!match.fecha) return;
         const dates = this.getCalendarDates(match.torneoId);
-        if (!dates.includes(match.fecha)) throw new Error('La fecha del partido debe estar dentro del período del torneo.');
+        if (!dates.includes(match.fecha)) throw new Error('Esta fecha no está habilitada en el calendario del torneo.');
     },
     _validateMatchPair(match) {
         if (match.equipoLocalId && match.equipoLocalId === match.equipoVisitanteId) throw new Error('Un equipo no puede jugar contra sí mismo.');
@@ -436,10 +490,36 @@ export const DataManager = {
             fin: saved[fecha]?.fin || defaultEnd
         }));
     },
-    setTournamentCalendar(torneoId, startDate, endDate, defaultStart, defaultEnd, schedules) {
+    getCalendarDateUsage(torneoId, dates) {
+        const targets = new Set(dates || []);
+        const data = this._getStorage();
+        const categories = data.categories.filter(category => category.torneoId === torneoId);
+        return [...targets].map(date => {
+            const plannedCategories = categories.filter(category => category.planning?.days?.some(day => day.date === date && day.stages?.length));
+            const matches = data.matches.filter(match => match.torneoId === torneoId && match.fecha === date);
+            return {
+                date,
+                categoryIds: [...new Set([...plannedCategories.map(category => category.id), ...matches.map(match => match.categoriaId)])],
+                categoryNames: [...new Set([...plannedCategories.map(category => category.nombre), ...matches.map(match => categories.find(category => category.id === match.categoriaId)?.nombre).filter(Boolean)])],
+                planningCount: plannedCategories.length,
+                matchCount: matches.length
+            };
+        }).filter(usage => usage.planningCount || usage.matchCount);
+    },
+    setTournamentCalendar(torneoId, startDate, endDate, defaultStart, defaultEnd, schedules, options = {}) {
         if (!startDate || !endDate || startDate > endDate) throw new Error('La fecha de inicio debe ser anterior o igual a la fecha final.');
         if (!validHours(defaultStart, defaultEnd)) throw new Error('El horario predeterminado debe tener una hora de inicio anterior a la finalización.');
         const dates = datesBetween(startDate, endDate);
+        const removedDates = this.getCalendarDates(torneoId).filter(date => !dates.includes(date));
+        const removedUsage = this.getCalendarDateUsage(torneoId, removedDates);
+        // Las llamadas históricas del servicio siguen siendo compatibles. La
+        // interfaz de Calendario solicita explícitamente la validación previa.
+        if (removedUsage.length && options.allowUsedDateRemoval === false) {
+            const error = new Error('Esta fecha está siendo utilizada por partidos o planificación de categorías.');
+            error.code = 'CALENDAR_DATE_IN_USE';
+            error.usage = removedUsage;
+            throw error;
+        }
         const byDate = Object.fromEntries((schedules || []).map(schedule => [schedule.fecha, schedule]));
         const horariosPorDia = {};
         dates.forEach(fecha => {
