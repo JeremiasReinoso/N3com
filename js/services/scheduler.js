@@ -141,6 +141,8 @@ export const SchedulerService = {
 
     crearCrucesTodosContraTodos(torneoId, categoriaId, pairs) {
         if (!Array.isArray(pairs) || !pairs.length) throw new Error('No hay cruces disponibles para confirmar.');
+        const planning = DataManager.getCategoryPlanning(torneoId, categoriaId);
+        if (planning && !DataManager.getPlanningDatesForStage(torneoId, categoriaId, 'ALL_VS_ALL').length) throw new Error('Asigná Cruces a una jornada en Planificación antes de confirmar estos emparejamientos.');
         const proposed = this.proponerCrucesTodosContraTodos(torneoId, categoriaId);
         const proposedKeys = new Set(proposed.map(pair => pairKey(pair.local.id, pair.visitante.id)));
         const selected = pairs.map(pair => ({
@@ -174,6 +176,8 @@ export const SchedulerService = {
         if (!equipoLocalId || !equipoVisitanteId || equipoLocalId === equipoVisitanteId) throw new Error('Seleccione dos equipos distintos.');
         const duplicate = this.existeEnfrentamiento(torneoId, categoriaId, equipoLocalId, equipoVisitanteId);
         if (duplicate && !allowDuplicate) throw new Error('Estos equipos ya se enfrentaron. Confirme si desea crear una revancha.');
+        const planning = DataManager.getCategoryPlanning(torneoId, categoriaId);
+        if (planning && schedule.fecha && !DataManager.getPlanningDatesForStage(torneoId, categoriaId, 'ALL_VS_ALL').includes(schedule.fecha)) throw new Error('La jornada seleccionada no tiene configurada la etapa Cruces.');
         const created = DataManager.addMatches([{
             torneoId, categoriaId, zonaId: null, phase: 'ALL_VS_ALL', tipo: 'cruces_todos_contra_todos',
             nombreEtapa: 'Cruce manual — Todos contra todos', manual: true,
@@ -197,7 +201,12 @@ export const SchedulerService = {
     // Genera únicamente los cruces necesarios para que cada equipo alcance el
     // mínimo configurado. Cada par usa una clave normalizada: A-B y B-A son
     // el mismo enfrentamiento.
-    generarEmparejamientos(torneoId, categoriaId) {
+    generarEmparejamientos(torneoId, categoriaId, options = {}) {
+        if (options.date) {
+            if (!DataManager.getCalendarDates(torneoId).includes(options.date)) throw new Error('Esta fecha no está habilitada en el calendario del torneo.');
+            const planning = DataManager.getCategoryPlanning(torneoId, categoriaId);
+            if (planning && !DataManager.getPlanningDatesForStage(torneoId, categoriaId, 'ZONAS').includes(options.date)) throw new Error('Esta jornada no tiene configurada la fase de zonas o los partidos garantizados.');
+        }
         const tournament = DataManager.getTournament(torneoId);
         if (!tournament) throw new Error('Seleccione un torneo válido.');
         const assured = Number(tournament.partidos_asegurados);
@@ -253,7 +262,7 @@ export const SchedulerService = {
             created.forEach(match => DataManager.removeMatch(match.id));
             throw new Error(validation.mensaje);
         }
-        this.redistribuirFechas(torneoId, categoriaId);
+        this.redistribuirFechas(torneoId, categoriaId, options.date ? [options.date] : null);
         return pending.length;
     },
 
@@ -267,7 +276,10 @@ export const SchedulerService = {
     // Distribuye el fixture de forma equitativa, conservando una ronda completa
     // en el mismo día cuando la capacidad lo permite.
     redistribuirFechas(torneoId, categoriaId, preferredDates = null) {
-        const dates = preferredDates?.length ? preferredDates : DataManager.getCalendarDates(torneoId);
+        const planning = DataManager.getCategoryPlanning(torneoId, categoriaId);
+        const plannedDates = DataManager.getPlanningDatesForStage(torneoId, categoriaId, 'ZONAS');
+        const dates = preferredDates?.length ? preferredDates : (planning ? plannedDates : DataManager.getCalendarDates(torneoId));
+        if (planning && !dates.length) throw new Error('Configurá Fase de zonas o Partidos garantizados en la planificación de esta categoría.');
         if (!dates.length) return 0;
         const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
             .filter(match => isGroupMatch(match) && match.estado !== 'finalizado');
@@ -438,7 +450,9 @@ export const SchedulerService = {
     // Programa el fixture confirmado con fecha, hora y cancha. Ejecutarlo de
     // nuevo reconstruye la distribución ante un cambio de calendario.
     programarEmparejamientos(torneoId, categoriaId) {
-        const daySchedules = DataManager.getDaySchedules(torneoId);
+        const planning = DataManager.getCategoryPlanning(torneoId, categoriaId);
+        const plannedDates = DataManager.getPlanningDatesForStage(torneoId, categoriaId, 'ZONAS');
+        const daySchedules = DataManager.getDaySchedules(torneoId).filter(day => !planning || plannedDates.includes(day.fecha));
         if (!daySchedules.length) throw new Error('Configure al menos un día en Calendario.');
         const groupMatches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(isGroupMatch);
         if (groupMatches.some(match => !isOfficialMatch(match))) throw new Error('Confirme los emparejamientos antes de programarlos.');
@@ -446,13 +460,12 @@ export const SchedulerService = {
         if (!verification.ok) throw new Error(verification.mensaje);
         const courts = Array.from({ length: DataManager.getTournamentCourtCount(torneoId) }, (_, index) => `Cancha ${index + 1}`);
         const settings = DataManager.getTournamentSchedulingSettings(torneoId);
-        // Si la capacidad lo permite, el último día queda libre para la llave
-        // final. Si no alcanza, se conserva como respaldo para no dejar
-        // partidos asegurados sin fecha.
+        // Con planificación explícita sólo se usan sus jornadas. En torneos
+        // históricos se conserva la reserva implícita del último día.
         const priorDays = daySchedules.slice(0, -1);
         const unscheduledGroups = groupMatches.filter(match => match.estado !== 'finalizado').length;
         const priorCapacity = priorDays.reduce((total, day) => total + dayCapacity(day, settings, courts.length), 0);
-        const schedulingDays = priorDays.length && unscheduledGroups <= priorCapacity ? priorDays : daySchedules;
+        const schedulingDays = planning ? daySchedules : (priorDays.length && unscheduledGroups <= priorCapacity ? priorDays : daySchedules);
         this.redistribuirFechas(torneoId, categoriaId, schedulingDays.map(day => day.fecha));
         const toSchedule = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
             .filter(match => isGroupMatch(match) && isOfficialMatch(match) && match.estado !== 'finalizado');
@@ -497,12 +510,16 @@ export const SchedulerService = {
         const configuredDays = DataManager.getDaySchedules(torneoId);
         const settings = DataManager.getTournamentSchedulingSettings(torneoId);
         if (!configuredDays.length) return 0;
-        // Semifinales, tercer puesto y final tienen prioridad en el último
-        // día. Las rondas Top conservan antes los días previos cuando existen.
+        const planning = DataManager.getCategoryPlanning(torneoId, categoriaId);
+        const planningPhase = phase === 'THIRD_PLACE' ? 'FINAL' : phase;
+        const plannedDates = DataManager.getPlanningDatesForStage(torneoId, categoriaId, planningPhase);
+        if (planning && !plannedDates.length) throw new Error(`La etapa ${phase} no tiene una jornada asignada en la planificación de esta categoría.`);
+        // La planificación manda. Sólo los torneos históricos conservan la
+        // prioridad del último día para las instancias finales.
         const finalStages = ['SEMIFINAL', 'THIRD_PLACE', 'FINAL'];
-        const days = finalStages.includes(phase)
-            ? [configuredDays.at(-1), ...configuredDays.slice(0, -1)]
-            : [...configuredDays.slice(0, -1), configuredDays.at(-1)];
+        const days = planning
+            ? configuredDays.filter(day => plannedDates.includes(day.fecha))
+            : (finalStages.includes(phase) ? [configuredDays.at(-1), ...configuredDays.slice(0, -1)] : [...configuredDays.slice(0, -1), configuredDays.at(-1)]);
         const targets = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => match.phase === phase && match.estado !== 'finalizado' && (!match.fecha || !match.hora || !match.cancha));
         const allMatches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
         const occupied = allMatches.filter(match => match.phase !== phase && match.fecha && match.hora && match.cancha);
