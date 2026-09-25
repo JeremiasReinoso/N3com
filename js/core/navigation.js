@@ -5,6 +5,7 @@ const tournamentSections = [
     ['equipos', 'Equipos'],
     ['zonas', 'Zonas'],
     ['calendario', 'Calendario'],
+    ['planificacion', 'Planificación'],
     ['programacion', 'Programación'],
     ['resultados', 'Resultados'],
     ['posiciones', 'Posiciones'],
