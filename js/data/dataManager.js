@@ -190,6 +190,24 @@ export const DataManager = {
         return tournament;
     },
 
+    // Borra el torneo junto con todo lo que le pertenece: categorías, equipos,
+    // zonas, calendario y partidos. Los demás torneos quedan intactos.
+    removeTournament(torneoId) {
+        const data = this._getStorage();
+        const tournament = data.tournaments.find(item => item.id === torneoId);
+        if (!tournament) throw new Error('No se encontró el torneo seleccionado.');
+        const categoryIds = new Set(data.categories.filter(category => category.torneoId === torneoId).map(category => category.id));
+        const belongsToTournament = item => item.torneoId === torneoId || categoryIds.has(item.categoriaId);
+        data.tournaments = data.tournaments.filter(item => item.id !== torneoId);
+        data.categories = data.categories.filter(category => category.torneoId !== torneoId);
+        data.teams = data.teams.filter(team => !belongsToTournament(team));
+        data.zones = data.zones.filter(zone => !belongsToTournament(zone));
+        data.matches = data.matches.filter(match => !belongsToTournament(match));
+        data.calendar = data.calendar.filter(entry => entry.torneoId !== torneoId);
+        this._setStorage(data);
+        return tournament;
+    },
+
     getCategoriesByTournament(torneoId) { return this._getStorage().categories.filter(category => category.torneoId === torneoId); },
     getCategory(id) { return this._getStorage().categories.find(category => category.id === id) || null; },
     getCategoryRestBlocks(id) { return Math.max(0, Number(this.getCategory(id)?.minimumRestBlocks || 0)); },
