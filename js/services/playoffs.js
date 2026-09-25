@@ -34,6 +34,11 @@ const remainingPairs = (eligibleIds, existing) => {
     return pairs;
 };
 const addStageMatches = (torneoId, categoriaId, phase, pairs, title, offset = 0) => {
+    const planning = DataManager.getCategoryPlanning(torneoId, categoriaId);
+    const planningPhase = phase === 'THIRD_PLACE' ? 'FINAL' : phase;
+    if (planning && !DataManager.getPlanningDatesForStage(torneoId, categoriaId, planningPhase).length) {
+        throw new Error(`Asigná ${title} a una jornada en Planificación antes de crear sus partidos.`);
+    }
     if (pairs.length) DataManager.addMatches(pairs.map(([local, visitante], index) => ({
         torneoId, categoriaId, zonaId: null, phase, nombreEtapa: `${title} ${offset + index + 1}`,
         equipoLocalId: local, equipoVisitanteId: visitante, fecha: null, hora: null,
