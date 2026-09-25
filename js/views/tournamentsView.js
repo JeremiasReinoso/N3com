@@ -26,7 +26,7 @@ export const initTorneosVer = async () => {
             <article class="card torneo-card">
                 <span class="calendar-chip">TORNEO</span><h3>${tournament.nombre}</h3>
                 <p>${methodLabel(tournament.method)} · ${tournament.partidos_asegurados} partidos por equipo · ${formatLabel(tournament.classificationMode)}</p>
-                <button class="btn-primary seleccionar-torneo" data-id="${tournament.id}">Abrir torneo</button>
+                <div class="card-actions"><button class="btn-primary seleccionar-torneo" data-id="${tournament.id}">Abrir torneo</button><button class="btn-danger eliminar-torneo" data-id="${tournament.id}">Eliminar</button></div>
             </article>`).join('') : '<div class="empty-state">Todavía no hay torneos. Completá el formulario para crear el primero.</div>'}</div>`;
 
     view.querySelector('#form-nuevo-torneo').addEventListener('submit', async event => {
@@ -53,5 +53,18 @@ export const initTorneosVer = async () => {
         const categories = DataManager.getCategoriesByTournament(button.dataset.id);
         if (categories.length) AppState.setCategory(categories[0].id);
         goToTournament(button.dataset.id);
+    }));
+    view.querySelectorAll('.eliminar-torneo').forEach(button => button.addEventListener('click', () => {
+        const tournament = DataManager.getTournament(button.dataset.id);
+        if (!tournament) return;
+        const message = `¿Eliminar el torneo "${tournament.nombre}"?\n\nSe borran sus categorías, equipos, zonas, calendario y partidos. Esta acción no se puede deshacer.`;
+        if (!confirm(message)) return;
+        try {
+            DataManager.removeTournament(tournament.id);
+            let activeTournament = null;
+            try { activeTournament = AppState.getTournament(); } catch { activeTournament = null; }
+            if (activeTournament === tournament.id) AppState.clear();
+            void initTorneosVer();
+        } catch (error) { alert(error.message); }
     }));
 };
