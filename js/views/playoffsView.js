@@ -24,13 +24,13 @@ const renderAllVsAll = (tournamentId, categoryId, controls, container) => {
     const pending = crosses.filter(match => match.estado !== 'finalizado');
     const table = PosicionesService.calcularPosiciones(tournamentId, categoryId);
     const teamName = id => teams.find(team => team.id === id)?.nombre || 'Equipo';
-    const courtCount = DataManager.getTournamentCourtCount(tournamentId);
+    const courts = DataManager.getTournamentCourts(tournamentId);
     const planning = DataManager.getCategoryPlanning(tournamentId, categoryId);
     const plannedCrossDates = DataManager.getPlanningDatesForStage(tournamentId, categoryId, 'ALL_VS_ALL');
     const dates = planning ? plannedCrossDates : DataManager.getCalendarDates(tournamentId);
     const teamOptions = teams.map(team => `<option value="${team.id}">${team.nombre}</option>`).join('');
     const dateOptions = dates.map(date => `<option value="${date}">${date}</option>`).join('');
-    const courtOptions = Array.from({ length: courtCount }, (_, index) => `<option value="Cancha ${index + 1}">Cancha ${index + 1}</option>`).join('');
+    const courtOptions = courts.map(court => `<option value="${court.name}">${court.name}</option>`).join('');
     const phaseMatches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId)
         .filter(match => ['SEMIFINAL', 'THIRD_PLACE', 'FINAL'].includes(match.phase));
     const crossList = crosses.length ? crosses.map(match => `<article class="schedule-match"><div class="schedule-match-time"><strong>${match.hora || 'Horario pendiente'}</strong><span>${match.fecha || 'Fecha pendiente'}${match.cancha ? ` · ${match.cancha}` : ''}</span></div><div class="schedule-match-main"><div><strong>${teamName(match.equipoLocalId)} <b>vs</b> ${teamName(match.equipoVisitanteId)}</strong><span class="schedule-stage">${match.manual ? 'MANUAL' : 'AUTOMÁTICO'}</span></div>${match.estado === 'finalizado' ? `<span class="schedule-score">${match.setsLocal} – ${match.setsVisitante}</span>` : '<span class="match-status pending">PENDIENTE</span>'}</div></article>`).join('') : '<div class="empty-state compact">Aún no hay cruces creados.</div>';
