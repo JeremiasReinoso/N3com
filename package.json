@@ -27,7 +27,8 @@
       "**/*",
       "!private/**",
       "!release/**",
-      "!tests/**"
+      "!tests/**",
+      "!.kilo/**"
     ],
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "win": {
