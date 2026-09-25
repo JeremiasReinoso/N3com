@@ -25,7 +25,9 @@ const renderAllVsAll = (tournamentId, categoryId, controls, container) => {
     const table = PosicionesService.calcularPosiciones(tournamentId, categoryId);
     const teamName = id => teams.find(team => team.id === id)?.nombre || 'Equipo';
     const courtCount = DataManager.getTournamentCourtCount(tournamentId);
-    const dates = DataManager.getCalendarDates(tournamentId);
+    const planning = DataManager.getCategoryPlanning(tournamentId, categoryId);
+    const plannedCrossDates = DataManager.getPlanningDatesForStage(tournamentId, categoryId, 'ALL_VS_ALL');
+    const dates = planning ? plannedCrossDates : DataManager.getCalendarDates(tournamentId);
     const teamOptions = teams.map(team => `<option value="${team.id}">${team.nombre}</option>`).join('');
     const dateOptions = dates.map(date => `<option value="${date}">${date}</option>`).join('');
     const courtOptions = Array.from({ length: courtCount }, (_, index) => `<option value="Cancha ${index + 1}">Cancha ${index + 1}</option>`).join('');
