@@ -13,8 +13,13 @@ globalThis.localStorage = {
 
 const load = path => readFileSync(resolve(root, path), 'utf8');
 const dataManager = load('js/data/dataManager.js').replace('export const DataManager', 'const DataManager');
+const logistics = load('js/services/logistics.js')
+    .replace("import { DataManager } from '../data/dataManager.js';", '')
+    .replace('export const fixtureCompare', 'const fixtureCompare')
+    .replace('export const LogisticsService', 'const LogisticsService');
 const scheduler = load('js/services/scheduler.js')
     .replace("import { DataManager } from '../data/dataManager.js';", '')
+    .replace("import { LogisticsService } from './logistics.js';", '')
     .replace('export const SchedulerService', 'const SchedulerService');
 const standings = load('js/services/standings.js')
     .replace("import { DataManager } from '../data/dataManager.js';", '')
@@ -288,4 +293,4 @@ const scenario = `
     console.log(JSON.stringify({ created, confirmed, scheduled, matchesPerTeam: Object.values(counts), dates }));
 `;
 
-await import(`data:text/javascript;base64,${Buffer.from(`${dataManager}\n${scheduler}\n${standings}\n${playoffs}\n${scenario}`).toString('base64')}`);
+await import(`data:text/javascript;base64,${Buffer.from(`${dataManager}\n${logistics}\n${scheduler}\n${standings}\n${playoffs}\n${scenario}`).toString('base64')}`);
