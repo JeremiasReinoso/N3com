@@ -3,7 +3,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const sections = ['inicio', 'equipos', 'zonas', 'calendario', 'programacion', 'resultados', 'posiciones', 'eliminatorias'];
+const sections = ['inicio', 'equipos', 'zonas', 'calendario', 'planificacion', 'programacion', 'resultados', 'posiciones', 'eliminatorias'];
 
 const classList = () => {
     const values = new Set();
