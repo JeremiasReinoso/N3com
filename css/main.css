@@ -937,3 +937,40 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
     .fixture-match-slot strong, .fixture-category > h6, .fixture-teams strong { color: #000; }
     .fixture-match-slot span, .fixture-match-context > span, .fixture-zone-title { color: #444; }
 }
+
+/* Agenda logística global: canchas compartidas, conflictos y tabla legible. */
+.schedule-global-config { margin-bottom: 20px; }
+.court-config-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; margin: 14px 0; }
+.court-config-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.court-config-row .btn-secondary { min-height: 44px; }
+.fixture-export-actions { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+.schedule-conflicts { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(280px, 2fr) auto; gap: 18px; align-items: center; margin-bottom: 20px; padding: 17px 19px; background: #eaf8ef; border: 1px solid #a9dbba; border-radius: 14px; }
+.schedule-conflicts.has-conflicts { background: #fff7df; border-color: #e4c66d; }
+.schedule-conflicts h3, .schedule-conflicts p { margin: 0; }
+.schedule-conflicts p { margin-top: 4px; color: var(--text-muted); }
+.schedule-conflicts ul { margin: 0; padding-left: 20px; line-height: 1.55; }
+.fixture-table { background: var(--bg-card); }
+.fixture-table-head { display: grid; grid-template-columns: 90px 110px minmax(150px, .9fr) minmax(150px, 1fr) minmax(250px, 1.5fr) 100px; gap: 12px; padding: 11px 16px; color: var(--text-muted); background: var(--bg-soft); border-bottom: 1px solid var(--line-soft); font-size: .72rem; font-weight: 900; text-transform: uppercase; }
+.fixture-table .fixture-match { grid-template-columns: 190px minmax(300px, 1fr) auto; margin: 0; border-width: 0 0 1px 5px; border-radius: 0; }
+.fixture-table .fixture-match:last-child { border-bottom: 0; }
+.fixture-category-label { color: var(--accent) !important; font-size: .86rem !important; }
+:root[data-theme="dark"] :is(.fixture-table, .schedule-global-config, .schedule-conflicts) { background: #101722; border-color: #30445e; }
+:root[data-theme="dark"] .schedule-conflicts.has-conflicts { background: #342b17; border-color: #7a6429; }
+
+@media (max-width: 800px) {
+    .schedule-conflicts { grid-template-columns: 1fr; }
+    .fixture-table-head { display: none; }
+    .fixture-table { display: grid; gap: 12px; padding: 12px; }
+    .fixture-table .fixture-match { grid-template-columns: 1fr; gap: 10px; padding: 18px; border: 1px solid var(--line-soft); border-left: 5px solid #21a96b; border-radius: 12px; }
+    .fixture-match-slot strong { font-size: 1.28rem; }
+    .fixture-match-slot span { font-size: .9rem; text-transform: uppercase; }
+    .fixture-category-label { font-size: 1rem !important; }
+    .court-config-row { grid-template-columns: 1fr; }
+    .fixture-export-actions, .fixture-export-actions button { width: 100%; }
+}
+
+@media print {
+    .schedule-global-config, .schedule-conflicts, .fixture-export-actions { display: none !important; }
+    .fixture-table-head { display: grid; }
+    .fixture-table .fixture-match { grid-template-columns: 160px minmax(280px, 1fr) auto; break-inside: avoid; }
+}
