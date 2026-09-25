@@ -10,6 +10,7 @@ import { initTournamentHomeView } from './views/tournamentHomeView.js';
 import { initEquiposView } from './views/teamsView.js';
 import { initZonasView } from './views/zonesView.js';
 import { initCalendarView } from './views/calendarView.js';
+import { initPlanningView } from './views/planningView.js';
 import { initScheduleView } from './views/scheduleView.js';
 import { initResultadosView } from './views/resultsView.js';
 import { initStandingsView } from './views/standingsView.js';
@@ -48,6 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         equipos: initEquiposView,
         zonas: initZonasView,
         calendario: initCalendarView,
+        planificacion: initPlanningView,
         programacion: initScheduleView,
         resultados: initResultadosView,
         posiciones: initStandingsView,
