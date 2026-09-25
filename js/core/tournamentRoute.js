@@ -1,7 +1,7 @@
 import { AppContext } from './state.js';
 
 const homeHash = '#/torneos';
-const sections = new Set(['inicio', 'equipos', 'zonas', 'calendario', 'programacion', 'resultados', 'posiciones', 'eliminatorias']);
+const sections = new Set(['inicio', 'equipos', 'zonas', 'calendario', 'planificacion', 'programacion', 'resultados', 'posiciones', 'eliminatorias']);
 
 export const readTournamentRoute = () => {
     const hash = globalThis.location?.hash || '';
