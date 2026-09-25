@@ -1,4 +1,5 @@
 import { DataManager } from '../data/dataManager.js';
+import { LogisticsService } from './logistics.js';
 
 const pairKey = (teamAId, teamBId) => {
     if (!teamAId || !teamBId || teamAId === teamBId) throw new Error('Un equipo no puede jugar contra sí mismo.');
@@ -458,57 +459,24 @@ export const SchedulerService = {
         if (groupMatches.some(match => !isOfficialMatch(match))) throw new Error('Confirme los emparejamientos antes de programarlos.');
         const verification = this.verificarPartidosAsegurados(torneoId, categoriaId, true);
         if (!verification.ok) throw new Error(verification.mensaje);
-        const courts = Array.from({ length: DataManager.getTournamentCourtCount(torneoId) }, (_, index) => `Cancha ${index + 1}`);
+        // Los torneos sin planificación conservan la distribución histórica
+        // sobre las jornadas previas a la última cuando existe capacidad.
         const settings = DataManager.getTournamentSchedulingSettings(torneoId);
-        // Con planificación explícita sólo se usan sus jornadas. En torneos
-        // históricos se conserva la reserva implícita del último día.
         const priorDays = daySchedules.slice(0, -1);
-        const unscheduledGroups = groupMatches.filter(match => match.estado !== 'finalizado').length;
-        const priorCapacity = priorDays.reduce((total, day) => total + dayCapacity(day, settings, courts.length), 0);
-        const schedulingDays = planning ? daySchedules : (priorDays.length && unscheduledGroups <= priorCapacity ? priorDays : daySchedules);
+        const courtCount = DataManager.getTournamentCourtCount(torneoId);
+        const priorCapacity = priorDays.reduce((total, day) => total + dayCapacity(day, { duracionPartido: settings.blockDuration, intervaloPartidos: 0 }, courtCount), 0);
+        const pendingCount = groupMatches.filter(match => match.estado !== 'finalizado').length;
+        const schedulingDays = planning ? daySchedules : (priorDays.length && pendingCount <= priorCapacity ? priorDays : daySchedules);
         this.redistribuirFechas(torneoId, categoriaId, schedulingDays.map(day => day.fecha));
-        const toSchedule = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
-            .filter(match => isGroupMatch(match) && isOfficialMatch(match) && match.estado !== 'finalizado');
-        if (!toSchedule.length) return 0;
-        const courtLoads = new Map(courts.map(court => [court, 0]));
-        const scheduled = [];
-
-        for (const day of schedulingDays) {
-            const remaining = toSchedule.filter(match => match.fecha === day.fecha);
-            const timeSlots = [];
-            for (let minute = schedulerMinutesFromTime(day.inicio); minute + settings.duracionPartido <= schedulerMinutesFromTime(day.fin); minute += settings.duracionPartido + settings.intervaloPartidos) {
-                timeSlots.push(schedulerTimeFromMinutes(minute));
-            }
-            if (remaining.length > timeSlots.length * courts.length) throw new Error(`No hay franjas suficientes el ${day.fecha}.`);
-            for (const hora of timeSlots) {
-                const busyTeams = new Set();
-                const availableCourts = courts.slice();
-                while (availableCourts.length) {
-                    const matchIndex = remaining.findIndex(match => !busyTeams.has(match.equipoLocalId) && !busyTeams.has(match.equipoVisitanteId));
-                    if (matchIndex === -1) break;
-                    const [match] = remaining.splice(matchIndex, 1);
-                    availableCourts.sort((left, right) => courtLoads.get(left) - courtLoads.get(right) || left.localeCompare(right));
-                    const cancha = availableCourts.shift();
-                    scheduled.push({ ...match, fecha: day.fecha, hora, cancha, estado: 'pendiente', confirmado: true });
-                    courtLoads.set(cancha, courtLoads.get(cancha) + 1);
-                    busyTeams.add(match.equipoLocalId);
-                    busyTeams.add(match.equipoVisitanteId);
-                }
-            }
-            if (remaining.length) throw new Error(`No se pudieron programar todos los partidos del ${day.fecha} sin superponer equipos.`);
-        }
-        if (scheduled.length !== toSchedule.length) throw new Error('Hay partidos con una fecha fuera del período del torneo.');
-        DataManager.updateMatches(scheduled);
-        const completedSchedule = this.validateGuaranteedMatches(torneoId, categoriaId, { onlyOfficial: true, requireSchedule: true });
-        if (!completedSchedule.valid) throw new Error(completedSchedule.mensaje);
-        return scheduled.length;
+        // La asignación logística es global: considera simultáneamente los
+        // partidos de todas las categorías que comparten las canchas.
+        return LogisticsService.programTournament(torneoId).scheduled;
     },
 
     // Propuesta automática reutilizable para cada etapa eliminatoria. El árbitro
     // puede editar luego fecha, hora o cancha sin crear otro partido.
     programarFase(torneoId, categoriaId, phase, afterPhase = null) {
         const configuredDays = DataManager.getDaySchedules(torneoId);
-        const settings = DataManager.getTournamentSchedulingSettings(torneoId);
         if (!configuredDays.length) return 0;
         const planning = DataManager.getCategoryPlanning(torneoId, categoriaId);
         const planningPhase = phase === 'THIRD_PLACE' ? 'FINAL' : phase;
@@ -521,37 +489,7 @@ export const SchedulerService = {
             ? configuredDays.filter(day => plannedDates.includes(day.fecha))
             : (finalStages.includes(phase) ? [configuredDays.at(-1), ...configuredDays.slice(0, -1)] : [...configuredDays.slice(0, -1), configuredDays.at(-1)]);
         const targets = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => match.phase === phase && match.estado !== 'finalizado' && (!match.fecha || !match.hora || !match.cancha));
-        const allMatches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
-        const occupied = allMatches.filter(match => match.phase !== phase && match.fecha && match.hora && match.cancha);
-        // Una etapa no puede ser sugerida antes de que termine la anterior.
-        // Así los partidos nuevos nunca alteran ni se intercalan con el fixture
-        // de partidos asegurados ya cerrado.
-        const latestPriorSlot = afterPhase
-            ? allMatches.filter(match => match.phase === afterPhase && match.fecha && match.hora)
-                .map(match => `${match.fecha}T${match.hora}`)
-                .sort()
-                .at(-1)
-            : null;
-        const courts = Array.from({ length: DataManager.getTournamentCourtCount(torneoId) }, (_, index) => `Cancha ${index + 1}`);
-        const updates = [];
-        for (const match of targets) {
-            let slot = null;
-            for (const day of days) {
-                for (let minute = schedulerMinutesFromTime(day.inicio); minute + settings.duracionPartido <= schedulerMinutesFromTime(day.fin); minute += settings.duracionPartido + settings.intervaloPartidos) {
-                    const hora = schedulerTimeFromMinutes(minute);
-                    if (latestPriorSlot && `${day.fecha}T${hora}` <= latestPriorSlot) continue;
-                    for (const cancha of courts) {
-                        const conflict = [...occupied, ...updates].some(other => other.fecha === day.fecha && other.hora === hora && (other.cancha === cancha || [other.equipoLocalId, other.equipoVisitanteId].some(id => [match.equipoLocalId, match.equipoVisitanteId].includes(id))));
-                        if (!conflict) { slot = { fecha: day.fecha, hora, cancha }; break; }
-                    }
-                    if (slot) break;
-                }
-                if (slot) break;
-            }
-            if (!slot) throw new Error(`No hay una franja disponible para ${match.nombreEtapa || phase}.`);
-            updates.push({ ...match, ...slot, estado: 'pendiente', confirmado: true });
-        }
-        if (updates.length) DataManager.updateMatches(updates);
-        return updates.length;
+        if (!targets.length) return 0;
+        return LogisticsService.programTournament(torneoId).scheduled;
     }
 };
