@@ -32,6 +32,7 @@ const playoffs = load('js/services/playoffs.js')
 
 const scenario = `
     const tournament = DataManager.createTournament('Prueba +50', 3);
+    DataManager.setTournamentSetFormats(tournament.id, { zones: 'two_sets_15' });
     const category = DataManager.createCategory('+50', tournament.id);
     let duplicateCategoryBlocked = false;
     try { DataManager.createCategory('+50', tournament.id); } catch { duplicateCategoryBlocked = true; }
@@ -194,9 +195,11 @@ const scenario = `
         const team = DataManager.createTeam('Límite ' + name, cappedCategory.id, cappedTournament.id);
         DataManager.assignTeamToZone(team.id, cappedZone.id);
     }
-    let impossibleAssuredBlocked = false;
-    try { SchedulerService.generarEmparejamientos(cappedTournament.id, cappedCategory.id); } catch { impossibleAssuredBlocked = true; }
-    if (!impossibleAssuredBlocked) throw new Error('Se redujeron los partidos asegurados en lugar de informar una zona imposible.');
+    const cappedCreated = SchedulerService.generarEmparejamientos(cappedTournament.id, cappedCategory.id);
+    const cappedFixture = SchedulerService.validateGuaranteedMatches(cappedTournament.id, cappedCategory.id);
+    if (cappedCreated !== 6 || cappedFixture.valid !== true) throw new Error('La zona no generó el máximo posible de cruces sin repetir.');
+    if (cappedFixture.teams.some(team => team.matches !== 3 || team.required !== 3)) throw new Error('Cada equipo debe jugar exactamente los 3 partidos posibles de su zona.');
+    if (!cappedFixture.avisos.some(aviso => aviso.includes('Zona limitada'))) throw new Error('La zona limitada debe avisar que se respetó el máximo en lugar de bloquear.');
 
     const drawTournament = DataManager.createTournament('Sorteo con líderes', 2);
     const drawCategory = DataManager.createCategory('+40 Mixto', drawTournament.id);
@@ -228,6 +231,7 @@ const scenario = `
     // Flujo completo: los ocho cruces de Top 16 son nuevos, conservan la
     // fase de zonas y desembocan en Top 8, semifinales, tercer puesto y final.
     const knockoutTournament = DataManager.createTournament('Llave completa', 1, 'points');
+    DataManager.setTournamentSetFormats(knockoutTournament.id, { zones: 'two_sets_15' });
     const knockoutCategory = DataManager.createCategory('+68 Mixto', knockoutTournament.id);
     const knockoutZone = DataManager.createZone('Zona única', knockoutCategory.id, knockoutTournament.id);
     for (let index = 1; index <= 16; index += 1) {
@@ -245,7 +249,9 @@ const scenario = `
     const fixtureIdentity = matches => JSON.stringify(matches.filter(match => match.phase === 'ZONAS').map(match => ({ id: match.id, local: match.equipoLocalId, visitante: match.equipoVisitanteId, fecha: match.fecha, hora: match.hora, cancha: match.cancha })));
     const assuredSnapshot = fixtureIdentity(DataManager.getMatchesByTournamentAndCategory(knockoutTournament.id, knockoutCategory.id));
     finish('ZONAS');
-    if (PosicionesService.calcularPosiciones(knockoutTournament.id, knockoutCategory.id).some(row => row.puntosClasificacion !== 0)) throw new Error('El formato por puntos aplicó la tabla 3/2/1 reservada para el formato por sets.');
+    const knockoutTable = PosicionesService.calcularPosiciones(knockoutTournament.id, knockoutCategory.id);
+    if (knockoutTable.some(row => row.puntosClasificacion === 0)) throw new Error('El modo por puntos no aplicó los puntos de clasificación 3/1 a cada equipo.');
+    if (knockoutTable.reduce((total, row) => total + row.puntosClasificacion, 0) !== 32) throw new Error('Los ocho partidos 2-0 no aportaron 3 puntos al ganador y 1 al perdedor.');
     PlayoffsService.generarTop16(knockoutTournament.id, knockoutCategory.id);
     let knockoutMatches = DataManager.getMatchesByTournamentAndCategory(knockoutTournament.id, knockoutCategory.id);
     if (knockoutMatches.filter(match => match.phase === 'TOP_16').length !== 8 || fixtureIdentity(knockoutMatches) !== assuredSnapshot) throw new Error('El Top 16 no creó ocho partidos nuevos o alteró el fixture asegurado.');
@@ -263,6 +269,7 @@ const scenario = `
     // Formato por sets: la clasificación 3/1 y 2/1 lleva a los cuatro mejores
     // directamente a semifinales, sin crear rondas Top 16 ni Top 8.
     const setsTournament = DataManager.createTournament('Sets directos', 4, 'sets');
+    DataManager.setTournamentSetFormats(setsTournament.id, { zones: 'two_sets_15' });
     const setsCategory = DataManager.createCategory('+50 Femenino', setsTournament.id);
     const setsZone = DataManager.createZone('Zona Sets', setsCategory.id, setsTournament.id);
     for (let index = 1; index <= 5; index += 1) {
