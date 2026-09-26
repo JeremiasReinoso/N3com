@@ -517,9 +517,12 @@ export const DataManager = {
         if (match.hora && (!/^\d{2}:\d{2}$/.test(match.hora) || minutesFromTime(match.hora) >= 1440)) throw new Error('El horario del partido no es válido.');
         if (match.fecha && match.hora) {
             const day = this.getDaySchedules(match.torneoId).find(item => item.fecha === match.fecha);
-            const block = this.getTournamentSchedulingSettings(match.torneoId).blockDuration;
+            const settings = this.getTournamentSchedulingSettings(match.torneoId);
+            // La grilla respeta bloque + intervalo: con pausa de 30 minutos los
+            // partidos arrancan cada 90 minutos, no cada 60.
+            const step = settings.blockDuration + Number(settings.intervaloPartidos || 0);
             const start = minutesFromTime(match.hora);
-            if (!day || start < minutesFromTime(day.inicio) || start + block > minutesFromTime(day.fin) || (start - minutesFromTime(day.inicio)) % block !== 0) {
+            if (!day || start < minutesFromTime(day.inicio) || start + settings.blockDuration > minutesFromTime(day.fin) || (start - minutesFromTime(day.inicio)) % step !== 0) {
                 throw new Error('El horario debe coincidir con un bloque válido dentro de la jornada.');
             }
         }
@@ -563,8 +566,11 @@ export const DataManager = {
                 if (match.fecha !== other.fecha || !other.hora) return;
                 const matchStart = minutesFromTime(match.hora);
                 const otherStart = minutesFromTime(other.hora);
-                const matchEnd = matchStart + this.getTournamentSchedulingSettings(match.torneoId).blockDuration;
-                const otherEnd = otherStart + this.getTournamentSchedulingSettings(other.torneoId).blockDuration;
+                // Cada partido ocupa su bloque más la pausa (intervalo) configurada.
+                const settings = this.getTournamentSchedulingSettings(match.torneoId);
+                const span = settings.blockDuration + Number(settings.intervaloPartidos || 0);
+                const matchEnd = matchStart + span;
+                const otherEnd = otherStart + span;
                 if (matchStart >= otherEnd || otherStart >= matchEnd) return;
                 if (match.cancha && other.cancha && (match.courtId && other.courtId ? match.courtId === other.courtId : match.cancha === other.cancha)) throw new Error(`${match.cancha} ya está ocupada durante ese bloque (conflicto de cancha y horario).`);
                 if ([match.equipoLocalId, match.equipoVisitanteId].some(id => [other.equipoLocalId, other.equipoVisitanteId].includes(id))) throw new Error('Un equipo no puede tener partidos con horarios superpuestos.');
@@ -609,6 +615,26 @@ export const DataManager = {
             && match.estado === 'borrador'
         ));
         this._setStorage(data);
+    },
+    // Quita día, hora y cancha para poder reprodesarrollar el torneo con la
+    // configuración actual. No toca equipos, resultados ni los partidos que
+    // ya se jugaron.
+    clearTournamentSchedule(torneoId) {
+        const data = this._getStorage();
+        let cleared = 0;
+        data.matches.forEach(match => {
+            if (match.torneoId !== torneoId) return;
+            if (match.estado === 'finalizado' || match.estado === 'en_juego') return;
+            if (!match.fecha && !match.hora && !match.cancha) return;
+            match.fecha = null;
+            match.hora = null;
+            match.cancha = null;
+            match.courtId = null;
+            if (match.estado === 'programado') match.estado = 'pendiente';
+            cleared += 1;
+        });
+        this._setStorage(data);
+        return cleared;
     },
     updateMatchResult(matchId, sets) {
         const data = this._getStorage();
