@@ -1,14 +1,23 @@
 import { fixtureCompare } from './logistics.js';
 
-const latin = value => String(value ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\xFF]/g, '?');
-const pdfText = value => latin(value).replace(/([\\()])/g, '\\$1');
+export const latin = value => String(value ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\xFF]/g, '?');
+export const pdfText = value => latin(value).replace(/([\\()])/g, '\\$1');
 const dayLabel = date => date ? new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(`${date}T12:00:00`)).toUpperCase() : 'SIN FECHA';
 const statusLabel = status => ({ borrador: 'Sin programar', pendiente: 'Confirmado', programado: 'Programado', confirmado: 'Confirmado', en_juego: 'En juego', finalizado: 'Finalizado' }[status] || status || 'Sin programar');
+// El resultado se muestra sólo cuando el partido terminó: 2-0, 2-1 o 1-0
+// según el formato de sets del torneo.
+const scoreLabel = match => {
+    if (match.estado !== 'finalizado') return '';
+    if (match.score) return match.score;
+    const sets = Array.isArray(match.sets) ? match.sets : [];
+    if (!sets.length) return '';
+    return `${sets.filter(set => set.puntosLocal > set.puntosVisitante).length}-${sets.filter(set => set.puntosVisitante > set.puntosLocal).length}`;
+};
 
-const line = (x, y, size, value, bold = false) => `BT /${bold ? 'F2' : 'F1'} ${size} Tf ${x} ${y} Td (${pdfText(value)}) Tj ET`;
+export const line = (x, y, size, value, bold = false) => `BT /${bold ? 'F2' : 'F1'} ${size} Tf ${x} ${y} Td (${pdfText(value)}) Tj ET`;
 // Ninguna columna se desborda del ancho de la hoja: los textos largos se
 // recortan con puntos para que el documento siga siendo legible al imprimir.
-const clip = (value, max) => {
+export const clip = (value, max) => {
     const text = String(value ?? '');
     return text.length > max ? `${text.slice(0, Math.max(1, max - 3))}...` : text;
 };
@@ -19,7 +28,7 @@ const makePage = (tournament, rows, pageNumber, totalPages, subtitle = '') => {
         // Los títulos de columna se dibujan en la misma posición X que los datos
         // para que la impresión quede alineada aunque cambie el idioma.
         line(42, 507, 8, 'HORA', true), line(86, 507, 8, 'CANCHA', true), line(170, 507, 8, 'CATEGORIA / MODALIDAD', true),
-        line(322, 507, 8, 'ETAPA / ZONA', true), line(460, 507, 8, 'PARTIDO', true), line(718, 507, 8, 'ESTADO', true)
+        line(322, 507, 8, 'ETAPA / ZONA', true), line(460, 507, 8, 'PARTIDO', true), line(620, 507, 8, 'RESULTADO', true), line(718, 507, 8, 'ESTADO', true)
     ];
     if (subtitle) commands.push('0.35 0.42 0.55 rg', line(40, 493, 9, clip(subtitle, 78)));
     commands.push('0.35 0.42 0.55 rg', line(560, 523, 9, clip(`Pagina ${pageNumber} de ${totalPages}`, 34), true));
@@ -38,7 +47,8 @@ const makePage = (tournament, rows, pageNumber, totalPages, subtitle = '') => {
         commands.push(line(86, y, 9, clip(row.cancha || 'Sin cancha', 15)));
         commands.push(line(170, y, 9, clip(category, 30)));
         commands.push(line(322, y, 9, clip(stage, 28)));
-        commands.push(line(460, y, 9, clip(match, 52)));
+        commands.push(line(460, y, 9, clip(match, 34)));
+        commands.push(line(620, y, 9, clip(row.resultado || '', 12), true));
         commands.push(line(718, y, 9, clip(row.status, 14)));
         commands.push('0.82 0.84 0.87 RG', `40 ${y - 5} m 802 ${y - 5} l S`, '0.08 0.12 0.2 rg');
         y -= 20;
@@ -58,7 +68,8 @@ export const fixtureRows = ({ matches, categories, teams, zones, phaseLabels, fi
                 id: match.id, fecha: match.fecha, hora: match.hora, cancha: match.cancha,
                 categoryName: item.nombre || 'Sin categoría', categoryAge: item.edad || '', modality: item.modalidad || '',
                 phaseLabel: phaseLabels[match.phase || 'ZONAS'] || match.phase || 'Fase de zonas', zoneName: zone(match.zonaId),
-                teamA: team(match.equipoLocalId), teamB: team(match.equipoVisitanteId), status: statusLabel(match.estado)
+                teamA: team(match.equipoLocalId), teamB: team(match.equipoVisitanteId), status: statusLabel(match.estado),
+                resultado: scoreLabel(match)
             };
         });
 };
