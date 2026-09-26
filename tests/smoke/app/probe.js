@@ -72,14 +72,38 @@
         };
     });
 
+    // Los botones de Programación trabajan sobre la categoría activa. La otra
+    // categoría se arma con los mismos servicios para que "Programar todos los
+    // partidos" tenga las dos categorías compitiendo por el mismo día y canchas.
+    await step('emparejar-resto', async () => {
+        const { SchedulerService } = await import('/js/services/scheduler.js');
+        const date = document.querySelector('#pairing-day')?.value || '2026-11-02';
+        categories.forEach(category => {
+            if (DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id).length) return;
+            SchedulerService.generarEmparejamientos(tournament.id, category.id, { date });
+            SchedulerService.confirmarEmparejamientos(tournament.id, category.id);
+        });
+        await wait(250);
+    });
+
     await step('programar', async () => {
         document.querySelector('#btn-generar-programacion').click();
         await wait(400);
         const cards = [...document.querySelectorAll('#fixture-list .fixture-match')];
+        const slots = new Map();
+        categories.forEach(category => DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id).forEach(match => {
+            if (!match.fecha || !match.hora) return;
+            const key = `${match.fecha} ${match.hora}`;
+            const atSlot = slots.get(key) || new Set();
+            atSlot.add(category.id);
+            slots.set(key, atSlot);
+        }));
         report.afterProgram = {
             cards: cards.length,
             withTime: cards.filter(card => /^\d{2}:\d{2}$/.test((card.querySelector('.fixture-cell-time strong')?.textContent || '').trim())).length,
             withCourt: cards.filter(card => /^Cancha/.test((card.querySelector('.fixture-cell-court strong')?.textContent || '').trim())).length,
+            slots: slots.size,
+            mixedSlots: [...slots.values()].filter(atSlot => atSlot.size === categories.length).length,
             statusChip: text('.schedule-conflicts .match-status'),
             conflictText: text('.schedule-conflicts p')
         };
@@ -299,6 +323,21 @@
         location.hash = `#/torneo/${encodeURIComponent(tournament.id)}/programacion`;
         await wait(900);
         report.standings.backToSchedule = document.getElementById('view-programacion').classList.contains('active');
+    });
+
+    await step('limpiar', async () => {
+        const before = report.alerts.length;
+        document.querySelector('#btn-limpiar-programacion').click();
+        await wait(400);
+        const matches = categories.flatMap(category => DataManager.getMatchesByTournamentAndCategory(tournament.id, category.id));
+        report.limpiar = {
+            alerts: report.alerts.slice(before).join(' | '),
+            scheduled: matches.filter(match => match.fecha && match.hora && match.cancha).length,
+            finished: matches.filter(match => match.estado === 'finalizado' && match.fecha && match.hora && match.cancha).length,
+            pendingLeft: matches.filter(match => match.estado !== 'finalizado' && (match.fecha || match.hora || match.cancha)).length,
+            cards: count('#fixture-list .fixture-match'),
+            sinHorario: [...document.querySelectorAll('#fixture-list .fixture-cell-time strong')].filter(node => node.textContent.trim() === 'Sin horario').length
+        };
     });
 
     report.tournamentId = tournament.id;
