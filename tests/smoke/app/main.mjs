@@ -1,4 +1,5 @@
-﻿// Verificación de escritorio (Electron) de la vista Programación y Fixture.
+﻿// Verificación de escritorio (Electron) de las vistas Programación y Fixture,
+// el formato de sets por fase y la carga de resultados.
 // Se ejecuta con el binario de Electron de Windows:
 //   electron tests/smoke/app
 // No forma parte de `npm test`; sirve para comprobar la interfaz real
@@ -147,8 +148,26 @@ const main = async () => {
         check('la vista por cancha agrupa bajo encabezados de cancha', report.courtView.headers.length > 0 && report.courtView.headers.every(label => label === 'CANCHA'));
         check('la vista por día agrupa bajo encabezados de jornada', report.dayHeaders.every(label => label === 'JORNADA'));
         check('el descanso por categoría se guarda en el torneo', report.restSaved.length === 2 && report.restSaved.every(item => Number(item.value) === 1));
+        check('la configuración global ofrece un formato de sets por fase', initial.formatZones === 'one_set_21' && initial.formatPlayoffs === 'two_sets_15');
+        check('guardar el formato de sets lo persiste en el torneo', report.formatSaved?.zones === 'two_sets_15' && report.formatSaved?.playoffs === 'two_sets_15' && report.formatSaved?.selectAfter === 'two_sets_15');
+        check('el formato de sets se puede restaurar', report.formatRestored === 'one_set_21');
+        check('Resultados abre con el formato activo por fase', Boolean(report.results?.active && report.results.cards > 0 && report.results.firstFormat === 'one_set_21' && /1 set × 21/.test(report.results.formatHint || '') && /2 sets × 15/.test(report.results.formatHint || '')));
+        check('la carga de un partido de zonas pide un solo set', report.results?.editorRows === 1 && /1 set × 21/.test(report.results.quickLegend || '') && /gana/.test((report.results.quickButtons || []).join(' ')));
+        check('el marcador rápido de un set guarda el resultado', report.results?.scored?.sets === 1 && report.results?.scored?.score === '1-0' && report.results?.finishedCards === 1);
+        check('Resultados regresa a Programación', report.results?.backToSchedule === true);
         check('exportar el día sin filtro avisa en lugar de fallar', /Seleccioná un día/.test(report.dayExportWithoutDate || ''));
         check('la exportación completa entrega un PDF al navegador', downloads.some(name => /^fixture-.*\.pdf$/.test(name)));
+        check('Resultados carga dos sets cuando el formato lo pide', report.twoSets?.format === 'two_sets_15' && /2 sets × 15/.test(report.twoSets?.legend || '') && report.twoSets?.editorRows === 3 && /Set 3/.test((report.twoSets?.labels || []).join(' ')) && (report.twoSets?.buttons || []).some(label => /2–0/.test(label)));
+        check('El detalle 1–1 pide el tercer set de desempate', /tercer set/i.test(report.twoSets?.preview || ''));
+        check('El marcador rápido 2–0 guarda dos sets', report.twoSets?.scored?.sets === 2 && report.twoSets?.scored?.score === '2-0' && report.twoSets?.scored?.estado === 'finalizado' && report.twoSets?.restored === 'one_set_21');
+        check('La zona ofrece el modo todos contra todos', report.zones?.active === true && report.zones?.toggles === 1 && report.zones?.formToggle === 1);
+        check('Activar todos contra todos se guarda en la zona', report.roundRobin?.stored === true && report.roundRobin?.toggleAfter === true && /TODOS CONTRA TODOS/.test(report.roundRobin?.chips || ''));
+        check('Se crea una zona desde el formulario con todos contra todos', report.zones?.created?.count === report.zones?.before + 1 && report.zones?.created?.flag === true && /Zona Nueva/.test(report.zones?.created?.names || '') && !report.zones?.created?.alerts);
+        check('El aviso de zona se muestra en Programación', /todos contra todos/.test(report.roundRobin?.avisos || '') && report.roundRobin?.backToSchedule === true);
+        check('Las eliminatorias conservan su formato propio', report.playoffs?.found === true && report.playoffs?.format === 'two_sets_15' && report.playoffs?.zonesFormat === 'one_set_21' && /2 sets × 15/.test(report.playoffs?.legend || ''));
+        check('El resultado de una eliminatoria se guarda 2–0', report.playoffs?.scored?.sets === 2 && report.playoffs?.scored?.score === '2-0' && report.playoffs?.scored?.estado === 'finalizado');
+        check('Posiciones ofrece el PDF de posiciones', report.standings?.active === true && report.standings?.rows > 0 && report.standings?.columns === 13 && report.standings?.hasButton === true && report.standings?.backToSchedule === true);
+        check('el PDF de posiciones se entrega al navegador', downloads.some(name => /^clasificacion-.*\.pdf$/.test(name)));
         check('el ancho reducido pasa a tarjetas y oculta la cabecera', Boolean(narrow && narrow.columns === 2 && narrow.head === 'none'));
         check('en ancho normal la tabla mantiene sus seis columnas', Boolean(wide && wide.columns === 6 && wide.head === 'grid'));
         if (print) {
