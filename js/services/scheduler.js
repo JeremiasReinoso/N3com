@@ -544,7 +544,7 @@ export const SchedulerService = {
         const settings = DataManager.getTournamentSchedulingSettings(torneoId);
         const priorDays = daySchedules.slice(0, -1);
         const courtCount = DataManager.getTournamentCourtCount(torneoId);
-        const priorCapacity = priorDays.reduce((total, day) => total + dayCapacity(day, { duracionPartido: settings.blockDuration, intervaloPartidos: 0 }, courtCount), 0);
+        const priorCapacity = priorDays.reduce((total, day) => total + dayCapacity(day, { duracionPartido: settings.blockDuration, intervaloPartidos: settings.intervaloPartidos }, courtCount), 0);
         const pendingCount = groupMatches.filter(match => match.estado !== 'finalizado').length;
         const schedulingDays = planning ? daySchedules : (priorDays.length && pendingCount <= priorCapacity ? priorDays : daySchedules);
         this.redistribuirFechas(torneoId, categoriaId, schedulingDays.map(day => day.fecha));
