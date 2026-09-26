@@ -524,6 +524,7 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 /* Tablas, programación y resultados: lectura rápida de jornadas */
 .standings-card { padding: 0; overflow: hidden; }
 .standings-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 22px 24px 16px; background: linear-gradient(120deg, #fff, #f4f8ff); }
+.standings-head-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .standings-head h3 { margin: 0 0 4px; }
 .standings-head p, .standings-legend { color: #60728e; font-size: .88rem; margin: 0; }
 .final-podium { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 0 24px 18px; background: #f4f8ff; }
@@ -694,6 +695,7 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 .zone-card { overflow: hidden; background: #fff; border: 1px solid #dce6f4; border-radius: 13px; box-shadow: 0 6px 16px rgba(20, 50, 90, .05); }
 .zone-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 14px; background: #f5f9ff; border-bottom: 1px solid #e3ebf6; }
 .zone-card h3 { margin: 5px 0 0; font-size: 1rem; }
+.zone-mode-row { padding: 12px 14px 0; }
 .leader-badge { max-width: 52%; padding: 5px 8px; color: #7b5810; background: #fff4cf; border: 1px solid #f4da82; border-radius: 999px; font-size: .72rem; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .leader-badge.empty { color: #71819a; background: #f0f4f9; border-color: #dce4ee; }
 .zone-team-list { display: grid; }
@@ -952,6 +954,9 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 .schedule-conflicts h3, .schedule-conflicts p { margin: 0; }
 .schedule-conflicts p { margin-top: 4px; color: var(--text-muted); }
 .schedule-conflicts ul { margin: 0; padding-left: 20px; line-height: 1.55; }
+.schedule-zone-avisos { margin-top: 14px; padding: 12px 14px; background: #fff7df; border: 1px solid #e4c66d; border-radius: 12px; color: #6b5220; font-size: .93rem; }
+.schedule-zone-avisos ul { margin: 6px 0 0; padding-left: 18px; }
+:root[data-theme="dark"] .schedule-zone-avisos { background: #2b2412; border-color: #6a5524; color: #f3e2b0; }
 .fixture-table { background: var(--bg-card); }
 .fixture-table-head, .fixture-table .fixture-match { grid-template-columns: 92px 118px minmax(140px, .8fr) minmax(150px, .9fr) minmax(240px, 1.5fr) 104px; }
 .fixture-table-head { display: grid; gap: 12px; padding: 11px 16px; color: var(--text-muted); background: var(--bg-soft); border-bottom: 1px solid var(--line-soft); font-size: .72rem; font-weight: 900; text-transform: uppercase; }
