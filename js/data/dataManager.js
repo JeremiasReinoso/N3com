@@ -17,6 +17,23 @@ const normalizeClassificationMode = value => value === CLASSIFICATION_MODE.POINT
 // Los torneos guardados antes de incorporar métodos conservan exactamente el
 // flujo histórico. No se migra ni se infiere un método nuevo para ellos.
 const normalizeTournamentMethod = value => value === TOURNAMENT_METHOD.ALL_VS_ALL ? TOURNAMENT_METHOD.ALL_VS_ALL : TOURNAMENT_METHOD.STANDARD;
+// Formatos de set disponibles. Las zonas se juegan a 1 set × 21 puntos y las
+// eliminatorias a 2 sets × 15 (si queda 1-1 se juega el tercer set a 15).
+const SET_FORMATS = Object.freeze({ ONE_SET_21: 'one_set_21', TWO_SETS_15: 'two_sets_15' });
+const SET_FORMAT_DETAILS = Object.freeze({
+    [SET_FORMATS.ONE_SET_21]: { key: SET_FORMATS.ONE_SET_21, sets: 1, points: 21, label: '1 set × 21 puntos' },
+    [SET_FORMATS.TWO_SETS_15]: { key: SET_FORMATS.TWO_SETS_15, sets: 2, points: 15, label: '2 sets × 15 puntos' }
+});
+const DEFAULT_SET_FORMATS = Object.freeze({ zones: SET_FORMATS.ONE_SET_21, playoffs: SET_FORMATS.TWO_SETS_15 });
+const normalizeSetFormatKey = (value, fallback) => SET_FORMAT_DETAILS[value] ? value : fallback;
+const normalizeSetFormats = value => ({
+    zones: normalizeSetFormatKey(value?.zones, DEFAULT_SET_FORMATS.zones),
+    playoffs: normalizeSetFormatKey(value?.playoffs, DEFAULT_SET_FORMATS.playoffs)
+});
+const resolveSetFormat = key => SET_FORMAT_DETAILS[normalizeSetFormatKey(key)];
+// Las eliminatorias se juegan con el formato de eliminatorias; todo lo demás
+// (zonas y cruces de todos contra todos) sigue el formato de zonas.
+const PLAYOFF_PHASES = new Set(['TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL', 'THIRD_PLACE']);
 let sequence = 0;
 
 const emptyData = () => ({ tournaments: [], categories: [], teams: [], zones: [], matches: [], calendar: [] });
@@ -93,8 +110,18 @@ const normalizeMatch = match => {
         ganadorId: match.ganadorId || null
     };
 };
-const normalizeSets = sets => {
-    if (!Array.isArray(sets) || sets.length < 2 || sets.length > 3) throw new Error('Ingrese los puntos de 2 o 3 sets.');
+// El formato define cuántos sets y a cuántos puntos se juega. Sin formato
+// (datos heredados) se conserva la regla histórica de 2 o 3 sets.
+const normalizeSets = (sets, format) => {
+    if (!Array.isArray(sets) || !sets.length) throw new Error('Ingrese los puntos del partido.');
+    const minSets = format ? format.sets : 1;
+    const maxSets = format ? (format.sets === 1 ? 1 : 3) : 3;
+    if (sets.length < minSets || sets.length > maxSets) {
+        if (format?.sets === 1) throw new Error('Este partido se juega a 1 set: cargue sólo los puntos de ese set.');
+        if (format?.sets === 2 && sets.length > 3) throw new Error('Este partido se juega a 2 sets: cargue 2 sets o el tercero de desempate.');
+        if (!format && sets.length < 2) throw new Error('Ingrese los puntos de 2 o 3 sets.');
+        throw new Error(`Este partido se juega a ${minSets} sets.`);
+    }
     return sets.map((set, index) => {
         const puntosLocal = Number(set?.puntosLocal);
         const puntosVisitante = Number(set?.puntosVisitante);
@@ -103,25 +130,40 @@ const normalizeSets = sets => {
         return { puntosLocal, puntosVisitante };
     });
 };
-// La única fuente del resultado son los puntos de cada set. El marcador 2-0 o
-// 2-1 se calcula aquí y nunca se recibe manualmente desde la interfaz.
-const applyInternalResult = (match, rawSets) => {
-    const sets = normalizeSets(rawSets);
+// La única fuente del resultado son los puntos de cada set. El marcador de
+// sets (1-0, 2-0 o 2-1) se calcula aquí y nunca se recibe manualmente.
+// `format` aplica la regla del formato activo; sin formato se usa la regla
+// histórica. Con `strict: false` sólo se exige que haya un ganador (se usa
+// al releer los datos guardados, que ya fueron validados al guardarlos).
+const applyInternalResult = (match, rawSets, format = null, strict = true) => {
+    const sets = normalizeSets(rawSets, format);
     const setsLocal = sets.filter(set => set.puntosLocal > set.puntosVisitante).length;
     const setsVisitante = sets.length - setsLocal;
-    const firstTwoAreSplit = sets.length === 3
-        && (sets[0].puntosLocal > sets[0].puntosVisitante) !== (sets[1].puntosLocal > sets[1].puntosVisitante);
-    const isTwoSetFinish = sets.length === 2 && (setsLocal === 2 || setsVisitante === 2);
-    const isThreeSetFinish = sets.length === 3 && firstTwoAreSplit && (setsLocal === 2 || setsVisitante === 2);
-    if (!isTwoSetFinish && !isThreeSetFinish) {
-        throw new Error('El resultado debe finalizar 2-0 o 2-1. Si los primeros dos sets quedan 1-1, cargue el tercer set.');
+    if (!strict) {
+        if (setsLocal === setsVisitante) throw new Error('El partido debe tener un ganador.');
+    } else if (format?.sets === 1) {
+        // Un solo set sin empate: ya está validado por normalizeSets.
+    } else if (format?.sets === 2) {
+        const firstTwoAreSplit = sets.length === 3
+            && (sets[0].puntosLocal > sets[0].puntosVisitante) !== (sets[1].puntosLocal > sets[1].puntosVisitante);
+        const isTwoSetFinish = sets.length === 2 && (setsLocal === 2 || setsVisitante === 2);
+        const isDeciderFinish = sets.length === 3 && firstTwoAreSplit && (setsLocal === 2 || setsVisitante === 2);
+        if (!isTwoSetFinish && !isDeciderFinish) throw new Error('El resultado debe finalizar 2-0. Si los dos primeros sets quedan 1-1, cargue el tercer set de desempate.');
+    } else {
+        const firstTwoAreSplit = sets.length === 3
+            && (sets[0].puntosLocal > sets[0].puntosVisitante) !== (sets[1].puntosLocal > sets[1].puntosVisitante);
+        const isTwoSetFinish = sets.length === 2 && (setsLocal === 2 || setsVisitante === 2);
+        const isThreeSetFinish = sets.length === 3 && firstTwoAreSplit && (setsLocal === 2 || setsVisitante === 2);
+        if (!isTwoSetFinish && !isThreeSetFinish) {
+            throw new Error('El resultado debe finalizar 2-0 o 2-1. Si los primeros dos sets quedan 1-1, cargue el tercer set.');
+        }
     }
     match.estado = 'finalizado';
     match.status = 'FINALIZADO';
     match.sets = sets;
     match.setsLocal = setsLocal;
     match.setsVisitante = setsVisitante;
-    match.ganadorId = setsLocal === 2 ? match.equipoLocalId : match.equipoVisitanteId;
+    match.ganadorId = setsLocal > setsVisitante ? match.equipoLocalId : match.equipoVisitanteId;
     match.score = `${setsLocal}-${setsVisitante}`;
 };
 
@@ -136,6 +178,7 @@ export const DataManager = {
                 ...tournament,
                 classificationMode: normalizeClassificationMode(tournament.classificationMode),
                 method: normalizeTournamentMethod(tournament.method),
+                setFormats: normalizeSetFormats(tournament.setFormats),
                 courts: Array.isArray(tournament.courts) && tournament.courts.length
                     ? tournament.courts.map(normalizeCourt)
                     : defaultCourts(tournament.cantidadCanchas || 2)
@@ -148,7 +191,8 @@ export const DataManager = {
             // anterior, que guardaba sólo la categoría.
             data.zones = data.zones.map(zone => ({
                 ...zone,
-                torneoId: zone.torneoId || data.categories.find(category => category.id === zone.categoriaId)?.torneoId || null
+                torneoId: zone.torneoId || data.categories.find(category => category.id === zone.categoriaId)?.torneoId || null,
+                todosContraTodos: zone.todosContraTodos === true
             }));
             // Los resultados de versiones anteriores no contienen los puntos
             // de cada set y ya no sirven para la nueva clasificación. Quedan
@@ -157,11 +201,14 @@ export const DataManager = {
                 // Se descarta la puntuación fija de versiones anteriores. La
                 // clasificación sólo se deriva de los sets reales guardados.
                 const { puntosLocal, puntosVisitante, ...normalizedMatch } = match;
-                const hasDetailedSets = Array.isArray(normalizedMatch.sets) && normalizedMatch.sets.length >= 2;
+                const hasDetailedSets = Array.isArray(normalizedMatch.sets) && normalizedMatch.sets.length >= 1;
                 if (normalizedMatch.estado !== 'finalizado') return normalizeMatch(normalizedMatch);
                 if (hasDetailedSets) {
                     const restored = normalizeMatch(normalizedMatch);
-                    applyInternalResult(restored, restored.sets);
+                    // Al releer sólo se exige que haya un ganador: el formato
+                    // estricto se aplica cuando se guarda un resultado nuevo.
+                    try { applyInternalResult(restored, restored.sets, null, false); }
+                    catch { return normalizeMatch({ ...normalizedMatch, estado: 'pendiente', confirmado: true, sets: [], setsLocal: null, setsVisitante: null, ganadorId: null }); }
                     return restored;
                 }
                 return normalizeMatch({ ...normalizedMatch, estado: 'pendiente', confirmado: true, sets: [], setsLocal: null, setsVisitante: null, ganadorId: null });
@@ -182,9 +229,38 @@ export const DataManager = {
     getTournament(id) { return this.getTournaments().find(tournament => tournament.id === id) || null; },
     getTournamentClassificationMode(id) { return normalizeClassificationMode(this.getTournament(id)?.classificationMode); },
     getTournamentMethod(id) { return normalizeTournamentMethod(this.getTournament(id)?.method); },
+    // Opciones de formato de set disponibles en toda la aplicación.
+    getSetFormatOptions() { return Object.values(SET_FORMAT_DETAILS); },
+    getTournamentSetFormats(id) {
+        const formats = normalizeSetFormats(this.getTournament(id)?.setFormats);
+        return { zones: resolveSetFormat(formats.zones), playoffs: resolveSetFormat(formats.playoffs) };
+    },
+    // El formato se elige según la fase: zonas y cruces usan el de zonas;
+    // las eliminatorias (Top 16/8, semifinales, final) usan el suyo.
+    isPlayoffPhase(match) { return PLAYOFF_PHASES.has(phaseFor(match)); },
+    getSetFormatForMatch(match) {
+        const formats = normalizeSetFormats(this.getTournament(match.torneoId)?.setFormats);
+        return resolveSetFormat(PLAYOFF_PHASES.has(phaseFor(match)) ? formats.playoffs : formats.zones);
+    },
+    setTournamentSetFormats(torneoId, changes = {}) {
+        const data = this._getStorage();
+        const tournament = data.tournaments.find(item => item.id === torneoId);
+        if (!tournament) throw new Error('No se encontró el torneo.');
+        const current = normalizeSetFormats(tournament.setFormats);
+        const next = { ...current };
+        [['zones', 'la fase de zonas'], ['playoffs', 'las eliminatorias']].forEach(([side, label]) => {
+            const value = changes[side];
+            if (value === undefined || value === null || value === '') return;
+            if (!SET_FORMAT_DETAILS[value]) throw new Error(`Formato de set no válido para ${label}.`);
+            next[side] = value;
+        });
+        tournament.setFormats = next;
+        this._setStorage(data);
+        return { zones: resolveSetFormat(next.zones), playoffs: resolveSetFormat(next.playoffs) };
+    },
     createTournament(nombre, partidosAsegurados, classificationMode = CLASSIFICATION_MODE.SETS, method = TOURNAMENT_METHOD.STANDARD) {
         const data = this._getStorage();
-        const tournament = { id: makeId('torneo'), nombre: nombre.trim(), partidos_asegurados: Number(partidosAsegurados), classificationMode: normalizeClassificationMode(classificationMode), method: normalizeTournamentMethod(method), courts: defaultCourts(2), cantidadCanchas: 2, blockDuration: 30, duracionPartido: 30, intervaloPartidos: 0, creado: new Date().toISOString() };
+        const tournament = { id: makeId('torneo'), nombre: nombre.trim(), partidos_asegurados: Number(partidosAsegurados), classificationMode: normalizeClassificationMode(classificationMode), method: normalizeTournamentMethod(method), setFormats: { ...DEFAULT_SET_FORMATS }, courts: defaultCourts(2), cantidadCanchas: 2, blockDuration: 30, duracionPartido: 30, intervaloPartidos: 0, creado: new Date().toISOString() };
         data.tournaments.push(tournament);
         this._setStorage(data);
         return tournament;
@@ -306,10 +382,20 @@ export const DataManager = {
 
     getZonesByTournamentAndCategory(torneoId, categoriaId) { return this._getStorage().zones.filter(zone => zone.torneoId === torneoId && zone.categoriaId === categoriaId); },
     getZonesByCategory(categoriaId) { return this._getStorage().zones.filter(zone => zone.categoriaId === categoriaId); },
-    createZone(nombre, categoriaId, torneoId) {
+    createZone(nombre, categoriaId, torneoId, options = {}) {
         const data = this._getStorage();
-        const zone = { id: makeId('zona'), nombre: nombre.trim(), categoriaId, torneoId, liderEquipoId: null };
+        const zone = { id: makeId('zona'), nombre: nombre.trim(), categoriaId, torneoId, liderEquipoId: null, todosContraTodos: options.todosContraTodos === true };
         data.zones.push(zone);
+        this._setStorage(data);
+        return zone;
+    },
+    // Una zona de todos contra todos ignora los partidos asegurados del
+    // torneo y se juega completa: todos los cruces posibles una sola vez.
+    setZoneRoundRobin(zonaId, todosContraTodos) {
+        const data = this._getStorage();
+        const zone = data.zones.find(item => item.id === zonaId);
+        if (!zone) throw new Error('No se encontró la zona.');
+        zone.todosContraTodos = todosContraTodos === true;
         this._setStorage(data);
         return zone;
     },
@@ -529,7 +615,9 @@ export const DataManager = {
         const match = data.matches.find(item => item.id === matchId);
         if (!match) throw new Error('No se encontró el partido.');
         if (!match.confirmado && match.estado !== 'programado' && match.estado !== 'finalizado') throw new Error('El partido debe confirmarse antes de cargar un resultado.');
-        applyInternalResult(match, sets);
+        const formats = normalizeSetFormats(data.tournaments.find(item => item.id === match.torneoId)?.setFormats);
+        const format = resolveSetFormat(PLAYOFF_PHASES.has(phaseFor(match)) ? formats.playoffs : formats.zones);
+        applyInternalResult(match, sets, format);
         this._setStorage(data);
     },
 
