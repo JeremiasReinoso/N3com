@@ -25,6 +25,15 @@ const teamSort = (counts, left, right) => (
     || String(left.id).localeCompare(String(right.id))
 );
 
+// Cuántos partidos disputa cada equipo de la zona: los partidos asegurados
+// del torneo nunca superan el máximo posible sin repetir cruces y una zona
+// de todos contra todos ignora ese número porque se juega completa.
+const zoneRequirement = (zone, zoneTeams, assured) => (
+    zone?.todosContraTodos
+        ? Math.max(0, zoneTeams.length - 1)
+        : Math.min(assured, Math.max(0, zoneTeams.length - 1))
+);
+
 // Completa sólo los cruces que faltan. Se elige siempre uno de los equipos
 // con menos partidos y se prueba primero contra otro equipo pendiente. La
 // búsqueda con retroceso evita que una elección local deje a un equipo sin
@@ -57,7 +66,8 @@ const buildBalancedPairs = (teams, initialCounts, initialPairs, required) => {
             const rightPending = Number(counts.get(right.id) < required);
             return rightPending - leftPending || teamSort(counts, left, right);
         });
-        for (const opponent of opponents) {
+            for (const opponent of opponents) {
+            if (counts.get(opponent.id) >= required) continue;
             const key = pairKey(team.id, opponent.id);
             const nextCounts = new Map(counts);
             nextCounts.set(team.id, nextCounts.get(team.id) + 1);
@@ -73,6 +83,35 @@ const buildBalancedPairs = (teams, initialCounts, initialPairs, required) => {
     const result = search(initial, new Set(initialPairs), []);
     if (!result) throw new Error('No existe una combinación de rivales únicos que complete los partidos garantizados.');
     return result;
+};
+
+// Cuando la zona no da abasto para los partidos asegurados, se genera lo
+// máximo posible sin repetir cruces ni superar el tope de la zona. La
+// validación lo informa como aviso y nunca bloquea el torneo.
+const buildPartialPairs = (teams, initialCounts, initialPairs, required) => {
+    const byId = new Map(teams.map(team => [team.id, team]));
+    const counts = new Map(initialCounts);
+    const used = new Set(initialPairs);
+    const generated = [];
+    let added = true;
+    while (added) {
+        added = false;
+        const pending = teams.filter(team => counts.get(team.id) < required).sort((left, right) => teamSort(counts, left, right));
+        for (const team of pending) {
+            const opponent = teams
+                .filter(other => other.id !== team.id && counts.get(other.id) < required && !used.has(pairKey(team.id, other.id)))
+                .sort((left, right) => teamSort(counts, left, right))[0];
+            if (!opponent) continue;
+            const key = pairKey(team.id, opponent.id);
+            used.add(key);
+            counts.set(team.id, counts.get(team.id) + 1);
+            counts.set(opponent.id, counts.get(opponent.id) + 1);
+            generated.push({ local: byId.get(team.id), visitante: byId.get(opponent.id), key });
+            added = true;
+            break;
+        }
+    }
+    return generated;
 };
 
 const assignRounds = (existing, pairs) => {
@@ -231,7 +270,9 @@ export const SchedulerService = {
             const zoneTeams = teams.filter(team => team.zonaId === zone.id);
             if (!zoneTeams.length) continue;
             if (zoneTeams.length < 2) throw new Error(`${zone.nombre} necesita al menos dos equipos.`);
-            if (assured > zoneTeams.length - 1) throw new Error(`${zone.nombre} tiene ${zoneTeams.length} equipos y no puede garantizar ${assured} partidos sin repetir enfrentamientos.`);
+            // La zona nunca juega más allá de lo que permite repetir cruces:
+            // si los asegurados no entran, se juega menos y se avisa.
+            const zoneRequired = zoneRequirement(zone, zoneTeams, assured);
             const existing = existingFixture.filter(match => match.zonaId === zone.id);
             const counts = new Map(zoneTeams.map(team => [team.id, 0]));
             const pairsSeen = new Set();
@@ -243,12 +284,12 @@ export const SchedulerService = {
                 counts.set(match.equipoVisitanteId, (counts.get(match.equipoVisitanteId) || 0) + 1);
             });
 
-            if ([...counts.values()].every(count => count >= assured)) continue;
+            if ([...counts.values()].every(count => count >= zoneRequired)) continue;
             let generated;
             try {
-                generated = buildBalancedPairs(zoneTeams, counts, pairsSeen, assured);
-            } catch (error) {
-                throw new Error(`No se pudo completar ${zone.nombre} sin repetir enfrentamientos: ${error.message}`);
+                generated = buildBalancedPairs(zoneTeams, counts, pairsSeen, zoneRequired);
+            } catch {
+                generated = buildPartialPairs(zoneTeams, counts, pairsSeen, zoneRequired);
             }
             assignRounds(existing, generated).forEach(({ local, visitante, ronda }) => {
                 pending.push({ torneoId, categoriaId, zonaId: zone.id, tipo: 'fase_zonas', ronda, equipoLocalId: local.id, equipoVisitanteId: visitante.id, fecha: null, hora: null, cancha: null, estado: 'borrador', confirmado: false, setsLocal: null, setsVisitante: null });
@@ -395,12 +436,32 @@ export const SchedulerService = {
             else pairs.set(key, match);
             if (requireSchedule && (!match.fecha || !match.hora || !match.cancha)) unscheduledMatches.push(match);
         });
+        // Cada zona exige su propio máximo: los asegurados del torneo se
+        // respetan salvo que la zona no ofrezca tantos cruces distintos, y en
+        // una zona de todos contra todos el requisito es jugarla completa.
+        const zoneById = new Map(zones.map(zone => [zone.id, zone]));
+        const zoneTeamsById = new Map(zones.map(zone => [zone.id, teams.filter(team => team.zonaId === zone.id)]));
+        const requirementFor = team => {
+            const zone = zoneById.get(team.zonaId);
+            return zone ? zoneRequirement(zone, zoneTeamsById.get(zone.id) || [], required) : required;
+        };
+        const countsByTeam = new Map(teams.map(team => [team.id, this.getMatchesCountForTeam(torneoId, categoriaId, team.id, { onlyOfficial, onlyFinished })]));
+        const usedPairs = new Set(pairs.keys());
+        // Un equipo está atrasado sólo si todavía puede sumar un cruce nuevo
+        // de su zona; si ya no hay rivales disponibles, la zona no da abasto
+        // y eso se informa como aviso en vez de bloquear el torneo.
+        const canAddMatch = team => (zoneTeamsById.get(team.zonaId) || []).some(other => (
+            other.id !== team.id
+            && countsByTeam.get(other.id) < requirementFor(other)
+            && !usedPairs.has(pairKey(team.id, other.id))
+        ));
         const teamsStatus = teams.map(team => {
-            const matchesCount = this.getMatchesCountForTeam(torneoId, categoriaId, team.id, { onlyOfficial, onlyFinished });
-            return { teamId: team.id, nombre: team.nombre, matches: matchesCount, required, complete: matchesCount >= required };
+            const teamRequired = requirementFor(team);
+            const matchesCount = countsByTeam.get(team.id);
+            return { teamId: team.id, nombre: team.nombre, matches: matchesCount, required: teamRequired, complete: matchesCount >= teamRequired, short: matchesCount < teamRequired && !canAddMatch(team) };
         });
-        const incompleteTeams = teamsStatus.filter(team => !team.complete);
-        const impossibleZones = zones.filter(zone => required > teams.filter(team => team.zonaId === zone.id).length - 1);
+        const incompleteTeams = teamsStatus.filter(team => !team.complete && !team.short);
+        const shortTeams = teamsStatus.filter(team => team.short);
         const scheduled = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => match.fecha && match.hora && match.cancha);
         const scheduleConflicts = [];
         scheduled.forEach((match, index) => scheduled.slice(index + 1).forEach(other => {
@@ -408,18 +469,34 @@ export const SchedulerService = {
             if (match.cancha === other.cancha || [match.equipoLocalId, match.equipoVisitanteId].some(id => [other.equipoLocalId, other.equipoVisitanteId].includes(id))) scheduleConflicts.push([match, other]);
         }));
         const problems = [];
-        if (impossibleZones.length) problems.push(`No se pueden cumplir los partidos asegurados sin repetir cruces en: ${impossibleZones.map(zone => zone.nombre).join(', ')}.`);
+        const avisos = [];
+        zones.forEach(zone => {
+            const zoneTeams = zoneTeamsById.get(zone.id) || [];
+            if (!zoneTeams.length) return;
+            const maxPerTeam = zoneTeams.length - 1;
+            if (zone.todosContraTodos && required !== maxPerTeam) {
+                avisos.push(`${zone.nombre} se juega todos contra todos: cada equipo disputa ${maxPerTeam} partidos aunque los asegurados del torneo sean ${required}.`);
+            } else if (!zone.todosContraTodos && required > maxPerTeam) {
+                avisos.push(`${zone.nombre} tiene ${zoneTeams.length} equipos: sólo se pueden jugar ${maxPerTeam} partidos por equipo y no se repiten cruces.`);
+            }
+        });
+        const shortByZone = Map.groupBy(shortTeams, team => zoneById.get(teamById.get(team.teamId)?.zonaId)?.nombre || 'Sin zona');
+        [...shortByZone].forEach(([zoneName, list]) => {
+            avisos.push(`${zoneName}: ${list.map(team => `${team.nombre} ${team.matches}/${team.required}`).join(', ')} y la zona no ofrece más cruces sin repetir.`);
+        });
         if (invalidMatches.length) problems.push('Hay partidos con equipos inválidos.');
         if (crossZoneMatches.length) problems.push('Hay partidos entre zonas diferentes.');
         if (duplicatePairs.length) problems.push('Hay enfrentamientos repetidos.');
         if (scheduleConflicts.length) problems.push('Hay conflictos de cancha, horario o equipos.');
         if (unscheduledMatches.length) problems.push('Hay partidos sin fecha, hora o cancha.');
-        if (incompleteTeams.length) problems.push(`Faltan partidos asegurados para: ${incompleteTeams.map(team => `${team.nombre} ${team.matches}/${required}`).join(', ')}.`);
+        if (incompleteTeams.length) problems.push(`Faltan partidos asegurados para: ${incompleteTeams.map(team => `${team.nombre} ${team.matches}/${team.required}`).join(', ')}.`);
         return {
             valid: problems.length === 0 && teams.length > 0,
             guaranteedMatches: required,
             teams: teamsStatus,
             incompleteTeams,
+            shortTeams,
+            avisos,
             duplicatePairs,
             crossZoneMatches,
             scheduleConflicts,
@@ -436,14 +513,17 @@ export const SchedulerService = {
 
     estadoFaseClasificatoria(torneoId, categoriaId) {
         const fixture = this.validateGuaranteedMatches(torneoId, categoriaId);
-        if (!fixture.valid) return { ok: false, equipos: fixture.teams, pendientes: fixture.incompleteTeams, mensaje: fixture.mensaje };
+        if (!fixture.valid) return { ok: false, equipos: fixture.teams, pendientes: fixture.incompleteTeams, mensaje: fixture.mensaje, avisos: fixture.avisos };
         const finished = this.validateGuaranteedMatches(torneoId, categoriaId, { onlyFinished: true });
         const equipos = finished.teams.map(team => ({ ...team, jugados: team.matches, requeridos: team.required }));
-        const pendientes = equipos.filter(team => team.jugados < team.requeridos);
+        // Un equipo que ya no puede sumar más cruces en su zona no queda
+        // pendiente: la zona no da abasto y eso ya está informado como aviso.
+        const pendientes = equipos.filter(team => team.jugados < team.requeridos && !team.short);
         return {
             ok: !pendientes.length && equipos.length > 0,
             equipos,
             pendientes,
+            avisos: fixture.avisos,
             mensaje: pendientes.length ? `Faltan partidos asegurados finalizados: ${pendientes.map(team => `${team.nombre} ${team.jugados}/${team.requeridos}`).join(', ')}.` : 'Fase clasificatoria completada.'
         };
     },
