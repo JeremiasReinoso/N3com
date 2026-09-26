@@ -17,6 +17,7 @@ const { PlayoffsService } = await import(moduleUrl('js/services/playoffs.js'));
 const result = [{ puntosLocal: 25, puntosVisitante: 16 }, { puntosLocal: 25, puntosVisitante: 18 }];
 
 const tournament = DataManager.createTournament('Todos contra todos', 3, 'sets', 'all_vs_all');
+DataManager.setTournamentSetFormats(tournament.id, { zones: 'two_sets_15' });
 const category = DataManager.createCategory('+40 Mixto', tournament.id);
 const zones = ['Zona A', 'Zona B'].map(name => DataManager.createZone(name, category.id, tournament.id));
 const createdTeams = Array.from({ length: 8 }, (_, index) => {
