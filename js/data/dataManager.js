@@ -6,13 +6,14 @@ const TOURNAMENT_METHOD = { STANDARD: 'standard', ALL_VS_ALL: 'all_vs_all' };
 export const PLANNING_STAGES = Object.freeze({
     ZONES: 'ZONAS',
     GUARANTEED: 'GARANTIZADOS',
-    CROSSES: 'ALL_VS_ALL',
+    CROSSES: 'CRUCE',
     ROUND_OF_16: 'TOP_16',
     QUARTERFINALS: 'TOP_8',
     SEMIFINALS: 'SEMIFINAL',
     FINAL: 'FINAL'
 });
 const VALID_PLANNING_STAGES = new Set(Object.values(PLANNING_STAGES));
+VALID_PLANNING_STAGES.add('ALL_VS_ALL');
 const normalizeClassificationMode = value => value === CLASSIFICATION_MODE.POINTS ? CLASSIFICATION_MODE.POINTS : CLASSIFICATION_MODE.SETS;
 // Los torneos guardados antes de incorporar métodos conservan exactamente el
 // flujo histórico. No se migra ni se infiere un método nuevo para ellos.
@@ -31,8 +32,8 @@ const normalizeSetFormats = value => ({
     playoffs: normalizeSetFormatKey(value?.playoffs, DEFAULT_SET_FORMATS.playoffs)
 });
 const resolveSetFormat = key => SET_FORMAT_DETAILS[normalizeSetFormatKey(key)];
-// Las eliminatorias se juegan con el formato de eliminatorias; todo lo demás
-// (zonas y cruces de todos contra todos) sigue el formato de zonas.
+// Las eliminatorias se juegan con el formato de eliminatorias; zonas y cruces
+// usan el formato de zonas.
 const PLAYOFF_PHASES = new Set(['TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL', 'THIRD_PLACE']);
 let sequence = 0;
 
@@ -58,7 +59,7 @@ const normalizeCourt = (court, index) => ({
     name: String(court?.name || court?.nombre || `Cancha ${index + 1}`).trim() || `Cancha ${index + 1}`
 });
 const validHours = (start, end) => /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end) && minutesFromTime(start) < minutesFromTime(end);
-const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', cruces_todos_contra_todos: 'ALL_VS_ALL', top_16: 'TOP_16', top_8: 'TOP_8', semifinal: 'SEMIFINAL', tercer_puesto: 'THIRD_PLACE', final: 'FINAL' };
+const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', cruce_zona: 'CRUCE', cruces_todos_contra_todos: 'ALL_VS_ALL', top_16: 'TOP_16', top_8: 'TOP_8', semifinal: 'SEMIFINAL', tercer_puesto: 'THIRD_PLACE', final: 'FINAL' };
 const TYPE_BY_PHASE = Object.fromEntries(Object.entries(PHASE_BY_TYPE).map(([type, phase]) => [phase, type]));
 const phaseFor = match => match.phase || PHASE_BY_TYPE[match.tipo] || 'ZONAS';
 const isZonePhaseMatch = match => phaseFor(match) === 'ZONAS';
@@ -185,14 +186,16 @@ export const DataManager = {
             }));
             data.categories = data.categories.map(category => ({
                 ...category,
-                minimumRestBlocks: Math.max(0, Number(category.minimumRestBlocks || 0))
+                minimumRestBlocks: Math.max(0, Number(category.minimumRestBlocks || 0)),
+                clasificadosPorZona: Math.max(1, Number(category.clasificadosPorZona || 2))
             }));
             // Compatibilidad con las zonas locales creadas por la versión
             // anterior, que guardaba sólo la categoría.
             data.zones = data.zones.map(zone => ({
                 ...zone,
                 torneoId: zone.torneoId || data.categories.find(category => category.id === zone.categoriaId)?.torneoId || null,
-                todosContraTodos: zone.todosContraTodos === true
+                todosContraTodos: zone.todosContraTodos === true,
+                clasificados: Math.max(1, Number(zone.clasificados || 0)) || null
             }));
             // Los resultados de versiones anteriores no contienen los puntos
             // de cada set y ya no sirven para la nueva clasificación. Quedan
@@ -260,7 +263,7 @@ export const DataManager = {
     },
     createTournament(nombre, partidosAsegurados, classificationMode = CLASSIFICATION_MODE.SETS, method = TOURNAMENT_METHOD.STANDARD) {
         const data = this._getStorage();
-        const tournament = { id: makeId('torneo'), nombre: nombre.trim(), partidos_asegurados: Number(partidosAsegurados), classificationMode: normalizeClassificationMode(classificationMode), method: normalizeTournamentMethod(method), setFormats: { ...DEFAULT_SET_FORMATS }, courts: defaultCourts(2), cantidadCanchas: 2, blockDuration: 30, duracionPartido: 30, intervaloPartidos: 0, creado: new Date().toISOString() };
+        const tournament = { id: makeId('torneo'), nombre: nombre.trim(), partidos_asegurados: Number(partidosAsegurados), classificationMode: normalizeClassificationMode(classificationMode), method: TOURNAMENT_METHOD.STANDARD, setFormats: { ...DEFAULT_SET_FORMATS }, courts: defaultCourts(2), cantidadCanchas: 2, blockDuration: 30, duracionPartido: 30, intervaloPartidos: 0, creado: new Date().toISOString() };
         data.tournaments.push(tournament);
         this._setStorage(data);
         return tournament;
@@ -330,7 +333,7 @@ export const DataManager = {
     getPlanningDatesForStage(torneoId, categoriaId, phase) {
         const planning = this.getCategoryPlanning(torneoId, categoriaId);
         if (!planning) return [];
-        const accepted = phase === 'ZONAS' ? new Set(['ZONAS', 'GARANTIZADOS']) : new Set([phase]);
+        const accepted = phase === 'ZONAS' ? new Set(['ZONAS', 'GARANTIZADOS']) : new Set([phase, phase === 'CRUCE' ? 'ALL_VS_ALL' : phase]);
         return planning.days.filter(day => day.stages.some(stage => accepted.has(stage))).map(day => day.date);
     },
     setAllVsAllCrossesClosed(torneoId, categoriaId, closed = true) {
@@ -349,7 +352,7 @@ export const DataManager = {
         if (!names.length) throw new Error('Seleccione al menos una categoría válida.');
         const existing = new Set(data.categories.filter(category => category.torneoId === torneoId).map(category => category.nombre.trim().toLocaleLowerCase('es')));
         if (names.some(name => existing.has(name.toLocaleLowerCase('es')))) throw new Error('Una de las categorías seleccionadas ya fue agregada al torneo.');
-        const categories = names.map(nombre => ({ id: makeId('categoria'), nombre, torneoId, minimumRestBlocks: 0 }));
+        const categories = names.map(nombre => ({ id: makeId('categoria'), nombre, torneoId, minimumRestBlocks: 0, clasificadosPorZona: 2 }));
         data.categories.push(...categories);
         this._setStorage(data);
         return categories;
@@ -357,6 +360,20 @@ export const DataManager = {
 
     getTeamsByCategory(categoriaId) { return this._getStorage().teams.filter(team => team.categoriaId === categoriaId); },
     getTeamsByTournamentAndCategory(torneoId, categoriaId) { return this._getStorage().teams.filter(team => team.torneoId === torneoId && team.categoriaId === categoriaId); },
+    getQualifiedTeamsPerZone(torneoId, categoriaId, zone = null) {
+        const category = this.getCategory(categoriaId);
+        return Math.max(1, Number(zone?.clasificados || category?.clasificadosPorZona || 2));
+    },
+    setQualifiedTeamsPerZone(torneoId, categoriaId, count) {
+        const value = Number(count);
+        if (!Number.isInteger(value) || value < 1) throw new Error('La cantidad de clasificados por zona debe ser un entero positivo.');
+        const data = this._getStorage();
+        const category = data.categories.find(item => item.id === categoriaId && item.torneoId === torneoId);
+        if (!category) throw new Error('La categoría no pertenece al torneo seleccionado.');
+        category.clasificadosPorZona = value;
+        this._setStorage(data);
+        return category;
+    },
     createTeam(nombre, categoriaId, torneoId) {
         const data = this._getStorage();
         const name = String(nombre || '').trim();
@@ -384,18 +401,21 @@ export const DataManager = {
     getZonesByCategory(categoriaId) { return this._getStorage().zones.filter(zone => zone.categoriaId === categoriaId); },
     createZone(nombre, categoriaId, torneoId, options = {}) {
         const data = this._getStorage();
-        const zone = { id: makeId('zona'), nombre: nombre.trim(), categoriaId, torneoId, liderEquipoId: null, todosContraTodos: options.todosContraTodos === true };
+        const qualified = options.clasificados === undefined ? null : Number(options.clasificados);
+        if (qualified !== null && (!Number.isInteger(qualified) || qualified < 1)) throw new Error('La cantidad de clasificados por zona debe ser un entero positivo.');
+        const zone = { id: makeId('zona'), nombre: nombre.trim(), categoriaId, torneoId, liderEquipoId: null, todosContraTodos: false, clasificados: qualified };
         data.zones.push(zone);
         this._setStorage(data);
         return zone;
     },
-    // Una zona de todos contra todos ignora los partidos asegurados del
-    // torneo y se juega completa: todos los cruces posibles una sola vez.
+    // Conservado sólo para compatibilidad con datos antiguos. Newcom no usa
+    // zonas de todos contra todos; los partidos garantizados siempre respetan
+    // la cantidad configurada para el torneo.
     setZoneRoundRobin(zonaId, todosContraTodos) {
         const data = this._getStorage();
         const zone = data.zones.find(item => item.id === zonaId);
         if (!zone) throw new Error('No se encontró la zona.');
-        zone.todosContraTodos = todosContraTodos === true;
+        zone.todosContraTodos = false;
         this._setStorage(data);
         return zone;
     },
