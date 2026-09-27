@@ -1,8 +1,8 @@
 import { DataManager } from '../data/dataManager.js';
 
-// La tabla general del método Todos contra todos acumula también los cruces
-// libres. Las eliminatorias siguen sin alterar los puntos de clasificación.
-const isGroupStandingMatch = match => match.phase === 'ZONAS' || match.phase === 'ALL_VS_ALL' || !match.tipo || match.tipo === 'fase_zonas' || match.tipo === 'cruces_todos_contra_todos';
+// Sólo los partidos garantizados de zonas forman las posiciones clasificatorias.
+// Los cruces y las eliminatorias no vuelven a alterar la tabla de zonas.
+const isGroupStandingMatch = match => match.phase === 'ZONAS' || !match.tipo || match.tipo === 'fase_zonas';
 const hasSetResult = match => match.estado === 'finalizado' && Array.isArray(match.sets) && match.sets.length >= 1 && match.ganadorId;
 
 // Los puntos de clasificación son la fuente de orden en los dos modos:
@@ -82,6 +82,17 @@ export const PosicionesService = {
                 diferenciaPuntos: row.puntosFavor - row.puntosContra
             }))
             .sort((left, right) => compareRows(classificationMode, left, right));
+    },
+
+    calcularPosicionesPorZona(torneoId, categoriaId, zonaId) {
+        return this.calcularPosiciones(torneoId, categoriaId).filter(team => team.zonaId === zonaId);
+    },
+
+    calcularPosicionesDeZonas(torneoId, categoriaId) {
+        return DataManager.getZonesByTournamentAndCategory(torneoId, categoriaId).map(zone => ({
+            zone,
+            posiciones: this.calcularPosicionesPorZona(torneoId, categoriaId, zone.id)
+        }));
     },
 
     calcularClasificacionFinal(torneoId, categoriaId) {
