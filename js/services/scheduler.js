@@ -7,8 +7,6 @@ const pairKey = (teamAId, teamBId) => {
 };
 const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'finalizado'].includes(match.estado);
 const isGroupMatch = match => match.phase === 'ZONAS' || !match.tipo || match.tipo === 'fase_zonas';
-const isAllVsAllMatch = match => match.phase === 'ALL_VS_ALL' || match.tipo === 'cruces_todos_contra_todos';
-const schedulerAllVsAllTournament = torneoId => DataManager.getTournamentMethod(torneoId) === 'all_vs_all';
 const schedulerMinutesFromTime = time => {
     const [hour, minute] = time.split(':').map(Number);
     return hour * 60 + minute;
@@ -25,14 +23,9 @@ const teamSort = (counts, left, right) => (
     || String(left.id).localeCompare(String(right.id))
 );
 
-// Cuántos partidos disputa cada equipo de la zona: los partidos asegurados
-// del torneo nunca superan el máximo posible sin repetir cruces y una zona
-// de todos contra todos ignora ese número porque se juega completa.
-const zoneRequirement = (zone, zoneTeams, assured) => (
-    zone?.todosContraTodos
-        ? Math.max(0, zoneTeams.length - 1)
-        : Math.min(assured, Math.max(0, zoneTeams.length - 1))
-);
+// Los partidos garantizados son siempre la única fase de clasificación. La
+// bandera histórica todosContraTodos se ignora deliberadamente.
+const zoneRequirement = (zone, zoneTeams, assured) => Math.min(assured, Math.max(0, zoneTeams.length - 1));
 
 // Completa sólo los cruces que faltan. Se elige siempre uno de los equipos
 // con menos partidos y se prueba primero contra otro equipo pendiente. La
@@ -132,11 +125,28 @@ const assignRounds = (existing, pairs) => {
     });
 };
 
+const zoneRows = (torneoId, categoriaId, zonaId) => {
+    const teams = DataManager.getTeamsByTournamentAndCategory(torneoId, categoriaId).filter(team => team.zonaId === zonaId);
+    const rows = new Map(teams.map(team => [team.id, { ...team, ganados: 0, puntosClasificacion: 0, diferenciaSets: 0, diferenciaPuntos: 0 }]));
+    DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
+        .filter(match => match.phase === 'ZONAS' && match.estado === 'finalizado' && match.zonaId === zonaId)
+        .forEach(match => {
+            const local = rows.get(match.equipoLocalId); const visitante = rows.get(match.equipoVisitanteId);
+            if (!local || !visitante) return;
+            local.diferenciaSets += match.setsLocal - match.setsVisitante;
+            visitante.diferenciaSets += match.setsVisitante - match.setsLocal;
+            (match.sets || []).forEach(set => {
+                local.diferenciaPuntos += set.puntosLocal - set.puntosVisitante;
+                visitante.diferenciaPuntos += set.puntosVisitante - set.puntosLocal;
+            });
+            const winner = rows.get(match.ganadorId);
+            if (winner) { winner.ganados += 1; winner.puntosClasificacion += match.ganadorId === match.equipoLocalId && match.setsVisitante === 0 || match.ganadorId === match.equipoVisitanteId && match.setsLocal === 0 ? 3 : 2; }
+        });
+    return [...rows.values()].sort((a, b) => b.puntosClasificacion - a.puntosClasificacion || b.diferenciaSets - a.diferenciaSets || b.diferenciaPuntos - a.diferenciaPuntos || String(a.id).localeCompare(String(b.id)));
+};
+
 export const SchedulerService = {
-    // La fase se deriva de resultados y de un cierre explícito de los cruces.
-    // Así no se habilitan semifinales sólo por haber terminado los asegurados.
     getTournamentPhase(torneoId, categoriaId) {
-        if (!schedulerAllVsAllTournament(torneoId)) return 'STANDARD';
         const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
         const final = matches.find(match => match.phase === 'FINAL');
         if (final) return final.estado === 'finalizado' ? 'FINISHED' : 'FINAL';
@@ -144,98 +154,38 @@ export const SchedulerService = {
         if (semifinals.length) return 'SEMIFINALS';
         const guaranteed = this.estadoFaseClasificatoria(torneoId, categoriaId);
         if (!guaranteed.ok) return 'GUARANTEED_MATCHES';
-        if (DataManager.getCategory(categoriaId)?.allVsAllCrossesClosed) return 'SEMIFINALS';
-        return 'ALL_VS_ALL';
+        const crosses = matches.filter(match => match.phase === 'CRUCE');
+        return crosses.length ? 'CROSSES' : 'CROSSES_READY';
     },
 
-    getAllVsAllCrosses(torneoId, categoriaId) {
-        return DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(isAllVsAllMatch);
-    },
-
-    // Cada tanda propone como máximo un partido por equipo. Se prioriza a los
-    // equipos con menos encuentros totales y nunca se reutiliza un rival ya
-    // enfrentado; las zonas dejan de participar en este cálculo.
-    proponerCrucesTodosContraTodos(torneoId, categoriaId) {
-        if (!schedulerAllVsAllTournament(torneoId)) throw new Error('Los cruces libres sólo están disponibles para el método Todos contra todos.');
-        if (this.getTournamentPhase(torneoId, categoriaId) !== 'ALL_VS_ALL') throw new Error('La fase de cruces no está habilitada para esta categoría.');
+    generarCrucesAutomaticos(torneoId, categoriaId) {
         const guaranteed = this.estadoFaseClasificatoria(torneoId, categoriaId);
         if (!guaranteed.ok) throw new Error(guaranteed.mensaje);
-        const teams = DataManager.getTeamsByTournamentAndCategory(torneoId, categoriaId);
-        if (teams.length < 2) throw new Error('Se necesitan al menos dos equipos para crear cruces.');
-        const history = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
-        const existingPairs = new Set(history.map(match => pairKey(match.equipoLocalId, match.equipoVisitanteId)));
-        const appearances = new Map(teams.map(team => [team.id, history.filter(match => match.equipoLocalId === team.id || match.equipoVisitanteId === team.id).length]));
-        const available = new Set(teams.map(team => team.id));
-        const byId = new Map(teams.map(team => [team.id, team]));
-        const proposal = [];
-        const order = ids => [...ids].sort((left, right) => appearances.get(left) - appearances.get(right) || String(left).localeCompare(String(right)));
-        while (available.size > 1) {
-            const localId = order(available)[0];
-            const opponentId = order([...available].filter(id => id !== localId && !existingPairs.has(pairKey(localId, id))))[0];
-            if (!opponentId) { available.delete(localId); continue; }
-            proposal.push({ local: byId.get(localId), visitante: byId.get(opponentId) });
-            available.delete(localId); available.delete(opponentId);
-        }
-        return proposal;
-    },
-
-    crearCrucesTodosContraTodos(torneoId, categoriaId, pairs) {
-        if (!Array.isArray(pairs) || !pairs.length) throw new Error('No hay cruces disponibles para confirmar.');
-        const planning = DataManager.getCategoryPlanning(torneoId, categoriaId);
-        if (planning && !DataManager.getPlanningDatesForStage(torneoId, categoriaId, 'ALL_VS_ALL').length) throw new Error('Asigná Cruces a una jornada en Planificación antes de confirmar estos emparejamientos.');
-        const proposed = this.proponerCrucesTodosContraTodos(torneoId, categoriaId);
-        const proposedKeys = new Set(proposed.map(pair => pairKey(pair.local.id, pair.visitante.id)));
-        const selected = pairs.map(pair => ({
-            localId: pair.localId || pair.local?.id || pair.local,
-            visitanteId: pair.visitanteId || pair.visitante?.id || pair.visitante
-        }));
-        if (selected.some(pair => !proposedKeys.has(pairKey(pair.localId, pair.visitanteId)))) throw new Error('La propuesta contiene un enfrentamiento inválido o ya disputado.');
-        if (new Set(selected.map(pair => pairKey(pair.localId, pair.visitanteId))).size !== selected.length) throw new Error('No se puede confirmar dos veces el mismo cruce.');
-        if (new Set(selected.flatMap(pair => [pair.localId, pair.visitanteId])).size !== selected.length * 2) throw new Error('Un equipo sólo puede integrar un cruce por tanda automática.');
-        const created = DataManager.addMatches(selected.map((pair, index) => ({
-            torneoId, categoriaId, zonaId: null, phase: 'ALL_VS_ALL', tipo: 'cruces_todos_contra_todos',
-            nombreEtapa: `Cruces — Todos contra todos ${index + 1}`,
-            equipoLocalId: pair.localId, equipoVisitanteId: pair.visitanteId,
+        const existing = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => match.phase === 'CRUCE');
+        if (existing.length) return existing;
+        const zones = DataManager.getZonesByTournamentAndCategory(torneoId, categoriaId);
+        const teamsByZone = zones.map(zone => ({ zone, rows: zoneRows(torneoId, categoriaId, zone.id) }));
+        if (teamsByZone.length < 2) throw new Error('Se necesitan al menos dos zonas para generar cruces.');
+        const pairings = [];
+        teamsByZone.forEach((source, index) => {
+            const target = teamsByZone[(index + 1) % teamsByZone.length];
+            const count = Math.min(DataManager.getQualifiedTeamsPerZone(torneoId, categoriaId, source.zone), DataManager.getQualifiedTeamsPerZone(torneoId, categoriaId, target.zone));
+            for (let rank = 0; rank < count; rank += 1) {
+                const local = source.rows[rank];
+                const visitante = target.rows[count - rank - 1];
+                if (!local || !visitante) continue;
+                pairings.push({ local, visitante, localZona: source.zone, visitanteZona: target.zone, localPosicion: rank + 1, visitantePosicion: count - rank });
+            }
+        });
+        const created = DataManager.addMatches(pairings.map((pair, index) => ({
+            torneoId, categoriaId, zonaId: null, phase: 'CRUCE', tipo: 'cruce_zona', nombreEtapa: `Cruce ${index + 1}`,
+            equipoLocalId: pair.local.id, equipoVisitanteId: pair.visitante.id,
+            zonaOrigenLocalId: pair.localZona.id, zonaOrigenVisitanteId: pair.visitanteZona.id,
+            posicionLocal: pair.localPosicion, posicionVisitante: pair.visitantePosicion,
             fecha: null, hora: null, cancha: null, orden: null, estado: 'pendiente', confirmado: true
         })));
-        this.programarFase(torneoId, categoriaId, 'ALL_VS_ALL', 'ZONAS');
+        this.programarFase(torneoId, categoriaId, 'CRUCE', 'ZONAS');
         return created;
-    },
-
-    existeEnfrentamiento(torneoId, categoriaId, equipoLocalId, equipoVisitanteId) {
-        const key = pairKey(equipoLocalId, equipoVisitanteId);
-        return DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
-            .some(match => pairKey(match.equipoLocalId, match.equipoVisitanteId) === key);
-    },
-
-    crearCruceManualTodosContraTodos(torneoId, categoriaId, equipoLocalId, equipoVisitanteId, schedule = {}, allowDuplicate = false) {
-        if (!schedulerAllVsAllTournament(torneoId)) throw new Error('Los cruces libres sólo están disponibles para el método Todos contra todos.');
-        if (this.getTournamentPhase(torneoId, categoriaId) !== 'ALL_VS_ALL') throw new Error('La fase de cruces no está habilitada para esta categoría.');
-        const guaranteed = this.estadoFaseClasificatoria(torneoId, categoriaId);
-        if (!guaranteed.ok) throw new Error(guaranteed.mensaje);
-        if (!equipoLocalId || !equipoVisitanteId || equipoLocalId === equipoVisitanteId) throw new Error('Seleccione dos equipos distintos.');
-        const duplicate = this.existeEnfrentamiento(torneoId, categoriaId, equipoLocalId, equipoVisitanteId);
-        if (duplicate && !allowDuplicate) throw new Error('Estos equipos ya se enfrentaron. Confirme si desea crear una revancha.');
-        const planning = DataManager.getCategoryPlanning(torneoId, categoriaId);
-        if (planning && schedule.fecha && !DataManager.getPlanningDatesForStage(torneoId, categoriaId, 'ALL_VS_ALL').includes(schedule.fecha)) throw new Error('La jornada seleccionada no tiene configurada la etapa Cruces.');
-        const created = DataManager.addMatches([{
-            torneoId, categoriaId, zonaId: null, phase: 'ALL_VS_ALL', tipo: 'cruces_todos_contra_todos',
-            nombreEtapa: 'Cruce manual — Todos contra todos', manual: true,
-            equipoLocalId, equipoVisitanteId, fecha: schedule.fecha || null, hora: schedule.hora || null,
-            cancha: schedule.cancha || null, orden: schedule.orden ? Number(schedule.orden) : null,
-            estado: 'pendiente', confirmado: true
-        }]);
-        return { created: created[0], duplicate };
-    },
-
-    cerrarCrucesTodosContraTodos(torneoId, categoriaId) {
-        if (!schedulerAllVsAllTournament(torneoId)) throw new Error('Este torneo no utiliza la fase Todos contra todos.');
-        const guaranteed = this.estadoFaseClasificatoria(torneoId, categoriaId);
-        if (!guaranteed.ok) throw new Error(guaranteed.mensaje);
-        const crosses = this.getAllVsAllCrosses(torneoId, categoriaId);
-        if (!crosses.length) throw new Error('Cree al menos un cruce antes de cerrar esta fase.');
-        if (crosses.some(match => match.estado !== 'finalizado')) throw new Error('Registre todos los resultados de los cruces antes de generar semifinales.');
-        DataManager.setAllVsAllCrossesClosed(torneoId, categoriaId, true);
     },
 
     // Genera únicamente los cruces necesarios para que cada equipo alcance el
@@ -437,8 +387,7 @@ export const SchedulerService = {
             if (requireSchedule && (!match.fecha || !match.hora || !match.cancha)) unscheduledMatches.push(match);
         });
         // Cada zona exige su propio máximo: los asegurados del torneo se
-        // respetan salvo que la zona no ofrezca tantos cruces distintos, y en
-        // una zona de todos contra todos el requisito es jugarla completa.
+        // respetan salvo que la zona no ofrezca tantos cruces distintos.
         const zoneById = new Map(zones.map(zone => [zone.id, zone]));
         const zoneTeamsById = new Map(zones.map(zone => [zone.id, teams.filter(team => team.zonaId === zone.id)]));
         const requirementFor = team => {
@@ -474,9 +423,7 @@ export const SchedulerService = {
             const zoneTeams = zoneTeamsById.get(zone.id) || [];
             if (!zoneTeams.length) return;
             const maxPerTeam = zoneTeams.length - 1;
-            if (zone.todosContraTodos && required !== maxPerTeam) {
-                avisos.push(`${zone.nombre} se juega todos contra todos: cada equipo disputa ${maxPerTeam} partidos aunque los asegurados del torneo sean ${required}.`);
-            } else if (!zone.todosContraTodos && required > maxPerTeam) {
+            if (required > maxPerTeam) {
                 avisos.push(`${zone.nombre} tiene ${zoneTeams.length} equipos: sólo se pueden jugar ${maxPerTeam} partidos por equipo y no se repiten cruces.`);
             }
         });
