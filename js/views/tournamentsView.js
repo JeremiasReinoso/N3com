@@ -4,7 +4,7 @@ import { LicenciaRepo } from '../data/licenseRepo.js';
 import { goToTournament } from '../core/tournamentRoute.js';
 
 const formatLabel = mode => mode === 'points' ? 'Por puntos' : 'Por sets ganados';
-const methodLabel = method => method === 'all_vs_all' ? 'Todos contra todos' : 'Método actual';
+const methodLabel = () => 'Zonas y cruces automáticos';
 
 export const initTorneosVer = async () => {
     const view = document.getElementById('view-torneos');
@@ -17,7 +17,7 @@ export const initTorneosVer = async () => {
             <form id="form-nuevo-torneo" class="form-grid">
                 <label class="form-field">Nombre del torneo<input id="torneo-nombre" type="text" required maxlength="70" placeholder="Ej.: Copa Primavera"></label>
                 <label class="form-field">Partidos por equipo<input id="torneo-partidos" type="number" required min="1" value="3"></label>
-                <fieldset class="classification-selector"><legend>Método de torneo</legend><label><input type="radio" name="tournament-method" value="standard" checked><span><strong>Método actual</strong><small>Conserva el flujo y las eliminatorias actuales.</small></span></label><label><input type="radio" name="tournament-method" value="all_vs_all"><span><strong>Todos contra todos</strong><small>Garantizados por zona, tabla general, cruces libres y semifinales.</small></span></label></fieldset>
+                <p class="helper-text">Formato fijo: zonas → partidos garantizados → posiciones → cruces automáticos → semifinales → final.</p>
                 <fieldset class="classification-selector"><legend>Criterio de clasificación</legend><label><input type="radio" name="classification-mode" value="sets" checked><span><strong>Por sets ganados</strong><small>La tabla se ordena con los puntos 3/2/1 y los sets desempatan.</small></span></label><label><input type="radio" name="classification-mode" value="points"><span><strong>Por rendimiento</strong><small>La tabla se ordena con los puntos 3/2/1 y los puntos de set desempatan.</small></span></label></fieldset>
                 <div class="form-actions"><button class="btn-primary" type="submit" ${license.disponibles < 1 ? 'disabled' : ''}>Crear torneo</button></div>
             </form>${license.disponibles < 1 ? '<div class="license-credit-warning"><p>No tenés torneos disponibles. Contactá al administrador para adquirir más.</p><button id="btn-renovar-licencia" type="button" class="btn-secondary">Renovar licencia</button></div>' : ''}
