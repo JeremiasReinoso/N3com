@@ -9,7 +9,7 @@ const logisticsPhaseFor = match => match.phase || 'ZONAS';
 const logisticsIsOfficial = match => match.confirmado || ['pendiente', 'programado', 'confirmado', 'en_juego', 'finalizado'].includes(match.estado);
 const logisticsTeamsOverlap = (left, right) => [left.equipoLocalId, left.equipoVisitanteId].some(id => [right.equipoLocalId, right.equipoVisitanteId].includes(id));
 const logisticsCourtKey = match => match.courtId || match.cancha;
-const phaseOrder = { ZONAS: 1, ALL_VS_ALL: 2, TOP_16: 3, TOP_8: 4, SEMIFINAL: 5, THIRD_PLACE: 6, FINAL: 7 };
+const phaseOrder = { ZONAS: 1, CRUCE: 2, TOP_16: 3, TOP_8: 4, SEMIFINAL: 5, THIRD_PLACE: 6, FINAL: 7 };
 // Espacio real que ocupa un partido en una cancha: su bloque más la pausa
 // configurada en Calendario ("Intervalo entre partidos").
 const logisticsSpan = settings => Number(settings.blockDuration) + Number(settings.intervaloPartidos || 0);
