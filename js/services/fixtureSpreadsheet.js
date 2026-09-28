@@ -115,12 +115,30 @@ export const buildFixtureWorkbook = (tournament, rows, xlsx = globalThis.XLSX) =
     return workbook;
 };
 
-export const downloadFixtureSpreadsheet = (tournament, rows) => {
+export const downloadFixtureSpreadsheet = (tournament, rows = []) => {
+    if (!Array.isArray(rows) || !rows.length) {
+        alert('No hay partidos programados para exportar.');
+        return false;
+    }
     try {
-        const workbook = buildFixtureWorkbook(tournament, rows);
-        globalThis.XLSX.writeFile(workbook, sanitizeFileName(tournament?.nombre));
+        const xlsx = globalThis.XLSX;
+        if (!xlsx?.write) throw new Error('La librería XLSX no está disponible en el navegador.');
+        const workbook = buildFixtureWorkbook(tournament, rows, xlsx);
+        const data = xlsx.write(workbook, { bookType: 'xlsx', type: 'array' });
+        const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = sanitizeFileName(tournament?.nombre);
+        link.style.display = 'none';
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return true;
     } catch (error) {
         console.error('No se pudo generar la hoja de cálculo del fixture.', error);
         alert('No se pudo generar la hoja de cálculo. Intentá nuevamente.');
+        return false;
     }
 };
