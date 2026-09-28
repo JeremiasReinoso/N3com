@@ -6,8 +6,9 @@ import { PosicionesService } from '../services/standings.js';
 
 const teamLabel = (teams, id) => teams.find(team => team.id === id)?.nombre || 'Equipo';
 const renderMatch = (teams, match) => `<article class="schedule-match"><div class="schedule-match-time"><strong>${match.hora || 'Horario pendiente'}</strong><span>${match.fecha || 'Fecha pendiente'}${match.cancha ? ` · ${match.cancha}` : ''}</span></div><div class="schedule-match-main"><div><strong>${teamLabel(teams, match.equipoLocalId)} <b>vs</b> ${teamLabel(teams, match.equipoVisitanteId)}</strong><span class="schedule-stage">${match.nombreEtapa || match.phase}</span></div>${match.estado === 'finalizado' ? `<span class="schedule-score">${match.setsLocal} – ${match.setsVisitante}</span>` : '<span class="match-status pending">PENDIENTE</span>'}</div></article>`;
+const section = (title, items, teams) => items.length ? `<section class="schedule-board"><div class="schedule-board-head"><h3>${title}</h3><span class="calendar-chip">${items.length} PARTIDO${items.length === 1 ? '' : 'S'}</span></div><div class="schedule-match-list">${items.map(match => renderMatch(teams, match)).join('')}</div></section>` : '';
 
-const renderPreview = (tournamentId, categoryId, teams, definitive) => {
+const renderZonePreview = (tournamentId, categoryId, teams, definitive) => {
     const zones = PosicionesService.calcularPosicionesDeZonas(tournamentId, categoryId);
     if (zones.length < 2) return '<p class="helper-text">Configure al menos dos zonas para generar cruces.</p>';
     return zones.map((source, index) => {
@@ -23,16 +24,34 @@ const renderPreview = (tournamentId, categoryId, teams, definitive) => {
     }).join('');
 };
 
-export function initPlayoffsView() {
-    let tournamentId;
-    try { tournamentId = AppState.getTournament(); } catch { tournamentId = null; }
-    const container = document.getElementById('eliminatorias-list');
-    const controls = document.querySelector('#view-eliminatorias .panel-control');
-    const categoryId = AppState.getCategory();
-    if (!tournamentId || !categoryId) { controls.innerHTML = '<p>Seleccione un torneo y una categoría desde Equipos.</p>'; container.innerHTML = ''; return; }
+const isAllVsAll = torneoId => DataManager.getTournamentMethod(torneoId) === 'all_vs_all';
+const supportsTopStages = torneoId => !isAllVsAll(torneoId) && DataManager.getTournamentClassificationMode(torneoId) === 'points';
 
-    const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId);
-    const matches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId);
+const initHistoricalView = (tournamentId, categoryId, teams, matches, controls, container) => {
+    const topMode = supportsTopStages(tournamentId);
+    const progress = SchedulerService.estadoFaseClasificatoria(tournamentId, categoryId);
+    const phase = SchedulerService.getTournamentPhase(tournamentId, categoryId);
+    const top16 = matches.filter(match => match.phase === 'TOP_16');
+    const top8 = matches.filter(match => match.phase === 'TOP_8');
+    const semis = matches.filter(match => match.phase === 'SEMIFINAL');
+    const thirdPlace = matches.filter(match => match.phase === 'THIRD_PLACE');
+    const finals = matches.filter(match => match.phase === 'FINAL');
+    const completed = (items, count) => items.length === count && items.every(match => match.estado === 'finalizado');
+    const top16Finished = completed(top16, 8);
+    const top8Finished = completed(top8, 4);
+    const semisFinished = completed(semis, 2);
+    const actions = topMode
+        ? `<button id="btn-top16" class="btn-primary" ${!progress.ok || top16.length ? 'disabled' : ''}>Generar Top 16</button><button id="btn-top8" class="btn-secondary" ${!top16Finished || top8.length ? 'disabled' : ''}>Generar Top 8</button><button id="btn-semis" class="btn-secondary" ${!top8Finished || semis.length ? 'disabled' : ''}>Generar semifinales</button>`
+        : `<button id="btn-semis" class="btn-secondary" ${!progress.ok || semis.length ? 'disabled' : ''}>Generar semifinales</button>`;
+    controls.innerHTML = `<div class="form-title"><div><h3>Clasificación y eliminatorias</h3><p>${topMode ? 'Flujo: zonas → clasificación → Top 16 → Top 8 → semifinales → final.' : 'Flujo: zonas → clasificación → semifinales → final.'} ${progress.mensaje}</p></div><span class="calendar-chip">${phase}</span></div><div class="form-actions">${actions}<button id="btn-finales" class="btn-primary" ${!semisFinished || finals.length ? 'disabled' : ''}>Generar final${topMode ? ' y tercer puesto' : ''}</button></div>`;
+    container.innerHTML = `${section('TOP 16', top16, teams)}${section('TOP 8', top8, teams)}${section('SEMIFINALES', semis, teams)}${section('TERCER PUESTO', thirdPlace, teams)}${section('FINAL', finals, teams)}`;
+    document.getElementById('btn-top16')?.addEventListener('click', () => { try { PlayoffsService.generarTop16(tournamentId, categoryId); initPlayoffsView(); } catch (error) { alert(error.message); } });
+    document.getElementById('btn-top8')?.addEventListener('click', () => { try { PlayoffsService.generarTop8(tournamentId, categoryId); initPlayoffsView(); } catch (error) { alert(error.message); } });
+    document.getElementById('btn-semis')?.addEventListener('click', () => { try { PlayoffsService.generarSemifinales(tournamentId, categoryId); initPlayoffsView(); } catch (error) { alert(error.message); } });
+    document.getElementById('btn-finales')?.addEventListener('click', () => { try { PlayoffsService.generarFinales(tournamentId, categoryId); initPlayoffsView(); } catch (error) { alert(error.message); } });
+};
+
+const initAllVsAllView = (tournamentId, categoryId, teams, matches, controls, container) => {
     const crosses = matches.filter(match => match.phase === 'CRUCE');
     const semis = matches.filter(match => match.phase === 'SEMIFINAL');
     const finals = matches.filter(match => match.phase === 'FINAL');
@@ -40,12 +59,22 @@ export function initPlayoffsView() {
     const phase = SchedulerService.getTournamentPhase(tournamentId, categoryId);
     const crossesFinished = crosses.length === 4 && crosses.every(match => match.estado === 'finalizado');
     const semisFinished = semis.length === 2 && semis.every(match => match.estado === 'finalizado');
-
     controls.innerHTML = `<div class="form-title"><div><h3>Clasificación y eliminatorias</h3><p>Flujo: zonas → resultados → posiciones → cruces → semifinales → final. ${progress.mensaje}</p></div><span class="calendar-chip">${phase}</span></div><div class="form-actions"><button id="btn-generate-crosses" class="btn-primary" ${!progress.ok || crosses.length ? 'disabled' : ''}>Generar cruces automáticamente</button><button id="btn-semis" class="btn-secondary" ${!crossesFinished || semis.length ? 'disabled' : ''}>Generar semifinales</button><button id="btn-final" class="btn-primary" ${!semisFinished || finals.length ? 'disabled' : ''}>Generar final</button></div>`;
-    const section = (title, items) => items.length ? `<section class="schedule-board"><div class="schedule-board-head"><h3>${title}</h3></div><div class="schedule-match-list">${items.map(match => renderMatch(teams, match)).join('')}</div></section>` : '';
-    container.innerHTML = `<section class="card standings-card"><div class="standings-head"><div><h3>Posiciones de zona</h3><p>Las referencias se reemplazan por nombres cuando las posiciones definitivas están disponibles.</p></div></div><div class="draft-fixture-list">${renderPreview(tournamentId, categoryId, teams, progress.ok)}</div></section>${section('CRUCES', crosses)}${section('SEMIFINALES', semis)}${section('FINAL', finals)}`;
-
+    container.innerHTML = `<section class="card standings-card"><div class="standings-head"><div><h3>Posiciones de zona</h3><p>Las referencias se reemplazan por nombres cuando las posiciones definitivas están disponibles.</p></div></div><div class="draft-fixture-list">${renderZonePreview(tournamentId, categoryId, teams, progress.ok)}</div></section>${section('CRUCES', crosses, teams)}${section('SEMIFINALES', semis, teams)}${section('FINAL', finals, teams)}`;
     document.getElementById('btn-generate-crosses')?.addEventListener('click', () => { try { SchedulerService.generarCrucesAutomaticos(tournamentId, categoryId); initPlayoffsView(); } catch (error) { alert(error.message); } });
     document.getElementById('btn-semis')?.addEventListener('click', () => { try { PlayoffsService.generarSemifinales(tournamentId, categoryId); initPlayoffsView(); } catch (error) { alert(error.message); } });
     document.getElementById('btn-final')?.addEventListener('click', () => { try { PlayoffsService.generarFinal(tournamentId, categoryId); initPlayoffsView(); } catch (error) { alert(error.message); } });
+};
+
+export function initPlayoffsView() {
+    let tournamentId;
+    try { tournamentId = AppState.getTournament(); } catch { tournamentId = null; }
+    const container = document.getElementById('eliminatorias-list');
+    const controls = document.querySelector('#view-eliminatorias .panel-control');
+    const categoryId = AppState.getCategory();
+    if (!tournamentId || !categoryId) { controls.innerHTML = '<p>Seleccione un torneo y una categoría desde Equipos.</p>'; container.innerHTML = ''; return; }
+    const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId);
+    const matches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId);
+    if (isAllVsAll(tournamentId)) initAllVsAllView(tournamentId, categoryId, teams, matches, controls, container);
+    else initHistoricalView(tournamentId, categoryId, teams, matches, controls, container);
 }
