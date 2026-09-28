@@ -6,7 +6,7 @@ import { downloadFixturePdf, fixtureRows } from '../services/fixturePdf.js';
 import { downloadFixtureSpreadsheet } from '../services/fixtureSpreadsheet.js';
 
 const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'confirmado', 'en_juego', 'finalizado'].includes(match.estado);
-export const PHASE_LABELS = { ZONAS: 'Fase de zonas', CRUCE: 'CRUCE', ALL_VS_ALL: 'CRUCE', TOP_16: 'Octavos', TOP_8: 'Cuartos de final', SEMIFINAL: 'Semifinales', THIRD_PLACE: 'Tercer puesto', FINAL: 'Final' };
+export const PHASE_LABELS = { ZONAS: 'Fase de zonas', CRUCE: 'CRUCE', ALL_VS_ALL: 'CRUCE', TOP_16: 'TOP 16', TOP_8: 'TOP 8', TOP_4: 'TOP 4', SEMIFINAL: 'SEMIFINALES', THIRD_PLACE: 'Tercer puesto', FINAL: 'FINAL' };
 const STATUS_LABELS = { borrador: 'Sin programar', pendiente: 'Confirmado', programado: 'Programado', confirmado: 'Confirmado', en_juego: 'En juego', finalizado: 'Finalizado' };
 export const CONFLICT_LABELS = {
     court: 'Conflictos de cancha',
