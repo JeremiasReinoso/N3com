@@ -2,8 +2,16 @@ import { AppState } from '../core/state.js';
 import { renderCategoryWorkspace } from '../core/categoryWorkspace.js';
 import { DataManager } from '../data/dataManager.js';
 import { SchedulerService } from '../services/scheduler.js';
+import { LogisticsService } from '../services/logistics.js';
 
 const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'finalizado'].includes(match.estado);
+const saveResultAndSchedule = (matchId, sets) => {
+    DataManager.updateMatchResult(matchId, sets);
+    const match = DataManager.getMatchesByTournamentAndCategory(AppState.getTournament(), AppState.getCategory()).find(item => item.id === matchId);
+    if (match) {
+        try { LogisticsService.programTournament(match.torneoId); } catch { /* el fixture queda pendiente si falta calendario */ }
+    }
+};
 
 // Marcadores rápidos según el formato activo del partido: 1 set × 21 en
 // zonas y cruces, 2 sets × 15 (más el tercero de desempate) en eliminatorias.
@@ -171,7 +179,7 @@ export function initResultadosView(options = {}) {
         list.querySelectorAll('.set-points input').forEach(input => input.addEventListener('input', () => refreshPreview(input.closest('.set-result-card'))));
         list.querySelectorAll('.quick-result').forEach(button => button.addEventListener('click', () => {
             const format = formatByKey[button.closest('.set-result-card')?.dataset.format];
-            try { DataManager.updateMatchResult(button.dataset.id, quickResultsFor(format)[button.dataset.result]); refreshKeepingSearch(button.dataset.id); } catch (error) { alert(error.message); }
+            try { saveResultAndSchedule(button.dataset.id, quickResultsFor(format)[button.dataset.result]); refreshKeepingSearch(button.dataset.id); } catch (error) { alert(error.message); }
         }));
         list.querySelectorAll('.guardar-sets').forEach(button => button.addEventListener('click', () => {
             const card = button.closest('.set-result-card');
@@ -179,7 +187,7 @@ export function initResultadosView(options = {}) {
                 puntosLocal: row.querySelector('[data-side="local"]').value,
                 puntosVisitante: row.querySelector('[data-side="visitante"]').value
             })).filter(set => set.puntosLocal !== '' || set.puntosVisitante !== '');
-            try { DataManager.updateMatchResult(button.dataset.id, sets); refreshKeepingSearch(button.dataset.id); } catch (error) { alert(error.message); }
+            try { saveResultAndSchedule(button.dataset.id, sets); refreshKeepingSearch(button.dataset.id); } catch (error) { alert(error.message); }
         }));
     };
     const renderSearch = () => {
