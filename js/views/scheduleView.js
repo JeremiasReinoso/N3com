@@ -3,6 +3,7 @@ import { DataManager } from '../data/dataManager.js';
 import { SchedulerService } from '../services/scheduler.js';
 import { LogisticsService, fixtureCompare } from '../services/logistics.js';
 import { downloadFixturePdf, fixtureRows } from '../services/fixturePdf.js';
+import { downloadFixtureSpreadsheet } from '../services/fixtureSpreadsheet.js';
 
 const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'confirmado', 'en_juego', 'finalizado'].includes(match.estado);
 export const PHASE_LABELS = { ZONAS: 'Fase de zonas', CRUCE: 'CRUCE', ALL_VS_ALL: 'CRUCE', TOP_16: 'Octavos', TOP_8: 'Cuartos de final', SEMIFINAL: 'Semifinales', THIRD_PLACE: 'Tercer puesto', FINAL: 'Final' };
@@ -81,7 +82,7 @@ export const initScheduleView = () => {
     const modalities = [...new Set(categories.map(item => categoryParts(item).modality).filter(Boolean))];
 
     view.innerHTML = `
-        <div class="fixture-heading"><div><span class="eyebrow">ORGANIZACIÓN DEL TORNEO</span><h2>Programación y Fixture General</h2><p>Una única agenda cronológica para todas las categorías y las canchas compartidas del torneo.</p></div><div class="fixture-export-actions"><button id="export-fixture-full" class="btn-primary" type="button">Exportar fixture completo</button><button id="print-fixture" class="btn-secondary" type="button">Imprimir</button></div></div>
+        <div class="fixture-heading"><div><span class="eyebrow">ORGANIZACIÓN DEL TORNEO</span><h2>Programación y Fixture General</h2><p>Una única agenda cronológica para todas las categorías y las canchas compartidas del torneo.</p></div><div class="fixture-export-actions"><button id="export-fixture-full" class="btn-primary" type="button">Exportar fixture completo</button><button id="export-fixture-spreadsheet" class="btn-secondary" type="button">Exportar a hoja de cálculo</button><button id="print-fixture" class="btn-secondary" type="button">Imprimir</button></div></div>
         <section class="schedule-global-config panel-control">
             <div class="form-title"><div><h3>Configuración logística global</h3><p>Estas canchas pertenecen al torneo y pueden ser utilizadas por todas las categorías.</p></div><span class="calendar-chip">${courts.length} CANCHA${courts.length === 1 ? '' : 'S'}</span></div>
             <form id="court-config-form"><div class="court-config-list">${courts.map(court => `<div class="court-config-row"><label class="form-field">Nombre de cancha<input data-court-id="${escapeHtml(court.id)}" value="${escapeHtml(court.name)}" required maxlength="40"></label><button class="remove-court btn-secondary" data-court-id="${escapeHtml(court.id)}" type="button">Eliminar cancha</button></div>`).join('')}</div><div class="form-actions"><button id="add-court" class="btn-secondary" type="button">+ Agregar cancha</button><button class="btn-primary" type="submit">Guardar canchas</button></div></form>
@@ -155,6 +156,7 @@ export const initScheduleView = () => {
     view.querySelector('#clear-fixture-filters').addEventListener('click', () => { view.querySelectorAll('.fixture-filters select').forEach(select => { select.value = ''; }); renderFixture(); });
     view.querySelectorAll('[data-view-mode]').forEach(button => button.addEventListener('click', () => { viewMode = button.dataset.viewMode; view.querySelectorAll('[data-view-mode]').forEach(item => item.classList.toggle('active', item === button)); renderFixture(); }));
     view.querySelector('#export-fixture-full').addEventListener('click', () => downloadFixturePdf(tournament, exportRows({}), 'completo', 'TODAS LAS JORNADAS DEL TORNEO'));
+    view.querySelector('#export-fixture-spreadsheet').addEventListener('click', () => downloadFixtureSpreadsheet(tournament, exportRows({})));
     view.querySelector('#export-fixture-day').addEventListener('click', () => { const date = view.querySelector('#fixture-filter-date').value; if (!date || date === '__none') return alert('Seleccioná un día en los filtros para exportarlo.'); downloadFixturePdf(tournament, exportRows({ date }), date, `JORNADA: ${formatDay(date).toUpperCase()}`); });
     view.querySelector('#export-fixture-court').addEventListener('click', () => { const courtId = view.querySelector('#fixture-filter-court').value; const court = courts.find(item => item.id === courtId); if (!court) return alert('Seleccioná una cancha en los filtros para exportarla.'); downloadFixturePdf(tournament, exportRows({ courtId, courtName: court.name }), court.name.toLowerCase().replace(/\s+/g, '-'), `CANCHA: ${court.name.toUpperCase()}`); });
     view.querySelector('#print-fixture').addEventListener('click', () => window.print());
