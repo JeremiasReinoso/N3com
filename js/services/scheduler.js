@@ -156,6 +156,7 @@ export const SchedulerService = {
         if (thirdPlace) return 'THIRD_PLACE';
         const semifinals = matches.filter(match => match.phase === 'SEMIFINAL');
         if (semifinals.length) return 'SEMIFINALS';
+        if (matches.some(match => match.phase === 'TOP_4')) return 'TOP_4';
         if (matches.some(match => match.phase === 'TOP_8')) return 'TOP_8';
         if (matches.some(match => match.phase === 'TOP_16')) return 'TOP_16';
         const guaranteed = this.estadoFaseClasificatoria(torneoId, categoriaId);
