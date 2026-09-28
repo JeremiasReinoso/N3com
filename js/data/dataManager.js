@@ -2,13 +2,14 @@
 // forma autónoma y no depende de la gestión de licencias.
 const STORAGE_KEY = 'newcom_data';
 const CLASSIFICATION_MODE = { SETS: 'sets', POINTS: 'points' };
-const TOURNAMENT_METHOD = { STANDARD: 'standard', ALL_VS_ALL: 'all_vs_all' };
+const TOURNAMENT_METHOD = { STANDARD: 'standard', TOP_16: 'top_16', ALL_VS_ALL: 'all_vs_all' };
 export const PLANNING_STAGES = Object.freeze({
     ZONES: 'ZONAS',
     GUARANTEED: 'GARANTIZADOS',
     CROSSES: 'CRUCE',
     ROUND_OF_16: 'TOP_16',
     QUARTERFINALS: 'TOP_8',
+    TOP_FOUR: 'TOP_4',
     SEMIFINALS: 'SEMIFINAL',
     FINAL: 'FINAL'
 });
@@ -17,7 +18,7 @@ VALID_PLANNING_STAGES.add('ALL_VS_ALL');
 const normalizeClassificationMode = value => value === CLASSIFICATION_MODE.POINTS ? CLASSIFICATION_MODE.POINTS : CLASSIFICATION_MODE.SETS;
 // Los torneos guardados antes de incorporar métodos conservan exactamente el
 // flujo histórico. No se migra ni se infiere un método nuevo para ellos.
-const normalizeTournamentMethod = value => value === TOURNAMENT_METHOD.ALL_VS_ALL ? TOURNAMENT_METHOD.ALL_VS_ALL : TOURNAMENT_METHOD.STANDARD;
+const normalizeTournamentMethod = value => [TOURNAMENT_METHOD.TOP_16, TOURNAMENT_METHOD.ALL_VS_ALL].includes(value) ? value : TOURNAMENT_METHOD.STANDARD;
 // Formatos de set disponibles. Las zonas se juegan a 1 set × 21 puntos y las
 // eliminatorias a 2 sets × 15 (si queda 1-1 se juega el tercer set a 15).
 const SET_FORMATS = Object.freeze({ ONE_SET_21: 'one_set_21', TWO_SETS_15: 'two_sets_15' });
@@ -34,7 +35,7 @@ const normalizeSetFormats = value => ({
 const resolveSetFormat = key => SET_FORMAT_DETAILS[normalizeSetFormatKey(key)];
 // Las eliminatorias se juegan con el formato de eliminatorias; zonas y cruces
 // usan el formato de zonas.
-const PLAYOFF_PHASES = new Set(['TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL', 'THIRD_PLACE']);
+const PLAYOFF_PHASES = new Set(['TOP_16', 'TOP_8', 'TOP_4', 'SEMIFINAL', 'FINAL', 'THIRD_PLACE']);
 let sequence = 0;
 
 const emptyData = () => ({ tournaments: [], categories: [], teams: [], zones: [], matches: [], calendar: [] });
@@ -59,9 +60,32 @@ const normalizeCourt = (court, index) => ({
     name: String(court?.name || court?.nombre || `Cancha ${index + 1}`).trim() || `Cancha ${index + 1}`
 });
 const validHours = (start, end) => /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end) && minutesFromTime(start) < minutesFromTime(end);
-const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', cruce_zona: 'CRUCE', cruces_todos_contra_todos: 'ALL_VS_ALL', top_16: 'TOP_16', top_8: 'TOP_8', semifinal: 'SEMIFINAL', tercer_puesto: 'THIRD_PLACE', final: 'FINAL' };
+const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', cruce_zona: 'CRUCE', cruces_todos_contra_todos: 'ALL_VS_ALL', top_16: 'TOP_16', top_8: 'TOP_8', top_4: 'TOP_4', semifinal: 'SEMIFINAL', tercer_puesto: 'THIRD_PLACE', final: 'FINAL' };
 const TYPE_BY_PHASE = Object.fromEntries(Object.entries(PHASE_BY_TYPE).map(([type, phase]) => [phase, type]));
 const phaseFor = match => match.phase || PHASE_BY_TYPE[match.tipo] || 'ZONAS';
+const TOP16_FLOW = ['TOP_16', 'TOP_8', 'TOP_4', 'SEMIFINAL', 'FINAL'];
+const advanceTop16Flow = (data, completedMatch) => {
+    const tournament = data.tournaments.find(item => item.id === completedMatch.torneoId);
+    if (tournament?.method !== TOURNAMENT_METHOD.TOP_16) return;
+    const phaseIndex = TOP16_FLOW.indexOf(phaseFor(completedMatch));
+    if (phaseIndex < 0 || phaseIndex >= TOP16_FLOW.length - 1) return;
+    const phase = TOP16_FLOW[phaseIndex];
+    const matches = data.matches.filter(item => item.torneoId === completedMatch.torneoId && item.categoriaId === completedMatch.categoriaId && phaseFor(item) === phase);
+    const expected = { TOP_16: 8, TOP_8: 4, TOP_4: 2, SEMIFINAL: 1 }[phase];
+    if (matches.length !== expected) return;
+    if (matches.some(item => item.estado !== 'finalizado' || !item.ganadorId)) return;
+    const nextPhase = TOP16_FLOW[phaseIndex + 1];
+    if (data.matches.some(item => item.torneoId === completedMatch.torneoId && item.categoriaId === completedMatch.categoriaId && phaseFor(item) === nextPhase)) return;
+    const winners = matches.map(item => item.ganadorId);
+    const pairs = [];
+    for (let index = 0; index < winners.length; index += 2) pairs.push([winners[index], winners[index + 1]]);
+    pairs.forEach(([local, visitante], index) => data.matches.push(normalizeMatch({
+        id: makeId('partido'), torneoId: completedMatch.torneoId, categoriaId: completedMatch.categoriaId,
+        zonaId: null, phase: nextPhase, tipo: TYPE_BY_PHASE[nextPhase], nombreEtapa: `${nextPhase.replace('_', ' ')} ${index + 1}`,
+        equipoLocalId: local, equipoVisitanteId: visitante, fecha: null, hora: null, cancha: null, orden: null,
+        estado: 'pendiente', confirmado: true, sets: [], ganadorId: null
+    })));
+};
 const isZonePhaseMatch = match => phaseFor(match) === 'ZONAS';
 const groupPairKey = match => [
     match.torneoId,
@@ -232,6 +256,7 @@ export const DataManager = {
     getTournament(id) { return this.getTournaments().find(tournament => tournament.id === id) || null; },
     getTournamentClassificationMode(id) { return normalizeClassificationMode(this.getTournament(id)?.classificationMode); },
     getTournamentMethod(id) { return normalizeTournamentMethod(this.getTournament(id)?.method); },
+    isTop16Tournament(id) { return this.getTournamentMethod(id) === TOURNAMENT_METHOD.TOP_16; },
     // Opciones de formato de set disponibles en toda la aplicación.
     getSetFormatOptions() { return Object.values(SET_FORMAT_DETAILS); },
     getTournamentSetFormats(id) {
@@ -664,6 +689,7 @@ export const DataManager = {
         const formats = normalizeSetFormats(data.tournaments.find(item => item.id === match.torneoId)?.setFormats);
         const format = resolveSetFormat(PLAYOFF_PHASES.has(phaseFor(match)) ? formats.playoffs : formats.zones);
         applyInternalResult(match, sets, format);
+        advanceTop16Flow(data, match);
         this._setStorage(data);
     },
 
