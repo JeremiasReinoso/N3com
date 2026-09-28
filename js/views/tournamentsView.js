@@ -4,7 +4,7 @@ import { LicenciaRepo } from '../data/licenseRepo.js';
 import { goToTournament } from '../core/tournamentRoute.js';
 
 const formatLabel = mode => mode === 'points' ? 'Por puntos' : 'Por sets ganados';
-const methodLabel = () => 'Zonas y cruces automáticos';
+const methodLabel = method => method === 'top_16' ? 'TOP 16' : (method === 'all_vs_all' ? 'Todos contra todos' : 'Zonas + clasificación');
 
 export const initTorneosVer = async () => {
     const view = document.getElementById('view-torneos');
@@ -17,7 +17,7 @@ export const initTorneosVer = async () => {
             <form id="form-nuevo-torneo" class="form-grid">
                 <label class="form-field">Nombre del torneo<input id="torneo-nombre" type="text" required maxlength="70" placeholder="Ej.: Copa Primavera"></label>
                 <label class="form-field">Partidos por equipo<input id="torneo-partidos" type="number" required min="1" value="3"></label>
-                <p class="helper-text">Formato fijo: zonas → partidos garantizados → posiciones → cruces automáticos → semifinales → final.</p>
+                <fieldset class="classification-selector"><legend>Formato de torneo</legend><label><input type="radio" name="tournament-method" value="standard" checked><span><strong>Zonas + clasificación</strong><small>Conserva el flujo actual de zonas, cruces, semifinales y final.</small></span></label><label><input type="radio" name="tournament-method" value="top_16"><span><strong>TOP 16</strong><small>Zonas → TOP 16 → TOP 8 → TOP 4 → semifinales → final.</small></span></label><label><input type="radio" name="tournament-method" value="all_vs_all"><span><strong>Todos contra todos</strong><small>Garantizados por zona, tabla general, cruces libres y semifinales.</small></span></label></fieldset>
                 <fieldset class="classification-selector"><legend>Criterio de clasificación</legend><label><input type="radio" name="classification-mode" value="sets" checked><span><strong>Por sets ganados</strong><small>La tabla se ordena con los puntos 3/2/1 y los sets desempatan.</small></span></label><label><input type="radio" name="classification-mode" value="points"><span><strong>Por rendimiento</strong><small>La tabla se ordena con los puntos 3/2/1 y los puntos de set desempatan.</small></span></label></fieldset>
                 <div class="form-actions"><button class="btn-primary" type="submit" ${license.disponibles < 1 ? 'disabled' : ''}>Crear torneo</button></div>
             </form>${license.disponibles < 1 ? '<div class="license-credit-warning"><p>No tenés torneos disponibles. Contactá al administrador para adquirir más.</p><button id="btn-renovar-licencia" type="button" class="btn-secondary">Renovar licencia</button></div>' : ''}
