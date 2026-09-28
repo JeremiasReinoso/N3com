@@ -7,9 +7,12 @@ const STAGE_LIMITS = { TOP_16: 8, TOP_8: 4, SEMIFINAL: 2, THIRD_PLACE: 1, FINAL:
 const PREVIOUS_PHASE = { TOP_16: 'ZONAS', TOP_8: 'TOP_16', SEMIFINAL: 'TOP_8', THIRD_PLACE: 'SEMIFINAL', FINAL: 'SEMIFINAL' };
 const tournamentMode = torneoId => DataManager.getTournamentClassificationMode(torneoId);
 const isAllVsAllTournament = torneoId => DataManager.getTournamentMethod(torneoId) === 'all_vs_all';
-const supportsTopStages = () => false;
+// Modalidad histórica de N3com: los torneos estándar clasificados por puntos
+// atraviesan Top 16 → Top 8 → semifinales → final. Todos contra todos
+// conserva su flujo de cruces independiente.
+const supportsTopStages = torneoId => !isAllVsAllTournament(torneoId) && tournamentMode(torneoId) === 'points';
 const previousPhaseFor = (torneoId, phase) => (
-    phase === 'SEMIFINAL' ? 'CRUCE'
+    phase === 'SEMIFINAL' && isAllVsAllTournament(torneoId) ? 'CRUCE'
         : (phase === 'SEMIFINAL' && !supportsTopStages(torneoId) ? 'ZONAS' : PREVIOUS_PHASE[phase])
 );
 const winner = match => match.ganadorId;
@@ -64,13 +67,18 @@ const eligibleTeams = (torneoId, categoriaId, phase) => {
         if (table.length < 16) throw new Error('Se necesitan al menos 16 equipos para generar el Top 16.');
         return table.slice(0, 16).map(row => row.id);
     }
-    if (phase === 'SEMIFINAL') {
+    if (phase === 'SEMIFINAL' && isAllVsAllTournament(torneoId)) {
+        if (!DataManager.getCategory(categoriaId)?.allVsAllCrossesClosed) throw new Error('Cierre la fase de cruces y registre sus resultados antes de generar semifinales.');
+        const table = PosicionesService.calcularPosiciones(torneoId, categoriaId);
+        if (table.length < 4) throw new Error('Se necesitan al menos 4 equipos para generar semifinales.');
+        return table.slice(0, 4).map(row => row.id);
+    }
+    if (phase === 'SEMIFINAL' && !supportsTopStages(torneoId)) {
         const completion = SchedulerService.estadoFaseClasificatoria(torneoId, categoriaId);
         if (!completion.ok) throw new Error(completion.mensaje);
-        const crosses = phaseMatches(torneoId, categoriaId, 'CRUCE');
-        if (crosses.length !== 4) throw new Error('La etapa CRUCE debe tener exactamente 4 partidos para generar semifinales sin byes.');
-        assertCompleted(crosses, 4, 'Registre los resultados de los 4 cruces antes de generar semifinales.');
-        return crosses.map(winner);
+        const table = PosicionesService.calcularPosiciones(torneoId, categoriaId);
+        if (table.length < 4) throw new Error('Se necesitan al menos 4 equipos para generar semifinales.');
+        return table.slice(0, 4).map(row => row.id);
     }
     const prior = phaseMatches(torneoId, categoriaId, previousPhaseFor(torneoId, phase));
     if (phase === 'TOP_8') {
@@ -100,6 +108,7 @@ export const PlayoffsService = {
         fillStage(torneoId, categoriaId, 'SEMIFINAL', eligibleTeams(torneoId, categoriaId, 'SEMIFINAL'), 'Semifinal');
     },
     generarFinales(torneoId, categoriaId) {
+        fillStage(torneoId, categoriaId, 'THIRD_PLACE', eligibleTeams(torneoId, categoriaId, 'THIRD_PLACE'), 'Tercer puesto');
         fillStage(torneoId, categoriaId, 'FINAL', eligibleTeams(torneoId, categoriaId, 'FINAL'), 'Final');
     },
     crearPartidoManual(torneoId, categoriaId, phase, equipoLocalId, equipoVisitanteId, schedule = {}) {
