@@ -3,12 +3,14 @@
 const STORAGE_KEY = 'newcom_data';
 const CLASSIFICATION_MODE = { SETS: 'sets', POINTS: 'points' };
 const TOURNAMENT_METHOD = { STANDARD: 'standard', ALL_VS_ALL: 'all_vs_all' };
+const ELIMINATION_MODE = { NORMAL: 'normal', TOP_16: 'top16' };
 export const PLANNING_STAGES = Object.freeze({
     ZONES: 'ZONAS',
     GUARANTEED: 'GARANTIZADOS',
     CROSSES: 'ALL_VS_ALL',
     ROUND_OF_16: 'TOP_16',
     QUARTERFINALS: 'TOP_8',
+    TOP_4: 'TOP_4',
     SEMIFINALS: 'SEMIFINAL',
     FINAL: 'FINAL'
 });
@@ -17,6 +19,7 @@ const normalizeClassificationMode = value => value === CLASSIFICATION_MODE.POINT
 // Los torneos guardados antes de incorporar métodos conservan exactamente el
 // flujo histórico. No se migra ni se infiere un método nuevo para ellos.
 const normalizeTournamentMethod = value => value === TOURNAMENT_METHOD.ALL_VS_ALL ? TOURNAMENT_METHOD.ALL_VS_ALL : TOURNAMENT_METHOD.STANDARD;
+const normalizeEliminationMode = value => value === ELIMINATION_MODE.TOP_16 ? ELIMINATION_MODE.TOP_16 : ELIMINATION_MODE.NORMAL;
 let sequence = 0;
 
 const emptyData = () => ({ tournaments: [], categories: [], teams: [], zones: [], matches: [], calendar: [] });
@@ -41,7 +44,7 @@ const normalizeCourt = (court, index) => ({
     name: String(court?.name || court?.nombre || `Cancha ${index + 1}`).trim() || `Cancha ${index + 1}`
 });
 const validHours = (start, end) => /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end) && minutesFromTime(start) < minutesFromTime(end);
-const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', cruces_todos_contra_todos: 'ALL_VS_ALL', top_16: 'TOP_16', top_8: 'TOP_8', semifinal: 'SEMIFINAL', tercer_puesto: 'THIRD_PLACE', final: 'FINAL' };
+const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', cruces_todos_contra_todos: 'ALL_VS_ALL', top_16: 'TOP_16', top_8: 'TOP_8', top_4: 'TOP_4', semifinal: 'SEMIFINAL', tercer_puesto: 'THIRD_PLACE', final: 'FINAL' };
 const TYPE_BY_PHASE = Object.fromEntries(Object.entries(PHASE_BY_TYPE).map(([type, phase]) => [phase, type]));
 const phaseFor = match => match.phase || PHASE_BY_TYPE[match.tipo] || 'ZONAS';
 const isZonePhaseMatch = match => phaseFor(match) === 'ZONAS';
@@ -125,6 +128,51 @@ const applyInternalResult = (match, rawSets) => {
     match.score = `${setsLocal}-${setsVisitante}`;
 };
 
+// La llave se materializa al cargar cada resultado. Los partidos de la ronda
+// siguiente conservan su registro y sólo se actualizan los lugares afectados.
+// Así no hay que volver a elegir manualmente los equipos y una corrección de
+// resultado reconstruye la llave sin borrar el historial de partidos.
+const knockoutLinks = {
+    TOP_16: { next: 'TOP_8', source: 'TOP_16', count: 4, slot: match => Math.floor((Number(match.bracketSlot || 1) - 1) / 2) + 1 },
+    TOP_8: { next: 'TOP_4', source: 'TOP_8', count: 2, slot: match => Math.floor((Number(match.bracketSlot || 1) - 1) / 2) + 1 },
+    TOP_4: { next: 'FINAL', source: 'TOP_4', count: 1, slot: () => 1 }
+};
+const updateKnockoutPlace = (data, match, teamId, side) => {
+    const link = knockoutLinks[match.phase];
+    if (!link || !teamId) return;
+    const nextSlot = link.slot(match);
+    const sourceMatches = data.matches.filter(item => item.torneoId === match.torneoId && item.categoriaId === match.categoriaId && item.phase === link.source && Math.floor((Number(item.bracketSlot || 1) - 1) / 2) + 1 === nextSlot);
+    if (sourceMatches.length < 2 || sourceMatches.some(item => item.estado !== 'finalizado' || !item.ganadorId)) return;
+    let next = data.matches.find(item => item.torneoId === match.torneoId && item.categoriaId === match.categoriaId && item.phase === link.next && item.bracketSlot === nextSlot);
+    if (!next) {
+        next = normalizeMatch({
+            id: makeId('partido'), torneoId: match.torneoId, categoriaId: match.categoriaId,
+            zonaId: null, phase: link.next, tipo: TYPE_BY_PHASE[link.next],
+            nombreEtapa: `${link.next === 'FINAL' ? 'Final' : link.next.replace('_', ' ')} ${nextSlot}`,
+            bracketSlot: nextSlot, sourceMatchIds: [], equipoLocalId: null, equipoVisitanteId: null,
+            fecha: null, hora: null, cancha: null, orden: null, estado: 'pendiente', confirmado: true
+        });
+        data.matches.push(next);
+    }
+    const old = side === 'local' ? next.equipoLocalId : next.equipoVisitanteId;
+    if (old !== teamId) {
+        next[side === 'local' ? 'equipoLocalId' : 'equipoVisitanteId'] = teamId;
+        if (next.estado === 'finalizado' && next.ganadorId !== teamId) {
+            next.estado = 'pendiente'; next.status = undefined; next.sets = [];
+            next.setsLocal = null; next.setsVisitante = null; next.ganadorId = null; next.score = null;
+        }
+    }
+};
+const syncKnockoutAdvancement = data => {
+    const stages = ['TOP_16', 'TOP_8', 'TOP_4'];
+    stages.forEach(phase => data.matches.filter(match => match.phase === phase && data.tournaments.find(item => item.id === match.torneoId)?.eliminationMode === 'top16' && match.estado === 'finalizado' && match.ganadorId).forEach(match => {
+        const link = knockoutLinks[phase];
+        const target = data.matches.find(item => item.phase === link.next && item.bracketSlot === link.slot(match) && item.torneoId === match.torneoId && item.categoriaId === match.categoriaId);
+        const side = (match.bracketSlot || 1) % 2 ? 'local' : 'visitante';
+        updateKnockoutPlace(data, match, match.ganadorId, side);
+    }));
+};
+
 export const DataManager = {
     _getStorage() {
         try {
@@ -136,6 +184,7 @@ export const DataManager = {
                 ...tournament,
                 classificationMode: normalizeClassificationMode(tournament.classificationMode),
                 method: normalizeTournamentMethod(tournament.method),
+                eliminationMode: tournament.eliminationMode === undefined ? null : (tournament.eliminationMode === null ? null : normalizeEliminationMode(tournament.eliminationMode)),
                 courts: Array.isArray(tournament.courts) && tournament.courts.length
                     ? tournament.courts.map(normalizeCourt)
                     : defaultCourts(tournament.cantidadCanchas || 2)
@@ -182,9 +231,10 @@ export const DataManager = {
     getTournament(id) { return this.getTournaments().find(tournament => tournament.id === id) || null; },
     getTournamentClassificationMode(id) { return normalizeClassificationMode(this.getTournament(id)?.classificationMode); },
     getTournamentMethod(id) { return normalizeTournamentMethod(this.getTournament(id)?.method); },
-    createTournament(nombre, partidosAsegurados, classificationMode = CLASSIFICATION_MODE.SETS, method = TOURNAMENT_METHOD.STANDARD) {
+    getTournamentEliminationMode(id) { return this.getTournament(id)?.eliminationMode || ELIMINATION_MODE.NORMAL; },
+    createTournament(nombre, partidosAsegurados, classificationMode = CLASSIFICATION_MODE.SETS, method = TOURNAMENT_METHOD.STANDARD, eliminationMode = null) {
         const data = this._getStorage();
-        const tournament = { id: makeId('torneo'), nombre: nombre.trim(), partidos_asegurados: Number(partidosAsegurados), classificationMode: normalizeClassificationMode(classificationMode), method: normalizeTournamentMethod(method), courts: defaultCourts(2), cantidadCanchas: 2, blockDuration: 30, duracionPartido: 30, intervaloPartidos: 0, creado: new Date().toISOString() };
+        const tournament = { id: makeId('torneo'), nombre: nombre.trim(), partidos_asegurados: Number(partidosAsegurados), classificationMode: normalizeClassificationMode(classificationMode), method: normalizeTournamentMethod(method), eliminationMode: eliminationMode === null ? null : normalizeEliminationMode(eliminationMode), courts: defaultCourts(2), cantidadCanchas: 2, blockDuration: 30, duracionPartido: 30, intervaloPartidos: 0, creado: new Date().toISOString() };
         data.tournaments.push(tournament);
         this._setStorage(data);
         return tournament;
@@ -512,6 +562,7 @@ export const DataManager = {
         if (!match) throw new Error('No se encontró el partido.');
         if (!match.confirmado && match.estado !== 'programado' && match.estado !== 'finalizado') throw new Error('El partido debe confirmarse antes de cargar un resultado.');
         applyInternalResult(match, sets);
+        syncKnockoutAdvancement(data);
         this._setStorage(data);
     },
 
