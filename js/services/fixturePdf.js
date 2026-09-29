@@ -1,59 +1,37 @@
 import { fixtureCompare } from './logistics.js';
 
-export const latin = value => String(value ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\xFF]/g, '?');
-export const pdfText = value => latin(value).replace(/([\\()])/g, '\\$1');
+const latin = value => String(value ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\xFF]/g, '?');
+const pdfText = value => latin(value).replace(/([\\()])/g, '\\$1');
 const dayLabel = date => date ? new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(`${date}T12:00:00`)).toUpperCase() : 'SIN FECHA';
 const statusLabel = status => ({ borrador: 'Sin programar', pendiente: 'Confirmado', programado: 'Programado', confirmado: 'Confirmado', en_juego: 'En juego', finalizado: 'Finalizado' }[status] || status || 'Sin programar');
-// El resultado se muestra sólo cuando el partido terminó: 2-0, 2-1 o 1-0
-// según el formato de sets del torneo.
-const scoreLabel = match => {
-    if (match.estado !== 'finalizado') return '';
-    if (match.score) return match.score;
-    const sets = Array.isArray(match.sets) ? match.sets : [];
-    if (!sets.length) return '';
-    return `${sets.filter(set => set.puntosLocal > set.puntosVisitante).length}-${sets.filter(set => set.puntosVisitante > set.puntosLocal).length}`;
-};
 
-export const line = (x, y, size, value, bold = false) => `BT /${bold ? 'F2' : 'F1'} ${size} Tf ${x} ${y} Td (${pdfText(value)}) Tj ET`;
-// Ninguna columna se desborda del ancho de la hoja: los textos largos se
-// recortan con puntos para que el documento siga siendo legible al imprimir.
-export const clip = (value, max) => {
-    const text = String(value ?? '');
-    return text.length > max ? `${text.slice(0, Math.max(1, max - 3))}...` : text;
-};
-const makePage = (tournament, rows, pageNumber, totalPages, subtitle = '') => {
+const line = (x, y, size, value, bold = false) => `BT /${bold ? 'F2' : 'F1'} ${size} Tf ${x} ${y} Td (${pdfText(value)}) Tj ET`;
+const makePage = (tournament, rows, pageNumber, totalPages) => {
     const commands = [
-        '0.08 0.12 0.2 rg', '40 543 762 32 re f', '1 1 1 rg', line(52, 554, 16, 'FIXTURE GENERAL DEL TORNEO', true),
-        '0.08 0.12 0.2 rg', line(40, 523, 13, tournament.nombre, true),
-        // Los títulos de columna se dibujan en la misma posición X que los datos
-        // para que la impresión quede alineada aunque cambie el idioma.
-        line(42, 507, 8, 'HORA', true), line(86, 507, 8, 'CANCHA', true), line(170, 507, 8, 'CATEGORIA / MODALIDAD', true),
-        line(322, 507, 8, 'ETAPA / ZONA', true), line(460, 507, 8, 'PARTIDO', true), line(620, 507, 8, 'RESULTADO', true), line(718, 507, 8, 'ESTADO', true)
+        '0.08 0.12 0.2 rg', '40 543 762 32 re f', '1 1 1 rg', line(52, 554, 15, 'FIXTURE GENERAL DEL TORNEO', true),
+        '0.08 0.12 0.2 rg', line(40, 525, 12, tournament.nombre, true),
+        line(40, 507, 8, 'HORA     CANCHA                   CATEGORIA / MODALIDAD             ETAPA / ZONA                       PARTIDO', true)
     ];
-    if (subtitle) commands.push('0.35 0.42 0.55 rg', line(40, 493, 9, clip(subtitle, 78)));
-    commands.push('0.35 0.42 0.55 rg', line(560, 523, 9, clip(`Pagina ${pageNumber} de ${totalPages}`, 34), true));
-    let y = 476;
+    let y = 488;
     let currentDate = null;
     rows.forEach(row => {
         if (row.fecha !== currentDate) {
             currentDate = row.fecha;
-            commands.push('0.88 0.91 0.95 rg', `40 ${y - 4} 762 19 re f`, '0.08 0.12 0.2 rg', line(46, y + 1, 11, dayLabel(row.fecha), true));
-            y -= 26;
+            commands.push('0.88 0.91 0.95 rg', `40 ${y - 4} 762 18 re f`, '0.08 0.12 0.2 rg', line(46, y + 1, 10, dayLabel(row.fecha), true));
+            y -= 25;
         }
         const category = [row.categoryAge, row.modality].filter(Boolean).join(' · ') || row.categoryName;
         const stage = `${row.phaseLabel}${row.zoneName ? ` · ${row.zoneName}` : ''}`;
         const match = `${row.teamA} vs ${row.teamB}`;
-        commands.push(line(42, y, 9, clip(row.hora || '--:--', 6), true));
-        commands.push(line(86, y, 9, clip(row.cancha || 'Sin cancha', 15)));
-        commands.push(line(170, y, 9, clip(category, 30)));
-        commands.push(line(322, y, 9, clip(stage, 28)));
-        commands.push(line(460, y, 9, clip(match, 34)));
-        commands.push(line(620, y, 9, clip(row.resultado || '', 12), true));
-        commands.push(line(718, y, 9, clip(row.status, 14)));
+        commands.push(line(42, y, 8, row.hora || '--:--', true));
+        commands.push(line(90, y, 8, row.cancha || 'Sin cancha'));
+        commands.push(line(180, y, 8, category));
+        commands.push(line(350, y, 8, stage));
+        commands.push(line(520, y, 8, match));
         commands.push('0.82 0.84 0.87 RG', `40 ${y - 5} m 802 ${y - 5} l S`, '0.08 0.12 0.2 rg');
-        y -= 20;
+        y -= 19;
     });
-    commands.push(line(40, 24, 8, `Generado desde la programacion vigente - Pagina ${pageNumber} de ${totalPages}`));
+    commands.push(line(40, 24, 7, `Generado desde la programacion vigente · Pagina ${pageNumber} de ${totalPages}`));
     return commands.join('\n');
 };
 
@@ -68,30 +46,20 @@ export const fixtureRows = ({ matches, categories, teams, zones, phaseLabels, fi
                 id: match.id, fecha: match.fecha, hora: match.hora, cancha: match.cancha,
                 categoryName: item.nombre || 'Sin categoría', categoryAge: item.edad || '', modality: item.modalidad || '',
                 phaseLabel: phaseLabels[match.phase || 'ZONAS'] || match.phase || 'Fase de zonas', zoneName: zone(match.zonaId),
-                teamA: team(match.equipoLocalId), teamB: team(match.equipoVisitanteId), status: statusLabel(match.estado),
-                resultado: scoreLabel(match)
+                teamA: team(match.equipoLocalId), teamB: team(match.equipoVisitanteId), status: statusLabel(match.estado)
             };
         });
 };
 
-export const buildFixturePdf = (tournament, rows, subtitle = '') => {
-    // El corte de páginas se calcula con los puntos realmente consumidos:
-    // un encabezado de jornada ocupa más alto que una fila simple.
-    const budget = 476 - 46;
+export const buildFixturePdf = (tournament, rows) => {
     const pages = [];
     let current = [];
-    let used = 0;
+    let lineCount = 0;
     let lastDate = null;
     rows.forEach(row => {
-        if (current.length && used + 20 + (row.fecha === lastDate ? 0 : 26) > budget) {
-            pages.push(current);
-            current = [];
-            used = 0;
-            lastDate = null;
-        }
-        used += 20 + (row.fecha === lastDate ? 0 : 26);
-        lastDate = row.fecha;
-        current.push(row);
+        const needed = row.fecha === lastDate ? 1 : 2;
+        if (lineCount + needed > 21 && current.length) { pages.push(current); current = []; lineCount = 0; lastDate = null; }
+        current.push(row); lineCount += row.fecha === lastDate ? 1 : 2; lastDate = row.fecha;
     });
     pages.push(current);
     const objects = [];
@@ -102,7 +70,7 @@ export const buildFixturePdf = (tournament, rows, subtitle = '') => {
     const boldId = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
     const pageIds = [];
     pages.forEach((pageRows, index) => {
-        const stream = makePage(tournament, pageRows, index + 1, pages.length, subtitle);
+        const stream = makePage(tournament, pageRows, index + 1, pages.length);
         const contentId = add(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
         pageIds.push(add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldId} 0 R >> >> /Contents ${contentId} 0 R >>`));
     });
@@ -117,8 +85,8 @@ export const buildFixturePdf = (tournament, rows, subtitle = '') => {
     return new Uint8Array([...pdf].map(character => character.charCodeAt(0) & 0xff));
 };
 
-export const downloadFixturePdf = (tournament, rows, suffix = 'completo', subtitle = '') => {
-    const bytes = buildFixturePdf(tournament, rows, subtitle);
+export const downloadFixturePdf = (tournament, rows, suffix = 'completo') => {
+    const bytes = buildFixturePdf(tournament, rows);
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     const link = document.createElement('a');
     link.href = url;
