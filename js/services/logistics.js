@@ -9,14 +9,14 @@ const logisticsPhaseFor = match => match.phase || 'ZONAS';
 const logisticsIsOfficial = match => match.confirmado || ['pendiente', 'programado', 'confirmado', 'en_juego', 'finalizado'].includes(match.estado);
 const logisticsTeamsOverlap = (left, right) => [left.equipoLocalId, left.equipoVisitanteId].some(id => [right.equipoLocalId, right.equipoVisitanteId].includes(id));
 const logisticsCourtKey = match => match.courtId || match.cancha;
-const phaseOrder = { ZONAS: 1, ALL_VS_ALL: 2, TOP_16: 3, TOP_8: 4, SEMIFINAL: 5, THIRD_PLACE: 6, FINAL: 7 };
+const phaseOrder = { ZONAS: 1, ALL_VS_ALL: 2, TOP_16: 3, TOP_8: 4, TOP_4: 5, SEMIFINAL: 6, THIRD_PLACE: 7, FINAL: 8 };
 
 const logisticsAllowedDates = (tournamentId, match) => {
     const calendar = DataManager.getCalendarDates(tournamentId);
     const planning = DataManager.getCategoryPlanning(tournamentId, match.categoriaId);
     if (!planning) {
         const phase = logisticsPhaseFor(match);
-        if (calendar.length > 1 && ['SEMIFINAL', 'THIRD_PLACE', 'FINAL'].includes(phase)) return [calendar.at(-1), ...calendar.slice(0, -1)];
+        if (calendar.length > 1 && ['TOP_4', 'SEMIFINAL', 'THIRD_PLACE', 'FINAL'].includes(phase)) return [calendar.at(-1), ...calendar.slice(0, -1)];
         return calendar;
     }
     const phase = logisticsPhaseFor(match) === 'THIRD_PLACE' ? 'FINAL' : logisticsPhaseFor(match);
