@@ -3,11 +3,9 @@
 const STORAGE_KEY = 'newcom_data';
 const CLASSIFICATION_MODE = { SETS: 'sets', POINTS: 'points' };
 const TOURNAMENT_METHOD = { STANDARD: 'standard', ALL_VS_ALL: 'all_vs_all' };
-const ELIMINATION_MODE = { NORMAL: 'normal', TOP_16: 'top16' };
 export const PLANNING_STAGES = Object.freeze({
     ZONES: 'ZONAS',
     GUARANTEED: 'GARANTIZADOS',
-    CROSSES: 'ALL_VS_ALL',
     ROUND_OF_16: 'TOP_16',
     QUARTERFINALS: 'TOP_8',
     TOP_4: 'TOP_4',
@@ -15,11 +13,11 @@ export const PLANNING_STAGES = Object.freeze({
     FINAL: 'FINAL'
 });
 const VALID_PLANNING_STAGES = new Set(Object.values(PLANNING_STAGES));
-const normalizeClassificationMode = value => value === CLASSIFICATION_MODE.POINTS ? CLASSIFICATION_MODE.POINTS : CLASSIFICATION_MODE.SETS;
-// Los torneos guardados antes de incorporar métodos conservan exactamente el
-// flujo histórico. No se migra ni se infiere un método nuevo para ellos.
-const normalizeTournamentMethod = value => value === TOURNAMENT_METHOD.ALL_VS_ALL ? TOURNAMENT_METHOD.ALL_VS_ALL : TOURNAMENT_METHOD.STANDARD;
-const normalizeEliminationMode = value => value === ELIMINATION_MODE.TOP_16 ? ELIMINATION_MODE.TOP_16 : ELIMINATION_MODE.NORMAL;
+// N3com tiene un único formato oficial: zonas, tabla general por puntos reales
+// de set y llave Top 16. Los valores históricos se leen como este formato para
+// que ningún torneo antiguo siga afectando la generación de partidos.
+const normalizeClassificationMode = () => CLASSIFICATION_MODE.POINTS;
+const normalizeTournamentMethod = () => TOURNAMENT_METHOD.STANDARD;
 let sequence = 0;
 
 const emptyData = () => ({ tournaments: [], categories: [], teams: [], zones: [], matches: [], calendar: [] });
@@ -44,7 +42,7 @@ const normalizeCourt = (court, index) => ({
     name: String(court?.name || court?.nombre || `Cancha ${index + 1}`).trim() || `Cancha ${index + 1}`
 });
 const validHours = (start, end) => /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end) && minutesFromTime(start) < minutesFromTime(end);
-const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', cruces_todos_contra_todos: 'ALL_VS_ALL', top_16: 'TOP_16', top_8: 'TOP_8', top_4: 'TOP_4', semifinal: 'SEMIFINAL', tercer_puesto: 'THIRD_PLACE', final: 'FINAL' };
+const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', cruces_todos_contra_todos: 'ALL_VS_ALL', cruces: 'CROSSES', cuarto_final: 'CROSSES', top_16: 'TOP_16', top_8: 'TOP_8', semifinal: 'SEMIFINAL', tercer_puesto: 'THIRD_PLACE', final: 'FINAL' };
 const TYPE_BY_PHASE = Object.fromEntries(Object.entries(PHASE_BY_TYPE).map(([type, phase]) => [phase, type]));
 const phaseFor = match => match.phase || PHASE_BY_TYPE[match.tipo] || 'ZONAS';
 const isZonePhaseMatch = match => phaseFor(match) === 'ZONAS';
@@ -124,53 +122,21 @@ const applyInternalResult = (match, rawSets) => {
     match.sets = sets;
     match.setsLocal = setsLocal;
     match.setsVisitante = setsVisitante;
+    match.puntosFavor = sets.reduce((total, set) => total + set.puntosLocal, 0);
+    match.puntosContra = sets.reduce((total, set) => total + set.puntosVisitante, 0);
+    match.diferenciaPuntos = match.puntosFavor - match.puntosContra;
     match.ganadorId = setsLocal === 2 ? match.equipoLocalId : match.equipoVisitanteId;
     match.score = `${setsLocal}-${setsVisitante}`;
 };
 
-// La llave se materializa al cargar cada resultado. Los partidos de la ronda
-// siguiente conservan su registro y sólo se actualizan los lugares afectados.
-// Así no hay que volver a elegir manualmente los equipos y una corrección de
-// resultado reconstruye la llave sin borrar el historial de partidos.
-const knockoutLinks = {
-    TOP_16: { next: 'TOP_8', source: 'TOP_16', count: 4, slot: match => Math.floor((Number(match.bracketSlot || 1) - 1) / 2) + 1 },
-    TOP_8: { next: 'TOP_4', source: 'TOP_8', count: 2, slot: match => Math.floor((Number(match.bracketSlot || 1) - 1) / 2) + 1 },
-    TOP_4: { next: 'FINAL', source: 'TOP_4', count: 1, slot: () => 1 }
-};
-const updateKnockoutPlace = (data, match, teamId, side) => {
-    const link = knockoutLinks[match.phase];
-    if (!link || !teamId) return;
-    const nextSlot = link.slot(match);
-    const sourceMatches = data.matches.filter(item => item.torneoId === match.torneoId && item.categoriaId === match.categoriaId && item.phase === link.source && Math.floor((Number(item.bracketSlot || 1) - 1) / 2) + 1 === nextSlot);
-    if (sourceMatches.length < 2 || sourceMatches.some(item => item.estado !== 'finalizado' || !item.ganadorId)) return;
-    let next = data.matches.find(item => item.torneoId === match.torneoId && item.categoriaId === match.categoriaId && item.phase === link.next && item.bracketSlot === nextSlot);
-    if (!next) {
-        next = normalizeMatch({
-            id: makeId('partido'), torneoId: match.torneoId, categoriaId: match.categoriaId,
-            zonaId: null, phase: link.next, tipo: TYPE_BY_PHASE[link.next],
-            nombreEtapa: `${link.next === 'FINAL' ? 'Final' : link.next.replace('_', ' ')} ${nextSlot}`,
-            bracketSlot: nextSlot, sourceMatchIds: [], equipoLocalId: null, equipoVisitanteId: null,
-            fecha: null, hora: null, cancha: null, orden: null, estado: 'pendiente', confirmado: true
+const advanceBracketWinner = (data, source) => {
+    data.matches
+        .filter(match => Array.isArray(match.sourceMatchIds) && match.sourceMatchIds.includes(source.id))
+        .forEach(target => {
+            const slot = target.sourceMatchIds.indexOf(source.id);
+            if (slot === 0) target.equipoLocalId = source.ganadorId;
+            if (slot === 1) target.equipoVisitanteId = source.ganadorId;
         });
-        data.matches.push(next);
-    }
-    const old = side === 'local' ? next.equipoLocalId : next.equipoVisitanteId;
-    if (old !== teamId) {
-        next[side === 'local' ? 'equipoLocalId' : 'equipoVisitanteId'] = teamId;
-        if (next.estado === 'finalizado' && next.ganadorId !== teamId) {
-            next.estado = 'pendiente'; next.status = undefined; next.sets = [];
-            next.setsLocal = null; next.setsVisitante = null; next.ganadorId = null; next.score = null;
-        }
-    }
-};
-const syncKnockoutAdvancement = data => {
-    const stages = ['TOP_16', 'TOP_8', 'TOP_4'];
-    stages.forEach(phase => data.matches.filter(match => match.phase === phase && data.tournaments.find(item => item.id === match.torneoId)?.eliminationMode === 'top16' && match.estado === 'finalizado' && match.ganadorId).forEach(match => {
-        const link = knockoutLinks[phase];
-        const target = data.matches.find(item => item.phase === link.next && item.bracketSlot === link.slot(match) && item.torneoId === match.torneoId && item.categoriaId === match.categoriaId);
-        const side = (match.bracketSlot || 1) % 2 ? 'local' : 'visitante';
-        updateKnockoutPlace(data, match, match.ganadorId, side);
-    }));
 };
 
 export const DataManager = {
@@ -182,9 +148,8 @@ export const DataManager = {
             // histórico basado en sets ganados.
             data.tournaments = data.tournaments.map(tournament => ({
                 ...tournament,
-                classificationMode: normalizeClassificationMode(tournament.classificationMode),
-                method: normalizeTournamentMethod(tournament.method),
-                eliminationMode: tournament.eliminationMode === undefined ? null : (tournament.eliminationMode === null ? null : normalizeEliminationMode(tournament.eliminationMode)),
+                classificationMode: CLASSIFICATION_MODE.POINTS,
+                method: TOURNAMENT_METHOD.STANDARD,
                 courts: Array.isArray(tournament.courts) && tournament.courts.length
                     ? tournament.courts.map(normalizeCourt)
                     : defaultCourts(tournament.cantidadCanchas || 2)
@@ -202,7 +167,7 @@ export const DataManager = {
             // Los resultados de versiones anteriores no contienen los puntos
             // de cada set y ya no sirven para la nueva clasificación. Quedan
             // pendientes para que se vuelvan a cargar con el detalle real.
-            data.matches = data.matches.map(match => {
+            data.matches = data.matches.filter(match => !['ALL_VS_ALL', 'CROSSES', 'QUARTERFINAL', 'THIRD_PLACE'].includes(match.phase || PHASE_BY_TYPE[match.tipo])).map(match => {
                 // Se descarta la puntuación fija de versiones anteriores. La
                 // clasificación sólo se deriva de los sets reales guardados.
                 const { puntosLocal, puntosVisitante, ...normalizedMatch } = match;
@@ -229,13 +194,30 @@ export const DataManager = {
 
     getTournaments() { return this._getStorage().tournaments; },
     getTournament(id) { return this.getTournaments().find(tournament => tournament.id === id) || null; },
-    getTournamentClassificationMode(id) { return normalizeClassificationMode(this.getTournament(id)?.classificationMode); },
-    getTournamentMethod(id) { return normalizeTournamentMethod(this.getTournament(id)?.method); },
-    getTournamentEliminationMode(id) { return this.getTournament(id)?.eliminationMode || ELIMINATION_MODE.NORMAL; },
-    createTournament(nombre, partidosAsegurados, classificationMode = CLASSIFICATION_MODE.SETS, method = TOURNAMENT_METHOD.STANDARD, eliminationMode = null) {
+    getTournamentClassificationMode() { return CLASSIFICATION_MODE.POINTS; },
+    getTournamentMethod() { return TOURNAMENT_METHOD.STANDARD; },
+    createTournament(nombre, partidosAsegurados) {
         const data = this._getStorage();
-        const tournament = { id: makeId('torneo'), nombre: nombre.trim(), partidos_asegurados: Number(partidosAsegurados), classificationMode: normalizeClassificationMode(classificationMode), method: normalizeTournamentMethod(method), eliminationMode: eliminationMode === null ? null : normalizeEliminationMode(eliminationMode), courts: defaultCourts(2), cantidadCanchas: 2, blockDuration: 30, duracionPartido: 30, intervaloPartidos: 0, creado: new Date().toISOString() };
+        const tournament = { id: makeId('torneo'), nombre: nombre.trim(), partidos_asegurados: Number(partidosAsegurados), classificationMode: CLASSIFICATION_MODE.POINTS, method: TOURNAMENT_METHOD.STANDARD, courts: defaultCourts(2), cantidadCanchas: 2, blockDuration: 30, duracionPartido: 30, intervaloPartidos: 0, creado: new Date().toISOString() };
         data.tournaments.push(tournament);
+        this._setStorage(data);
+        return tournament;
+    },
+
+    // Borra el torneo junto con todo lo que le pertenece: categorías, equipos,
+    // zonas, calendario y partidos. Los demás torneos quedan intactos.
+    removeTournament(torneoId) {
+        const data = this._getStorage();
+        const tournament = data.tournaments.find(item => item.id === torneoId);
+        if (!tournament) throw new Error('No se encontró el torneo seleccionado.');
+        const categoryIds = new Set(data.categories.filter(category => category.torneoId === torneoId).map(category => category.id));
+        const belongsToTournament = item => item.torneoId === torneoId || categoryIds.has(item.categoriaId);
+        data.tournaments = data.tournaments.filter(item => item.id !== torneoId);
+        data.categories = data.categories.filter(category => category.torneoId !== torneoId);
+        data.teams = data.teams.filter(team => !belongsToTournament(team));
+        data.zones = data.zones.filter(zone => !belongsToTournament(zone));
+        data.matches = data.matches.filter(match => !belongsToTournament(match));
+        data.calendar = data.calendar.filter(entry => entry.torneoId !== torneoId);
         this._setStorage(data);
         return tournament;
     },
@@ -251,6 +233,14 @@ export const DataManager = {
         if (!category) throw new Error('La categoría no pertenece al torneo seleccionado.');
         category.minimumRestBlocks = value;
         this._setStorage(data);
+    },
+    setPlayoffConfig(torneoId, categoriaId, config = {}) {
+        const zones = Number(config.zones || 4); const qualifiersPerZone = Number(config.qualifiersPerZone || 2);
+        if (!Number.isInteger(zones) || !Number.isInteger(qualifiersPerZone) || zones < 1 || qualifiersPerZone < 1) throw new Error('La configuración de cruces no es válida.');
+        const data = this._getStorage(); const category = data.categories.find(item => item.id === categoriaId && item.torneoId === torneoId);
+        if (!category) throw new Error('La categoría no pertenece al torneo seleccionado.');
+        category.playoffConfig = { zones, qualifiersPerZone, totalTeams: zones * qualifiersPerZone, format: config.format || 'single_elimination' };
+        this._setStorage(data); return category.playoffConfig;
     },
     getCategoryPlanning(torneoId, categoriaId) {
         const category = this._getStorage().categories.find(item => item.id === categoriaId && item.torneoId === torneoId);
@@ -458,7 +448,8 @@ export const DataManager = {
         this._validateMatchPair(match); this._validateMatchDate(match);
         const category = data.categories.find(item => item.id === match.categoriaId && item.torneoId === match.torneoId);
         if (!category) throw new Error('La categoría del partido no existe en este torneo.');
-        if (!match.equipoLocalId || !match.equipoVisitanteId) throw new Error('El partido debe tener dos equipos asignados.');
+        const bracketPhase = ['TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL'].includes(phaseFor(match));
+        if ((!match.equipoLocalId || !match.equipoVisitanteId) && !bracketPhase) throw new Error('El partido debe tener dos equipos asignados.');
         if (match.orden !== undefined && match.orden !== null && (!Number.isInteger(Number(match.orden)) || Number(match.orden) < 1)) throw new Error('El orden del partido debe ser un número entero mayor que cero.');
         if (match.hora && (!/^\d{2}:\d{2}$/.test(match.hora) || minutesFromTime(match.hora) >= 1440)) throw new Error('El horario del partido no es válido.');
         if (match.fecha && match.hora) {
@@ -476,10 +467,10 @@ export const DataManager = {
             match.courtId = court.id;
             match.cancha = court.name;
         }
-        const local = data.teams.find(team => team.id === match.equipoLocalId);
-        const visitante = data.teams.find(team => team.id === match.equipoVisitanteId);
-        if (!local || !visitante || local.torneoId !== match.torneoId || visitante.torneoId !== match.torneoId || local.categoriaId !== match.categoriaId || visitante.categoriaId !== match.categoriaId) throw new Error('Los equipos deben pertenecer a la categoría del partido.');
-        if (phaseFor(match) === 'ZONAS' && (local.zonaId !== visitante.zonaId || !local.zonaId || match.zonaId !== local.zonaId)) throw new Error('No se pueden enfrentar equipos de zonas diferentes durante esta fase.');
+        const local = match.equipoLocalId ? data.teams.find(team => team.id === match.equipoLocalId) : null;
+        const visitante = match.equipoVisitanteId ? data.teams.find(team => team.id === match.equipoVisitanteId) : null;
+        if ((match.equipoLocalId && !local) || (match.equipoVisitanteId && !visitante) || (local && (local.torneoId !== match.torneoId || local.categoriaId !== match.categoriaId)) || (visitante && (visitante.torneoId !== match.torneoId || visitante.categoriaId !== match.categoriaId))) throw new Error('Los equipos deben pertenecer a la categoría del partido.');
+        if (phaseFor(match) === 'ZONAS' && (!local || !visitante || local.zonaId !== visitante.zonaId || !local.zonaId || match.zonaId !== local.zonaId)) throw new Error('No se pueden enfrentar equipos de zonas diferentes durante esta fase.');
         if (match.fecha && category.planning?.days) {
             const planningPhase = phaseFor(match) === 'THIRD_PLACE' ? 'FINAL' : phaseFor(match);
             const day = category.planning.days.find(item => item.date === match.fecha);
@@ -562,7 +553,7 @@ export const DataManager = {
         if (!match) throw new Error('No se encontró el partido.');
         if (!match.confirmado && match.estado !== 'programado' && match.estado !== 'finalizado') throw new Error('El partido debe confirmarse antes de cargar un resultado.');
         applyInternalResult(match, sets);
-        syncKnockoutAdvancement(data);
+        advanceBracketWinner(data, match);
         this._setStorage(data);
     },
 
