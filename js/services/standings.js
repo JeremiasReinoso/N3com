@@ -1,29 +1,25 @@
 import { DataManager } from '../data/dataManager.js';
 
-// La tabla general del método Todos contra todos acumula también los cruces
-// libres. Las eliminatorias siguen sin alterar los puntos de clasificación.
-const isGroupStandingMatch = match => match.phase === 'ZONAS' || match.phase === 'ALL_VS_ALL' || !match.tipo || match.tipo === 'fase_zonas' || match.tipo === 'cruces_todos_contra_todos';
+// Sólo los partidos de zonas alimentan la tabla que clasifica al Top 16.
+const isGroupStandingMatch = match => match.phase === 'ZONAS' || (!match.phase && match.tipo === 'fase_zonas');
 const hasSetResult = match => match.estado === 'finalizado' && Array.isArray(match.sets) && match.sets.length >= 2 && match.ganadorId;
 
-// Por puntos se prioriza el rendimiento real: partidos ganados → diferencia de
-// sets → diferencia de puntos → puntos a favor.
-const compareByRealPerformance = (left, right) => (
-    right.ganados - left.ganados
-    || right.diferenciaSets - left.diferenciaSets
-    || right.diferenciaPuntos - left.diferenciaPuntos
-    || right.puntosFavor - left.puntosFavor
-);
-
-// En la modalidad histórica los puntos de clasificación son la fuente de
-// orden: 2-0 = 3/1 y 2-1 = 2/1. El resto sólo desempata.
-const compareBySetPoints = (left, right) => (
-    right.puntosClasificacion - left.puntosClasificacion
-    || compareByRealPerformance(left, right)
-);
+const compareBySetPoints = (matches) => (left, right) => {
+    const direct = matches.find(match => [match.equipoLocalId, match.equipoVisitanteId].includes(left.id)
+        && [match.equipoLocalId, match.equipoVisitanteId].includes(right.id)
+        && hasSetResult(match));
+    const directWinner = direct?.ganadorId === left.id ? -1 : (direct?.ganadorId === right.id ? 1 : 0);
+    return right.puntosFavor - left.puntosFavor
+        || right.diferenciaPuntos - left.diferenciaPuntos
+        || right.puntosFavor - left.puntosFavor
+        || directWinner
+        || right.ganados - left.ganados
+        || String(left.nombre || '').localeCompare(String(right.nombre || ''), 'es')
+        || String(left.id).localeCompare(String(right.id));
+};
 
 export const PosicionesService = {
     calcularPosiciones(torneoId, categoriaId) {
-        const classificationMode = DataManager.getTournamentClassificationMode(torneoId);
         const teams = DataManager.getTeamsByTournamentAndCategory(torneoId, categoriaId);
         const rows = new Map(teams.map(team => [team.id, {
             ...team,
@@ -60,17 +56,9 @@ export const PosicionesService = {
                 if (match.ganadorId === local.id) {
                     local.ganados += 1;
                     visitante.perdidos += 1;
-                    if (classificationMode === 'sets') {
-                        local.puntosClasificacion += match.setsVisitante === 0 ? 3 : 2;
-                        visitante.puntosClasificacion += 1;
-                    }
                 } else {
                     visitante.ganados += 1;
                     local.perdidos += 1;
-                    if (classificationMode === 'sets') {
-                        visitante.puntosClasificacion += match.setsLocal === 0 ? 3 : 2;
-                        local.puntosClasificacion += 1;
-                    }
                 }
             });
 
@@ -80,7 +68,7 @@ export const PosicionesService = {
                 diferenciaSets: row.setsFavor - row.setsContra,
                 diferenciaPuntos: row.puntosFavor - row.puntosContra
             }))
-            .sort(classificationMode === 'sets' ? compareBySetPoints : compareByRealPerformance);
+            .sort(compareBySetPoints(DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)));
     },
 
     calcularClasificacionFinal(torneoId, categoriaId) {
@@ -90,17 +78,7 @@ export const PosicionesService = {
         if (!final) return null;
 
         const runnerUpId = final.ganadorId === final.equipoLocalId ? final.equipoVisitanteId : final.equipoLocalId;
-        const generalIndex = new Map(general.map((team, index) => [team.id, index]));
-        const scheduledThirdPlace = matches.find(match => match.phase === 'THIRD_PLACE');
-        // Si se habilitó el partido por el tercer puesto, la tabla final no
-        // inventa ese resultado: espera su marcador real para publicar 1.º–3.º.
-        if (scheduledThirdPlace && !hasSetResult(scheduledThirdPlace)) return null;
-        const thirdPlace = scheduledThirdPlace && hasSetResult(scheduledThirdPlace) ? scheduledThirdPlace : null;
-        const thirdIds = thirdPlace ? [thirdPlace.ganadorId, thirdPlace.ganadorId === thirdPlace.equipoLocalId ? thirdPlace.equipoVisitanteId : thirdPlace.equipoLocalId] : matches
-            .filter(match => match.phase === 'SEMIFINAL' && hasSetResult(match))
-            .map(match => match.ganadorId === match.equipoLocalId ? match.equipoVisitanteId : match.equipoLocalId)
-            .sort((left, right) => (generalIndex.get(left) ?? Infinity) - (generalIndex.get(right) ?? Infinity));
-        const orderedIds = [...new Set([final.ganadorId, runnerUpId, ...thirdIds])];
+        const orderedIds = [...new Set([final.ganadorId, runnerUpId])];
         return [
             ...orderedIds.map(id => general.find(team => team.id === id)).filter(Boolean),
             ...general.filter(team => !orderedIds.includes(team.id))
