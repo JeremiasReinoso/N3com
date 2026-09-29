@@ -5,8 +5,9 @@ export const PLANNING_STAGE_OPTIONS = [
     [PLANNING_STAGES.ZONES, 'Fase de zonas'],
     [PLANNING_STAGES.GUARANTEED, 'Partidos garantizados'],
     [PLANNING_STAGES.CROSSES, 'Cruces'],
-    [PLANNING_STAGES.ROUND_OF_16, 'Octavos'],
-    [PLANNING_STAGES.QUARTERFINALS, 'Cuartos'],
+    [PLANNING_STAGES.ROUND_OF_16, 'Top 16'],
+    [PLANNING_STAGES.QUARTERFINALS, 'Top 8'],
+    [PLANNING_STAGES.TOP_4, 'Top 4'],
     [PLANNING_STAGES.SEMIFINALS, 'Semifinales'],
     [PLANNING_STAGES.FINAL, 'Final']
 ];
@@ -38,6 +39,7 @@ export const initPlanningView = () => {
     const categoryId = AppState.getCategory();
     const tournament = tournamentId ? DataManager.getTournament(tournamentId) : null;
     const category = categoryId ? DataManager.getCategory(categoryId) : null;
+    const top16 = tournament && tournament.eliminationMode === 'top16';
     if (!tournament || !category || category.torneoId !== tournamentId) {
         view.innerHTML = '<h2>Planificación de jornadas</h2><div class="empty-state">Seleccione un torneo y una categoría para configurar sus jornadas.</div>';
         return;
@@ -46,6 +48,7 @@ export const initPlanningView = () => {
     const planning = DataManager.getCategoryPlanning(tournamentId, categoryId);
     const byDate = new Map((planning?.days || []).map(day => [day.date, day.stages]));
     const matches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId);
+    const stageOptions = PLANNING_STAGE_OPTIONS.filter(([value]) => top16 || !['TOP_16', 'TOP_8', 'TOP_4'].includes(value));
     const unavailableDays = (planning?.days || []).filter(day => !dates.includes(day.date) && day.stages.length);
     if (!dates.length) {
         view.innerHTML = `<h2>Planificación de jornadas</h2><div class="empty-state"><strong>${escapeHtml(category.nombre)}</strong><p>Primero configurá los días disponibles en Calendario.</p></div>`;
@@ -59,7 +62,7 @@ export const initPlanningView = () => {
             <div class="planning-days">${dates.map(date => {
                 const stages = byDate.get(date) || [];
                 const [statusClass, statusLabel] = dayStatus(stages, matches.filter(match => match.fecha === date));
-                return `<fieldset class="planning-day" data-date="${date}"><legend><span>${escapeHtml(formatDay(date))}</span><small>${date.split('-').reverse().join('/')}</small></legend><span class="planning-status ${statusClass}">${statusLabel}</span><div class="planning-stage-grid">${PLANNING_STAGE_OPTIONS.map(([value, label]) => `<label class="planning-stage"><input type="checkbox" name="${date}" value="${value}" ${stages.includes(value) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div><button class="btn-secondary edit-planning-day" type="button">Editar jornada</button></fieldset>`;
+                return `<fieldset class="planning-day" data-date="${date}"><legend><span>${escapeHtml(formatDay(date))}</span><small>${date.split('-').reverse().join('/')}</small></legend><span class="planning-status ${statusClass}">${statusLabel}</span><div class="planning-stage-grid">${stageOptions.map(([value, label]) => `<label class="planning-stage"><input type="checkbox" name="${date}" value="${value}" ${stages.includes(value) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div><button class="btn-secondary edit-planning-day" type="button">Editar jornada</button></fieldset>`;
             }).join('')}</div>
             <div class="planning-actions"><p>Podés seleccionar varias etapas por día y modificar esta configuración más adelante sin perder partidos.</p><button class="btn-primary btn-large" type="submit">Guardar planificación</button></div>
         </form>`;
