@@ -2,30 +2,15 @@ import { AppState } from '../core/state.js';
 import { renderCategoryWorkspace } from '../core/categoryWorkspace.js';
 import { DataManager } from '../data/dataManager.js';
 import { SchedulerService } from '../services/scheduler.js';
-import { LogisticsService } from '../services/logistics.js';
 
 const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'finalizado'].includes(match.estado);
-const saveResultAndSchedule = (matchId, sets) => {
-    DataManager.updateMatchResult(matchId, sets);
-    const match = DataManager.getMatchesByTournamentAndCategory(AppState.getTournament(), AppState.getCategory()).find(item => item.id === matchId);
-    if (match) {
-        try { LogisticsService.programTournament(match.torneoId); } catch { /* el fixture queda pendiente si falta calendario */ }
-    }
-};
 
-// Marcadores rápidos según el formato activo del partido: 1 set × 21 en
-// zonas y cruces, 2 sets × 15 (más el tercero de desempate) en eliminatorias.
-const quickResultsFor = format => format?.sets === 1
-    ? {
-        'local-win': [{ puntosLocal: 21, puntosVisitante: 15 }],
-        'visitante-win': [{ puntosLocal: 15, puntosVisitante: 21 }]
-    }
-    : {
-        'local-20': [{ puntosLocal: 15, puntosVisitante: 10 }, { puntosLocal: 15, puntosVisitante: 12 }],
-        'local-21': [{ puntosLocal: 15, puntosVisitante: 10 }, { puntosLocal: 12, puntosVisitante: 15 }, { puntosLocal: 15, puntosVisitante: 11 }],
-        'visitante-20': [{ puntosLocal: 10, puntosVisitante: 15 }, { puntosLocal: 12, puntosVisitante: 15 }],
-        'visitante-21': [{ puntosLocal: 10, puntosVisitante: 15 }, { puntosLocal: 15, puntosVisitante: 12 }, { puntosLocal: 11, puntosVisitante: 15 }]
-    };
+const QUICK_RESULTS = {
+    'local-20': [{ puntosLocal: 25, puntosVisitante: 15 }, { puntosLocal: 25, puntosVisitante: 15 }],
+    'local-21': [{ puntosLocal: 25, puntosVisitante: 15 }, { puntosLocal: 18, puntosVisitante: 25 }, { puntosLocal: 15, puntosVisitante: 10 }],
+    'visitante-20': [{ puntosLocal: 15, puntosVisitante: 25 }, { puntosLocal: 15, puntosVisitante: 25 }],
+    'visitante-21': [{ puntosLocal: 15, puntosVisitante: 25 }, { puntosLocal: 25, puntosVisitante: 18 }, { puntosLocal: 10, puntosVisitante: 15 }]
+};
 
 export const normalizeTeamSearch = value => String(value || '')
     .normalize('NFD')
@@ -57,7 +42,7 @@ export const getVisibleMatches = filters => normalizeTeamSearch(filters.query)
     ? findTeamMatches(filters)
     : filters.matches;
 
-const previewFromInputs = (card, format) => {
+const previewFromInputs = card => {
     const entries = [...card.querySelectorAll('.set-points')].map(row => ({
         local: row.querySelector('[data-side="local"]').value,
         visitante: row.querySelector('[data-side="visitante"]').value
@@ -65,22 +50,14 @@ const previewFromInputs = (card, format) => {
     const filled = entries.filter(set => set.local !== '' || set.visitante !== '');
     if (filled.some(set => set.local === '' || set.visitante === '')) return { message: 'Completá ambos puntajes de cada set.', valid: false };
     if (filled.some(set => Number(set.local) === Number(set.visitante))) return { message: 'Un set no puede terminar empatado.', valid: false };
-    const target = format?.points;
-    const reachesTarget = Number(filled[filled.length - 1]?.local) >= target || Number(filled[filled.length - 1]?.visitante) >= target;
-    const shortHint = !target || reachesTarget ? '' : ` (El formato pide llegar a ${target} puntos)`;
-    if (format?.sets === 1) {
-        if (filled.length < 1) return { message: 'Ingresá los puntos del set.', valid: false };
-        const localWins = Number(filled[0].local) > Number(filled[0].visitante);
-        return { message: `Resultado calculado: ${filled[0].local}–${filled[0].visitante}${shortHint}`, valid: true, localWon: localWins };
-    }
     if (filled.length < 2) return { message: 'Ingresá al menos dos sets.', valid: false };
     const localWins = filled.filter(set => Number(set.local) > Number(set.visitante)).length;
     const visitanteWins = filled.length - localWins;
-    if (filled.length === 2 && (localWins === 2 || visitanteWins === 2)) return { message: `Resultado calculado: ${localWins}–${visitanteWins}${shortHint}`, valid: true, localWon: localWins === 2 };
-    if (filled.length === 2) return { message: 'Hay empate 1–1: completá el tercer set (desempate).', valid: false };
+    if (filled.length === 2 && (localWins === 2 || visitanteWins === 2)) return { message: `Resultado calculado: ${localWins}–${visitanteWins}`, valid: true };
+    if (filled.length === 2) return { message: 'Hay empate 1–1: completá el tercer set.', valid: false };
     const firstTwoAreSplit = (Number(filled[0].local) > Number(filled[0].visitante)) !== (Number(filled[1].local) > Number(filled[1].visitante));
-    if (firstTwoAreSplit && ((localWins === 2 && visitanteWins === 1) || (visitanteWins === 2 && localWins === 1))) return { message: `Resultado calculado: ${localWins}–${visitanteWins}${shortHint}`, valid: true, localWon: localWins === 2 };
-    return { message: 'El partido debe finalizar 2–0. Si quedó 1–1, usá el tercer set.', valid: false };
+    if (firstTwoAreSplit && ((localWins === 2 && visitanteWins === 1) || (visitanteWins === 2 && localWins === 1))) return { message: `Resultado calculado: ${localWins}–${visitanteWins}`, valid: true };
+    return { message: 'El partido debe finalizar 2–0 o 2–1.', valid: false };
 };
 
 export function initResultadosView(options = {}) {
@@ -95,9 +72,6 @@ export function initResultadosView(options = {}) {
         return;
     }
     const byPoints = DataManager.getTournamentClassificationMode(tournamentId) === 'points';
-    const setFormats = DataManager.getTournamentSetFormats(tournamentId);
-    const formatByKey = Object.fromEntries(DataManager.getSetFormatOptions().map(item => [item.key, item]));
-    const formatForMatch = match => DataManager.isPlayoffPhase(match) ? setFormats.playoffs : setFormats.zones;
     const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId);
     const zones = DataManager.getZonesByTournamentAndCategory(tournamentId, categoryId);
     const categoryMatches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId);
@@ -113,29 +87,20 @@ export function initResultadosView(options = {}) {
         const place = [match.hora, match.cancha].filter(Boolean).join(' · ');
         return match.fecha ? `${match.fecha}${place ? ` · ${place}` : ''}` : 'Fecha y sede por definir';
     };
-    const setsForm = (match, format) => Array.from({ length: format.sets === 1 ? 1 : 3 }, (_, index) => {
+    const setsForm = match => Array.from({ length: 3 }, (_, index) => {
         const saved = match.sets?.[index];
-        const decider = format.sets !== 1 && index === 2;
-        const label = decider ? 'Set 3 (desempate)' : `Set ${index + 1} (a ${format.points})`;
-        return `<div class="set-points ${decider ? 'third-set' : ''}"><span>${label}</span><input data-side="local" type="number" min="0" inputmode="numeric" aria-label="Puntos de ${team(match.equipoLocalId)} en ${label}" value="${saved?.puntosLocal ?? ''}"><b>–</b><input data-side="visitante" type="number" min="0" inputmode="numeric" aria-label="Puntos de ${team(match.equipoVisitanteId)} en ${label}" value="${saved?.puntosVisitante ?? ''}"></div>`;
+        return `<div class="set-points ${index === 2 ? 'third-set' : ''}"><span>Set ${index + 1}${index === 2 ? ' (desempate)' : ''}</span><input data-side="local" type="number" min="0" inputmode="numeric" aria-label="Puntos de ${team(match.equipoLocalId)} en set ${index + 1}" value="${saved?.puntosLocal ?? ''}"><b>–</b><input data-side="visitante" type="number" min="0" inputmode="numeric" aria-label="Puntos de ${team(match.equipoVisitanteId)} en set ${index + 1}" value="${saved?.puntosVisitante ?? ''}"></div>`;
     }).join('');
     const savedSets = match => `<div class="saved-sets">${match.sets.map((set, index) => `<span><strong>S${index + 1}</strong> ${set.puntosLocal}–${set.puntosVisitante}</span>`).join('')}</div>`;
-    const scoreLabel = (match, format) => format.sets === 1 && match.sets?.length === 1
-        ? `${match.sets[0].puntosLocal}–${match.sets[0].puntosVisitante}`
-        : (match.score || `${match.setsLocal}-${match.setsVisitante}`);
     const matchCard = match => {
-        const format = formatForMatch(match);
         const finished = match.estado === 'finalizado';
         const expanded = options.expandedMatchId === match.id;
-        const quickButtons = format.sets === 1
-            ? `<div><button type="button" class="quick-result" data-id="${match.id}" data-result="local-win">${team(match.equipoLocalId)} gana</button><button type="button" class="quick-result" data-id="${match.id}" data-result="visitante-win">${team(match.equipoVisitanteId)} gana</button></div>`
-            : `<div><button type="button" class="quick-result" data-id="${match.id}" data-result="local-20">${team(match.equipoLocalId)} 2–0</button><button type="button" class="quick-result" data-id="${match.id}" data-result="local-21">${team(match.equipoLocalId)} 2–1</button><button type="button" class="quick-result" data-id="${match.id}" data-result="visitante-21">${team(match.equipoVisitanteId)} 2–1</button><button type="button" class="quick-result" data-id="${match.id}" data-result="visitante-20">${team(match.equipoVisitanteId)} 2–0</button></div>`;
-        const quickActions = `<fieldset class="quick-result-actions"><legend>Marcador rápido · ${format.label}</legend>${quickButtons}</fieldset>`;
-        const detailedEditor = `<details class="score-details"${byPoints ? ' open' : ''}><summary>${finished ? 'Corregir puntos por set' : 'Cargar puntos por set'}</summary><div class="sets-editor">${setsForm(match, format)}</div><div class="set-result-footer"><p class="set-preview ${finished ? 'valid' : ''}">${finished ? 'Podés corregir el detalle y guardar nuevamente.' : `Completá ${format.sets === 1 ? 'el set' : 'los sets'} del partido (formato ${format.label}).`}</p><button type="button" class="guardar-sets btn-primary" data-id="${match.id}">${finished ? 'Guardar cambios' : 'Guardar resultado'}</button></div></details>`;
+        const quickActions = `<fieldset class="quick-result-actions"><legend>Marcador rápido</legend><div><button type="button" class="quick-result" data-id="${match.id}" data-result="local-20">${team(match.equipoLocalId)} 2–0</button><button type="button" class="quick-result" data-id="${match.id}" data-result="local-21">${team(match.equipoLocalId)} 2–1</button><button type="button" class="quick-result" data-id="${match.id}" data-result="visitante-21">${team(match.equipoVisitanteId)} 2–1</button><button type="button" class="quick-result" data-id="${match.id}" data-result="visitante-20">${team(match.equipoVisitanteId)} 2–0</button></div></fieldset>`;
+        const detailedEditor = `<details class="score-details"${byPoints ? ' open' : ''}><summary>${finished ? 'Corregir puntos por set' : 'Cargar puntos por set'}</summary><div class="sets-editor">${setsForm(match)}</div><div class="set-result-footer"><p class="set-preview ${finished ? 'valid' : ''}">${finished ? 'Podés corregir el detalle y guardar nuevamente.' : 'Completá los sets si necesitás un marcador detallado.'}</p><button type="button" class="guardar-sets btn-primary" data-id="${match.id}">${finished ? 'Guardar cambios' : 'Guardar resultado'}</button></div></details>`;
         const editor = finished || byPoints ? detailedEditor : `${quickActions}${detailedEditor}`;
-        return `<article class="card set-result-card ${finished ? 'is-finished' : ''}" data-id="${match.id}" data-format="${format.key}">
+        return `<article class="card set-result-card ${finished ? 'is-finished' : ''}" data-id="${match.id}">
             <div class="set-result-head"><div><span class="match-status ${finished ? 'finished' : 'pending'}">${finished ? 'JUGADO' : 'PENDIENTE'}</span><strong>${stage(match)} · ${zone(match.zonaId)}</strong></div><small>${schedule(match)}</small></div>
-            <div class="set-result-teams"><strong>${team(match.equipoLocalId)}</strong><span>${finished ? scoreLabel(match, format) : 'vs'}</span><strong>${team(match.equipoVisitanteId)}</strong></div>
+            <div class="set-result-teams"><strong>${team(match.equipoLocalId)}</strong><span>${finished ? `${match.score || `${match.setsLocal}-${match.setsVisitante}`}` : 'vs'}</span><strong>${team(match.equipoVisitanteId)}</strong></div>
             ${finished ? savedSets(match) : ''}
             <div class="result-entry-action"><button type="button" class="btn-primary toggle-result-editor" data-id="${match.id}" aria-expanded="${expanded}">${finished ? 'Editar resultado' : 'Cargar resultado'}</button></div>
             <div class="result-entry-editor" ${expanded ? '' : 'hidden'}>${editor}</div>
@@ -151,7 +116,6 @@ export function initResultadosView(options = {}) {
             </div>
         </section>
         <div class="resultados-toolbar"><p><strong>${category.nombre}</strong> · La búsqueda incluye partidos pendientes y jugados de esta categoría.</p><span id="result-match-count" class="calendar-chip">${matches.length} PARTIDOS</span></div>
-        <p class="helper-text">Formato activo — Zonas y cruces: <strong>${setFormats.zones.label}</strong> · Eliminatorias: <strong>${setFormats.playoffs.label}</strong>. Se cambia en Programación → Formato de sets.</p>
         <div id="resultados-list" class="set-results-list" aria-live="polite"></div>`;
 
     const list = view.querySelector('#resultados-list');
@@ -159,7 +123,7 @@ export function initResultadosView(options = {}) {
     const count = view.querySelector('#result-match-count');
 
     const refreshPreview = card => {
-        const preview = previewFromInputs(card, formatByKey[card.dataset.format]);
+        const preview = previewFromInputs(card);
         const target = card.querySelector('.set-preview');
         target.textContent = preview.message;
         target.classList.toggle('valid', preview.valid);
@@ -178,8 +142,7 @@ export function initResultadosView(options = {}) {
         }));
         list.querySelectorAll('.set-points input').forEach(input => input.addEventListener('input', () => refreshPreview(input.closest('.set-result-card'))));
         list.querySelectorAll('.quick-result').forEach(button => button.addEventListener('click', () => {
-            const format = formatByKey[button.closest('.set-result-card')?.dataset.format];
-            try { saveResultAndSchedule(button.dataset.id, quickResultsFor(format)[button.dataset.result]); refreshKeepingSearch(button.dataset.id); } catch (error) { alert(error.message); }
+            try { DataManager.updateMatchResult(button.dataset.id, QUICK_RESULTS[button.dataset.result]); refreshKeepingSearch(button.dataset.id); } catch (error) { alert(error.message); }
         }));
         list.querySelectorAll('.guardar-sets').forEach(button => button.addEventListener('click', () => {
             const card = button.closest('.set-result-card');
@@ -187,7 +150,7 @@ export function initResultadosView(options = {}) {
                 puntosLocal: row.querySelector('[data-side="local"]').value,
                 puntosVisitante: row.querySelector('[data-side="visitante"]').value
             })).filter(set => set.puntosLocal !== '' || set.puntosVisitante !== '');
-            try { saveResultAndSchedule(button.dataset.id, sets); refreshKeepingSearch(button.dataset.id); } catch (error) { alert(error.message); }
+            try { DataManager.updateMatchResult(button.dataset.id, sets); refreshKeepingSearch(button.dataset.id); } catch (error) { alert(error.message); }
         }));
     };
     const renderSearch = () => {
