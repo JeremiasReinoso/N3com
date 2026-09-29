@@ -5,7 +5,7 @@ import { LogisticsService, fixtureCompare } from '../services/logistics.js';
 import { downloadFixturePdf, fixtureRows } from '../services/fixturePdf.js';
 
 const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'confirmado', 'en_juego', 'finalizado'].includes(match.estado);
-export const PHASE_LABELS = { ZONAS: 'Fase de zonas', ALL_VS_ALL: 'Cruces', TOP_16: 'Octavos', TOP_8: 'Cuartos de final', SEMIFINAL: 'Semifinales', THIRD_PLACE: 'Tercer puesto', FINAL: 'Final' };
+export const PHASE_LABELS = { ZONAS: 'Fase de zonas', ALL_VS_ALL: 'Cruces', TOP_16: 'Top 16', TOP_8: 'Top 8', TOP_4: 'Top 4', SEMIFINAL: 'Semifinales', THIRD_PLACE: 'Tercer puesto', FINAL: 'Final' };
 const STATUS_LABELS = { borrador: 'Sin programar', pendiente: 'Confirmado', programado: 'Programado', confirmado: 'Confirmado', en_juego: 'En juego', finalizado: 'Finalizado' };
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
 const formatDay = date => date ? new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: '2-digit', month: 'long' }).format(new Date(`${date}T12:00:00`)) : 'Sin fecha asignada';
