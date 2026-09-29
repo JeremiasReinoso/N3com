@@ -27,8 +27,7 @@
       "**/*",
       "!private/**",
       "!release/**",
-      "!tests/**",
-      "!.kilo/**"
+      "!tests/**"
     ],
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "win": {
@@ -76,8 +75,5 @@
   "devDependencies": {
     "electron": "^44.4.5",
     "electron-builder": "^26.15.3"
-  },
-  "dependencies": {
-    "xlsx-js-style": "^1.2.0"
   }
 }
