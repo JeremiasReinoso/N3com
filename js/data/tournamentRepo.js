@@ -5,8 +5,8 @@ export const TorneoRepo = {
     obtenerTodos: async () => {
         return DataManager.getTournaments();
     },
-    crear: async (nombre, partidosAsegurados, classificationMode = 'sets', method = 'standard', eliminationMode = 'normal') => {
+    crear: async (nombre, partidosAsegurados) => {
         await LicenciaRepo.consumirTorneo();
-        return DataManager.createTournament(nombre, partidosAsegurados, classificationMode, method, eliminationMode);
+        return DataManager.createTournament(nombre, partidosAsegurados);
     }
 };
