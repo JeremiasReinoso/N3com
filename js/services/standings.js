@@ -1,29 +1,24 @@
 import { DataManager } from '../data/dataManager.js';
 
-// Sólo los partidos garantizados de zonas forman las posiciones clasificatorias.
-// Los cruces y las eliminatorias no vuelven a alterar la tabla de zonas.
-const isGroupStandingMatch = match => match.phase === 'ZONAS' || !match.tipo || match.tipo === 'fase_zonas';
-const hasSetResult = match => match.estado === 'finalizado' && Array.isArray(match.sets) && match.sets.length >= 1 && match.ganadorId;
+// La tabla general del método Todos contra todos acumula también los cruces
+// libres. Las eliminatorias siguen sin alterar los puntos de clasificación.
+const isGroupStandingMatch = match => match.phase === 'ZONAS' || match.phase === 'ALL_VS_ALL' || !match.tipo || match.tipo === 'fase_zonas' || match.tipo === 'cruces_todos_contra_todos';
+const hasSetResult = match => match.estado === 'finalizado' && Array.isArray(match.sets) && match.sets.length >= 2 && match.ganadorId;
 
-// Los puntos de clasificación son la fuente de orden en los dos modos:
-// 2–0 otorga 3/1 y 2–1 otorga 2/1. El criterio elegido para el torneo sólo
-// desempata: por puntos manda la sumatoria de puntos de set y por sets
-// manda la diferencia de sets.
-const tiebreakBySetPoints = (left, right) => (
-    right.diferenciaPuntos - left.diferenciaPuntos
-    || right.puntosFavor - left.puntosFavor
-    || right.ganados - left.ganados
+// Por puntos se prioriza el rendimiento real: partidos ganados → diferencia de
+// sets → diferencia de puntos → puntos a favor.
+const compareByRealPerformance = (left, right) => (
+    right.ganados - left.ganados
     || right.diferenciaSets - left.diferenciaSets
-);
-const tiebreakBySets = (left, right) => (
-    right.diferenciaSets - left.diferenciaSets
-    || right.setsFavor - left.setsFavor
-    || right.ganados - left.ganados
     || right.diferenciaPuntos - left.diferenciaPuntos
+    || right.puntosFavor - left.puntosFavor
 );
-const compareRows = (classificationMode, left, right) => (
+
+// En la modalidad histórica los puntos de clasificación son la fuente de
+// orden: 2-0 = 3/1 y 2-1 = 2/1. El resto sólo desempata.
+const compareBySetPoints = (left, right) => (
     right.puntosClasificacion - left.puntosClasificacion
-    || (classificationMode === 'points' ? tiebreakBySetPoints : tiebreakBySets)(left, right)
+    || compareByRealPerformance(left, right)
 );
 
 export const PosicionesService = {
@@ -65,13 +60,17 @@ export const PosicionesService = {
                 if (match.ganadorId === local.id) {
                     local.ganados += 1;
                     visitante.perdidos += 1;
-                    local.puntosClasificacion += match.setsVisitante === 0 ? 3 : 2;
-                    visitante.puntosClasificacion += 1;
+                    if (classificationMode === 'sets') {
+                        local.puntosClasificacion += match.setsVisitante === 0 ? 3 : 2;
+                        visitante.puntosClasificacion += 1;
+                    }
                 } else {
                     visitante.ganados += 1;
                     local.perdidos += 1;
-                    visitante.puntosClasificacion += match.setsLocal === 0 ? 3 : 2;
-                    local.puntosClasificacion += 1;
+                    if (classificationMode === 'sets') {
+                        visitante.puntosClasificacion += match.setsLocal === 0 ? 3 : 2;
+                        local.puntosClasificacion += 1;
+                    }
                 }
             });
 
@@ -81,18 +80,7 @@ export const PosicionesService = {
                 diferenciaSets: row.setsFavor - row.setsContra,
                 diferenciaPuntos: row.puntosFavor - row.puntosContra
             }))
-            .sort((left, right) => compareRows(classificationMode, left, right));
-    },
-
-    calcularPosicionesPorZona(torneoId, categoriaId, zonaId) {
-        return this.calcularPosiciones(torneoId, categoriaId).filter(team => team.zonaId === zonaId);
-    },
-
-    calcularPosicionesDeZonas(torneoId, categoriaId) {
-        return DataManager.getZonesByTournamentAndCategory(torneoId, categoriaId).map(zone => ({
-            zone,
-            posiciones: this.calcularPosicionesPorZona(torneoId, categoriaId, zone.id)
-        }));
+            .sort(classificationMode === 'sets' ? compareBySetPoints : compareByRealPerformance);
     },
 
     calcularClasificacionFinal(torneoId, categoriaId) {
