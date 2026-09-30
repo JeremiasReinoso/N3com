@@ -20,7 +20,7 @@ const normalizeClassificationMode = () => CLASSIFICATION_MODE.POINTS;
 const normalizeTournamentMethod = () => TOURNAMENT_METHOD.STANDARD;
 let sequence = 0;
 
-const emptyData = () => ({ tournaments: [], categories: [], teams: [], zones: [], matches: [], calendar: [] });
+const emptyData = () => ({ tournaments: [], categories: [], teams: [], zones: [], matches: [], calendar: [], schedules: [] });
 const makeId = (prefix) => `${prefix}_${Date.now()}_${++sequence}`;
 const datesBetween = (startDate, endDate) => {
     const dates = [];
@@ -36,10 +36,11 @@ const minutesFromTime = time => {
     const [hour, minute] = String(time).split(':').map(Number);
     return hour * 60 + minute;
 };
-const defaultCourts = count => Array.from({ length: Number(count || 2) }, (_, index) => ({ id: `court_${index + 1}`, name: `Cancha ${index + 1}` }));
+const defaultCourts = count => Array.from({ length: Number(count || 2) }, (_, index) => ({ id: `court_${index + 1}`, name: `Cancha ${index + 1}`, active: true }));
 const normalizeCourt = (court, index) => ({
     id: String(court?.id || `court_${index + 1}`),
-    name: String(court?.name || court?.nombre || `Cancha ${index + 1}`).trim() || `Cancha ${index + 1}`
+    name: String(court?.name || court?.nombre || `Cancha ${index + 1}`).trim() || `Cancha ${index + 1}`,
+    active: court?.active !== false
 });
 const validHours = (start, end) => /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end) && minutesFromTime(start) < minutesFromTime(end);
 const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', cruces_todos_contra_todos: 'ALL_VS_ALL', cruces: 'CROSSES', cuarto_final: 'CROSSES', top_16: 'TOP_16', top_8: 'TOP_8', semifinal: 'SEMIFINAL', tercer_puesto: 'THIRD_PLACE', final: 'FINAL' };
@@ -94,6 +95,19 @@ const normalizeMatch = match => {
         ganadorId: match.ganadorId || null
     };
 };
+const normalizeSchedule = schedule => ({
+    id: String(schedule?.id || `schedule_${Date.now()}_${++sequence}`),
+    torneoId: schedule?.torneoId || schedule?.tournamentId || null,
+    matchId: schedule?.matchId || schedule?.partidoId || null,
+    courtId: schedule?.courtId || null,
+    fecha: schedule?.fecha || schedule?.date || null,
+    hora: schedule?.hora || schedule?.time || null,
+    orden: schedule?.orden == null ? null : Number(schedule.orden),
+    categoriaId: schedule?.categoriaId || null,
+    phase: schedule?.phase || null,
+    zonaId: schedule?.zonaId || null,
+    estado: schedule?.estado || null
+});
 const normalizeSets = sets => {
     if (!Array.isArray(sets) || sets.length < 2 || sets.length > 3) throw new Error('Ingrese los puntos de 2 o 3 sets.');
     return sets.map((set, index) => {
@@ -185,6 +199,33 @@ export const DataManager = {
                 const court = tournament?.courts?.find(item => item.id === match.courtId || item.name === match.cancha);
                 return { ...match, courtId: court?.id || match.courtId || null, cancha: court?.name || match.cancha || null };
             });
+            // La programación es una relación propia. Los partidos históricos
+            // se migran una sola vez desde sus campos legacy sin duplicar el
+            // partido ni sus resultados.
+            const existingSchedules = Array.isArray(data.schedules) ? data.schedules.map(normalizeSchedule) : [];
+            const byMatch = new Map(existingSchedules.filter(item => item.matchId).map(item => [item.matchId, item]));
+            data.matches.forEach(match => {
+                if (!match.fecha || !match.hora || !match.courtId) return;
+                const current = byMatch.get(match.id) || normalizeSchedule({
+                    id: `schedule_${match.id}`,
+                    torneoId: match.torneoId,
+                    matchId: match.id,
+                    courtId: match.courtId,
+                    fecha: match.fecha,
+                    hora: match.hora,
+                    orden: match.orden, categoriaId: match.categoriaId, phase: match.phase, zonaId: match.zonaId, estado: match.estado
+                });
+                byMatch.set(match.id, { ...current, torneoId: match.torneoId, matchId: match.id, categoriaId: match.categoriaId, phase: match.phase, zonaId: match.zonaId, estado: match.estado });
+            });
+            data.schedules = [...byMatch.values()].filter(schedule => data.matches.some(match => match.id === schedule.matchId));
+            // Si existe una programación nueva, sus datos mandan sobre la
+            // copia legacy del partido; ésta se conserva sólo como adaptador.
+            data.schedules.forEach(schedule => {
+                const match = data.matches.find(item => item.id === schedule.matchId);
+                const court = data.tournaments.find(item => item.id === schedule.torneoId)?.courts?.find(item => item.id === schedule.courtId);
+                if (match) Object.assign(match, { courtId: schedule.courtId, cancha: court?.name || match.cancha || null, fecha: schedule.fecha, hora: schedule.hora, orden: schedule.orden });
+            });
+            if (!Array.isArray(parsed?.schedules) || data.schedules.length !== parsed.schedules.length) this._setStorage(data);
             return data;
         } catch {
             return emptyData();
@@ -217,6 +258,7 @@ export const DataManager = {
         data.teams = data.teams.filter(team => !belongsToTournament(team));
         data.zones = data.zones.filter(zone => !belongsToTournament(zone));
         data.matches = data.matches.filter(match => !belongsToTournament(match));
+        data.schedules = data.schedules.filter(schedule => schedule.torneoId !== torneoId && !data.matches.some(match => match.id === schedule.matchId));
         data.calendar = data.calendar.filter(entry => entry.torneoId !== torneoId);
         this._setStorage(data);
         return tournament;
@@ -391,6 +433,77 @@ export const DataManager = {
     },
 
     getMatchesByTournamentAndCategory(torneoId, categoriaId) { return this._getStorage().matches.filter(match => match.torneoId === torneoId && match.categoriaId === categoriaId); },
+    /** Devuelve la programación de una cancha, no una copia de los partidos. */
+    getScheduleByCourt(torneoId, courtId, filters = {}) {
+        const data = this._getStorage();
+        return data.schedules
+            .filter(schedule => schedule.torneoId === torneoId && schedule.courtId === courtId)
+            .filter(schedule => !filters.fecha || schedule.fecha === filters.fecha)
+            .map(schedule => ({ ...schedule, match: data.matches.find(match => match.id === schedule.matchId) || null }))
+            .sort((left, right) => `${left.fecha || ''}T${left.hora || ''}`.localeCompare(`${right.fecha || ''}T${right.hora || ''}`) || (left.orden || 0) - (right.orden || 0));
+    },
+    getTournamentSchedule(torneoId, filters = {}) {
+        const data = this._getStorage();
+        return data.schedules
+            .filter(schedule => schedule.torneoId === torneoId)
+            .filter(schedule => !filters.courtId || schedule.courtId === filters.courtId)
+            .filter(schedule => !filters.fecha || schedule.fecha === filters.fecha)
+            .map(schedule => ({ ...schedule, match: data.matches.find(match => match.id === schedule.matchId) || null }))
+            .sort((left, right) => `${left.fecha || ''}T${left.hora || ''}`.localeCompare(`${right.fecha || ''}T${right.hora || ''}`) || (left.orden || 0) - (right.orden || 0));
+    },
+    validateTournamentSchedule(torneoId) {
+        const data = this._getStorage();
+        const schedules = data.schedules.filter(schedule => schedule.torneoId === torneoId);
+        const matches = data.matches.filter(match => match.torneoId === torneoId);
+        const errors = [], warnings = [];
+        const seenMatches = new Set();
+        const seenSlots = new Set();
+        schedules.forEach(schedule => {
+            const match = matches.find(item => item.id === schedule.matchId);
+            if (!match) errors.push(`La programación ${schedule.id} apunta a un partido inexistente.`);
+            if (seenMatches.has(schedule.matchId)) errors.push(`El partido ${schedule.matchId} tiene más de una programación.`);
+            seenMatches.add(schedule.matchId);
+            if (!schedule.courtId || !schedule.fecha || !schedule.hora) errors.push(`El partido ${schedule.matchId} tiene una programación incompleta.`);
+            const slot = `${schedule.fecha}|${schedule.hora}|${schedule.courtId}`;
+            if (seenSlots.has(slot)) errors.push(`${schedule.courtId} — ${schedule.hora}: conflicto de horario.`);
+            seenSlots.add(slot);
+        });
+        matches.filter(match => match.confirmado || match.estado !== 'borrador').forEach(match => {
+            if (!schedules.some(schedule => schedule.matchId === match.id)) errors.push(`El partido ${match.id} no tiene cancha, fecha u horario asignado.`);
+        });
+        const teamSlots = new Map();
+        schedules.forEach(schedule => {
+            const match = matches.find(item => item.id === schedule.matchId);
+            if (!match) return;
+            [match.equipoLocalId, match.equipoVisitanteId].filter(Boolean).forEach(teamId => {
+                const key = `${schedule.fecha}|${schedule.hora}|${teamId}`;
+                if (teamSlots.has(key)) errors.push(`El equipo ${teamId} tiene dos partidos programados simultáneamente.`);
+                teamSlots.set(key, schedule.matchId);
+            });
+        });
+        const byTeam = new Map();
+        schedules.forEach(schedule => {
+            const match = matches.find(item => item.id === schedule.matchId);
+            [match?.equipoLocalId, match?.equipoVisitanteId].filter(Boolean).forEach(teamId => {
+                const list = byTeam.get(teamId) || []; list.push(schedule); byTeam.set(teamId, list);
+            });
+        });
+        byTeam.forEach(list => {
+            list.sort((a, b) => `${a.fecha}T${a.hora}`.localeCompare(`${b.fecha}T${b.hora}`));
+            list.forEach((schedule, index) => {
+                const next = list[index + 1];
+                if (!next || schedule.fecha !== next.fecha) return;
+                const category = matches.find(match => match.id === schedule.matchId)?.categoriaId;
+                const rest = this.getCategoryRestBlocks(category);
+                if (minutesFromTime(next.hora) - minutesFromTime(schedule.hora) < this.getTournamentSchedulingSettings(torneoId).blockDuration * (rest + 1)) {
+                    const teamId = [...byTeam.entries()].find(([, entries]) => entries.includes(schedule))?.[0];
+                    const team = data.teams.find(item => item.id === teamId);
+                    warnings.push(`El equipo ${team?.nombre || 'desconocido'} tiene descanso insuficiente.`);
+                }
+            });
+        });
+        return { valid: errors.length === 0, errors: [...new Set(errors)], warnings: [...new Set(warnings)] };
+    },
     getMatchesByScope(torneoId, categoriaId, zonaId) { return this.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => !zonaId || match.zonaId === zonaId); },
     deduplicateGroupMatches(torneoId, categoriaId) {
         const data = this._getStorage();
@@ -409,6 +522,11 @@ export const DataManager = {
         assertUniqueGroupPairs([...data.matches, ...prepared]);
         const created = prepared.map(match => normalizeMatch({ id: makeId('partido'), ...match, sets: [], ganadorId: null }));
         data.matches.push(...created);
+        data.schedules.push(...created.filter(match => match.fecha && match.hora && match.courtId).map(match => normalizeSchedule({
+            id: `schedule_${match.id}`, torneoId: match.torneoId, matchId: match.id,
+            courtId: match.courtId, fecha: match.fecha, hora: match.hora, orden: match.orden,
+            categoriaId: match.categoriaId, phase: match.phase, zonaId: match.zonaId, estado: match.estado
+        })));
         this._validateScheduleConflicts(data.matches);
         this._setStorage(data);
         return created;
@@ -426,6 +544,15 @@ export const DataManager = {
         assertUniqueGroupPairs(updated);
         this._validateScheduleConflicts(updated);
         data.matches = updated;
+        const changedIds = new Set(byId.keys());
+        data.schedules = data.schedules
+            .filter(schedule => !changedIds.has(schedule.matchId))
+            .concat(updated.filter(match => changedIds.has(match.id) && match.fecha && match.hora && match.courtId).map(match => normalizeSchedule({
+                id: data.schedules.find(schedule => schedule.matchId === match.id)?.id || `schedule_${match.id}`,
+                torneoId: match.torneoId, matchId: match.id, courtId: match.courtId,
+                fecha: match.fecha, hora: match.hora, orden: match.orden,
+                categoriaId: match.categoriaId, phase: match.phase, zonaId: match.zonaId, estado: match.estado
+            })));
         this._setStorage(data);
     },
     createManualMatch(match) {
@@ -460,7 +587,7 @@ export const DataManager = {
                 throw new Error('El horario debe coincidir con un bloque válido dentro de la jornada.');
             }
         }
-        if (match.cancha) {
+        if (match.cancha || match.courtId) {
             const courts = this.getTournamentCourts(match.torneoId);
             const court = courts.find(item => item.id === match.courtId || item.name === match.cancha);
             if (!court) throw new Error('La cancha seleccionada no existe en este torneo.');
@@ -534,6 +661,7 @@ export const DataManager = {
         if (!match) throw new Error('No se encontró el partido.');
         if (match.estado === 'finalizado') throw new Error('No se puede eliminar un partido finalizado.');
         data.matches = data.matches.filter(item => item.id !== matchId);
+        data.schedules = data.schedules.filter(schedule => schedule.matchId !== matchId);
         this._setStorage(data);
     },
     removeDraftGroupMatches(torneoId, categoriaId) {
@@ -553,6 +681,8 @@ export const DataManager = {
         if (!match) throw new Error('No se encontró el partido.');
         if (!match.confirmado && match.estado !== 'programado' && match.estado !== 'finalizado') throw new Error('El partido debe confirmarse antes de cargar un resultado.');
         applyInternalResult(match, sets);
+        const schedule = data.schedules.find(item => item.matchId === matchId);
+        if (schedule) schedule.estado = match.estado;
         advanceBracketWinner(data, match);
         this._setStorage(data);
     },
@@ -571,11 +701,14 @@ export const DataManager = {
         this._setStorage(data);
     },
     getTournamentCourtCount(torneoId) {
-        return this.getTournamentCourts(torneoId).length;
+        return this.getTournamentCourts(torneoId).filter(court => court.active).length;
     },
     getTournamentCourts(torneoId) {
         const tournament = this.getTournament(torneoId);
         return Array.isArray(tournament?.courts) && tournament.courts.length ? tournament.courts.map(normalizeCourt) : defaultCourts(tournament?.cantidadCanchas || 2);
+    },
+    getActiveTournamentCourts(torneoId) {
+        return this.getTournamentCourts(torneoId).filter(court => court.active);
     },
     getTournamentSchedulingSettings(torneoId) {
         const tournament = this.getTournament(torneoId);
@@ -611,6 +744,7 @@ export const DataManager = {
     setTournamentCourts(torneoId, courts) {
         const normalized = (courts || []).map(normalizeCourt);
         if (!normalized.length || normalized.length > 20) throw new Error('El torneo debe tener entre 1 y 20 canchas.');
+        if (!normalized.some(court => court.active)) throw new Error('El torneo debe conservar al menos una cancha activa.');
         if (new Set(normalized.map(court => court.name.toLocaleLowerCase('es'))).size !== normalized.length) throw new Error('Los nombres de las canchas no pueden repetirse.');
         const data = this._getStorage();
         const tournament = data.tournaments.find(item => item.id === torneoId);
