@@ -13,9 +13,8 @@ const clip = (value, max) => {
     return text.length > max ? `${text.slice(0, Math.max(1, max - 3))}...` : text;
 };
 const makePage = (tournament, rows, pageNumber, totalPages, subtitle = '') => {
-    const courtTitle = rows[0]?.cancha ? ` · ${rows[0].cancha}` : '';
     const commands = [
-        '0.08 0.12 0.2 rg', '40 543 762 32 re f', '1 1 1 rg', line(52, 554, 16, clip(`FIXTURE GENERAL DEL TORNEO${courtTitle}`, 55), true),
+        '0.08 0.12 0.2 rg', '40 543 762 32 re f', '1 1 1 rg', line(52, 554, 16, 'FIXTURE GENERAL DEL TORNEO', true),
         '0.08 0.12 0.2 rg', line(40, 523, 13, tournament.nombre, true),
         // Los títulos de columna se dibujan en la misma posición X que los datos
         // para que la impresión quede alineada aunque cambie el idioma.
@@ -40,7 +39,7 @@ const makePage = (tournament, rows, pageNumber, totalPages, subtitle = '') => {
         commands.push(line(86, y, 9, clip(row.cancha || 'Sin cancha', 15)));
         commands.push(line(170, y, 9, clip(category, 30)));
         commands.push(line(322, y, 9, clip(stage, 28)));
-        commands.push(line(460, y, 9, clip(match, 33)));
+        commands.push(line(460, y, 9, clip(match, 50)));
         if (score) commands.push(line(460, y - 10, 7, clip(score, 54)));
         commands.push(line(718, y, 9, clip(row.status, 14)));
         commands.push('0.82 0.84 0.87 RG', `40 ${y - 5} m 802 ${y - 5} l S`, '0.08 0.12 0.2 rg');
@@ -58,7 +57,7 @@ export const fixtureRows = ({ matches, categories, teams, zones, phaseLabels, fi
         .sort(fixtureCompare).map(match => {
             const item = category(match.categoriaId) || {};
             return {
-                id: match.id, fecha: match.fecha, hora: match.hora, cancha: match.cancha, courtId: match.courtId,
+                id: match.id, fecha: match.fecha, hora: match.hora, cancha: match.cancha,
                 categoryName: item.nombre || 'Sin categoría', categoryAge: item.edad || '', modality: item.modalidad || '',
                 phaseLabel: phaseLabels[match.phase || 'ZONAS'] || match.phase || 'Fase de zonas', zoneName: zone(match.zonaId),
                 teamA: team(match.equipoLocalId), teamB: team(match.equipoVisitanteId), status: statusLabel(match.estado),
@@ -72,26 +71,22 @@ export const buildFixturePdf = (tournament, rows, subtitle = '') => {
     // un encabezado de jornada ocupa más alto que una fila simple.
     const budget = 476 - 46;
     const pages = [];
-    // Cada cancha es una unidad editorial independiente: nunca se mezcla con
-    // otra cancha dentro de una página del PDF completo.
-    const courtGroups = [...Map.groupBy(rows, row => row.courtId || row.cancha || 'sin-cancha').entries()];
-    if (!courtGroups.length) courtGroups.push(['sin-cancha', []]);
-    courtGroups.forEach(([, courtRows]) => {
-        let current = [];
-        let used = 0;
-        let lastDate = null;
-        courtRows.sort(fixtureCompare).forEach(row => {
-            const rowHeight = row.sets?.length ? 30 : 20;
-            if (current.length && used + rowHeight + (row.fecha === lastDate ? 0 : 26) > budget) {
-                pages.push(current); current = []; used = 0; lastDate = null;
-            }
-            used += rowHeight + (row.fecha === lastDate ? 0 : 26);
-            lastDate = row.fecha;
-            current.push(row);
-        });
-        if (current.length) pages.push(current);
+    let current = [];
+    let used = 0;
+    let lastDate = null;
+    rows.forEach(row => {
+        const rowHeight = row.sets?.length ? 30 : 20;
+        if (current.length && used + rowHeight + (row.fecha === lastDate ? 0 : 26) > budget) {
+            pages.push(current);
+            current = [];
+            used = 0;
+            lastDate = null;
+        }
+        used += rowHeight + (row.fecha === lastDate ? 0 : 26);
+        lastDate = row.fecha;
+        current.push(row);
     });
-    if (!pages.length) pages.push([]);
+    pages.push(current);
     const objects = [];
     const add = value => { objects.push(value); return objects.length; };
     const catalogId = add('');
@@ -127,8 +122,9 @@ export const downloadFixturePdf = (tournament, rows, suffix = 'completo', subtit
 
 export const downloadFixtureCsv = (tournament, rows, suffix = 'completo') => {
     const escape = value => `"${String(value ?? '').replaceAll('"', '""')}"`;
-    const header = ['Fecha', 'Hora', 'Cancha', 'Categoría', 'Etapa', 'Equipo A', 'Equipo B', 'Set 1', 'Set 2', 'Set 3', 'Resultado'];
-    const body = rows.map(row => [row.fecha, row.hora, row.cancha, row.categoryName, row.phaseLabel, row.teamA, row.teamB,
+    const header = ['Fecha', 'Hora', 'Cancha', 'Categoría / Modalidad', 'Etapa / Zona', 'Partido', 'Estado', 'Set 1', 'Set 2', 'Set 3', 'Resultado'];
+    const body = rows.map(row => [row.fecha, row.hora, row.cancha, [row.categoryAge, row.modality].filter(Boolean).join(' · ') || row.categoryName,
+        row.zoneName ? `${row.phaseLabel} · ${row.zoneName}` : row.phaseLabel, `${row.teamA} vs ${row.teamB}`, row.status,
         row.sets?.[0] ? `${row.sets[0].puntosLocal}-${row.sets[0].puntosVisitante}` : '',
         row.sets?.[1] ? `${row.sets[1].puntosLocal}-${row.sets[1].puntosVisitante}` : '',
         row.sets?.[2] ? `${row.sets[2].puntosLocal}-${row.sets[2].puntosVisitante}` : '', row.score]);
@@ -136,21 +132,5 @@ export const downloadFixtureCsv = (tournament, rows, suffix = 'completo') => {
     const link = document.createElement('a');
     link.href = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }));
     link.download = `fixture-${latin(tournament.nombre).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${suffix}.csv`;
-    link.click();
-};
-
-// SpreadsheetML es un formato de Excel portable que permite pestañas reales
-// sin agregar dependencias al cliente Electron. Cada cancha queda en una hoja
-// independiente y los partidos siguen siendo filas, no copias de entidades.
-export const downloadFixtureSpreadsheet = (tournament, rows, suffix = 'completo') => {
-    const escapeXml = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[character]));
-    const headers = ['Fecha', 'Hora', 'Categoría', 'Etapa', 'Zona', 'Equipo A', 'Equipo B', 'Estado', 'Resultado'];
-    const groups = [...Map.groupBy(rows, row => row.courtId || row.cancha || 'Sin cancha').entries()];
-    const cells = values => values.map(value => `<Cell><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`).join('');
-    const sheets = groups.map(([court, courtRows]) => `<Worksheet ss:Name="${escapeXml(String(court).slice(0, 31))}"><Table><Row>${cells(headers)}</Row>${courtRows.sort(fixtureCompare).map(row => `<Row>${cells([row.fecha, row.hora, row.categoryName, row.phaseLabel, row.zoneName, row.teamA, row.teamB, row.status, row.score])}</Row>`).join('')}</Table></Worksheet>`).join('');
-    const xml = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><Print><ValidPrinterInfo/><PaperSizeIndex>9</PaperSizeIndex><HorizontalResolution>600</HorizontalResolution><VerticalResolution>600</VerticalResolution><ValidPrinterInfo/></Print><FitToPage/></WorksheetOptions>${sheets}</Workbook>`;
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8' }));
-    link.download = `fixture-${latin(tournament.nombre).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${suffix}.xls`;
     link.click();
 };
