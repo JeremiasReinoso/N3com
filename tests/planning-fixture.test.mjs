@@ -24,11 +24,11 @@ test('la planificación es independiente, compatible y nunca duplica ni elimina 
     ]);
     DataManager.setCategoryPlanning(tournament.id, women.id, [
         { date: '2026-10-09', stages: ['ZONAS'] },
-        { date: '2026-10-10', stages: ['ALL_VS_ALL', 'SEMIFINAL', 'FINAL'] }
+        { date: '2026-10-10', stages: ['TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL'] }
     ]);
     DataManager.setCategoryPlanning(tournament.id, men.id, [
-        { date: '2026-10-09', stages: ['ZONAS', 'ALL_VS_ALL'] },
-        { date: '2026-10-10', stages: ['ALL_VS_ALL', 'SEMIFINAL', 'FINAL'] }
+        { date: '2026-10-09', stages: ['ZONAS'] },
+        { date: '2026-10-10', stages: ['TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL'] }
     ]);
     assert.notDeepEqual(DataManager.getCategoryPlanning(tournament.id, mixed.id).days, DataManager.getCategoryPlanning(tournament.id, women.id).days);
 
@@ -46,7 +46,7 @@ test('la planificación es independiente, compatible y nunca duplica ni elimina 
     const ids = before.map(match => match.id).sort();
 
     DataManager.setCategoryPlanning(tournament.id, mixed.id, [
-        { date: '2026-10-09', stages: ['ZONAS', 'ALL_VS_ALL'] },
+        { date: '2026-10-09', stages: ['ZONAS'] },
         { date: '2026-10-10', stages: ['SEMIFINAL', 'FINAL'] }
     ]);
     assert.deepEqual(DataManager.getMatchesByTournamentAndCategory(tournament.id, mixed.id).map(match => match.id).sort(), ids, 'Cambiar la planificación no debe borrar ni recrear partidos.');
