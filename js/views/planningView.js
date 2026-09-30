@@ -4,9 +4,8 @@ import { DataManager, PLANNING_STAGES } from '../data/dataManager.js';
 export const PLANNING_STAGE_OPTIONS = [
     [PLANNING_STAGES.ZONES, 'Fase de zonas'],
     [PLANNING_STAGES.GUARANTEED, 'Partidos garantizados'],
-    [PLANNING_STAGES.ROUND_OF_16, 'Octavos'],
-    [PLANNING_STAGES.QUARTERFINALS, 'Cuartos'],
-    [PLANNING_STAGES.TOP_4, 'Top 4'],
+    [PLANNING_STAGES.ROUND_OF_16, 'Octavos de final (Top 16 → Top 8)'],
+    [PLANNING_STAGES.QUARTERFINALS, 'Cuartos de final (Top 8 → Top 4)'],
     [PLANNING_STAGES.SEMIFINALS, 'Semifinales'],
     [PLANNING_STAGES.FINAL, 'Final']
 ];
