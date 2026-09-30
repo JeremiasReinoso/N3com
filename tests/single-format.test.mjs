@@ -10,6 +10,7 @@ globalThis.localStorage = {
 const { DataManager } = await import('../js/data/dataManager.js');
 const { PosicionesService } = await import('../js/services/standings.js');
 const { PlayoffsService } = await import('../js/services/playoffs.js');
+const { LogisticsService } = await import('../js/services/logistics.js');
 const { fixtureRows, buildFixturePdf } = await import('../js/services/fixturePdf.js');
 
 test('formato único: sets reales, tabla global y Top 16', () => {
@@ -24,6 +25,8 @@ test('formato único: sets reales, tabla global y Top 16', () => {
         DataManager.assignTeamToZone(team.id, zones[index < 8 ? 0 : 1].id);
         return team;
     });
+    DataManager.setTournamentCalendar(tournament.id, '2026-10-09', '2026-10-11', '08:00', '20:00', []);
+    DataManager.setTournamentCourtCount(tournament.id, 2);
     const matches = [];
     for (let zone = 0; zone < 2; zone += 1) {
         for (let offset = 0; offset < 8; offset += 2) {
@@ -35,6 +38,7 @@ test('formato único: sets reales, tabla global y Top 16', () => {
         }
     }
     const created = DataManager.addMatches(matches);
+    LogisticsService.generateSchedule(tournament.id);
     DataManager.updateMatchResult(created[0].id, [
         { puntosLocal: 15, puntosVisitante: 12 }, { puntosLocal: 15, puntosVisitante: 5 }
     ]);
@@ -71,4 +75,3 @@ test('formato único: sets reales, tabla global y Top 16', () => {
     assert.match(pdf, /15-12/);
     assert.match(pdf, /15-5/);
 });
-
