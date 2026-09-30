@@ -10,7 +10,7 @@
     "web": "node server.js",
     "start": "electron .",
     "dev": "electron .",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
     "dist:linux": "electron-builder --linux",
@@ -27,7 +27,8 @@
       "**/*",
       "!private/**",
       "!release/**",
-      "!tests/**"
+      "!tests/**",
+      "!.kilo/**"
     ],
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "win": {
