@@ -49,7 +49,7 @@ npm test
 ```
 
 La suite cubre los flujos de licencias, navegación, torneos, zonas, fixture,
-resultados, posiciones, eliminatorias y todos contra todos.
+resultados, posiciones y cuadro de eliminación por ranking.
 
 ## Instaladores Linux
 
