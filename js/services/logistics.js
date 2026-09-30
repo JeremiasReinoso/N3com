@@ -57,6 +57,14 @@ export const LogisticsService = {
             .flatMap(category => DataManager.getMatchesByTournamentAndCategory(tournamentId, category.id));
     },
 
+    getScheduleByCourt(tournamentId, courtId, filters = {}) {
+        return DataManager.getScheduleByCourt(tournamentId, courtId, filters);
+    },
+
+    validateTournamentSchedule(tournamentId) {
+        return DataManager.validateTournamentSchedule(tournamentId);
+    },
+
     // Etiqueta visible de un partido para mensajes de logística y conflictos.
     getMatchLabel(tournamentId, match) {
         const category = DataManager.getCategory(match.categoriaId);
@@ -105,7 +113,7 @@ export const LogisticsService = {
     },
 
     programTournament(tournamentId) {
-        const courts = DataManager.getTournamentCourts(tournamentId);
+        const courts = DataManager.getActiveTournamentCourts(tournamentId);
         const days = DataManager.getDaySchedules(tournamentId);
         if (!days.length) throw new Error('Configurá al menos una jornada en Calendario antes de programar.');
         if (!courts.length) throw new Error('Configurá al menos una cancha para el torneo.');
