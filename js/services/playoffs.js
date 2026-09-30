@@ -2,70 +2,99 @@ import { DataManager } from '../data/dataManager.js';
 import { PosicionesService } from './standings.js';
 import { SchedulerService } from './scheduler.js';
 
-const TOP_16_PAIRS = [[1, 16], [2, 15], [3, 14], [4, 13], [5, 12], [6, 11], [7, 10], [8, 9]];
-const LIMITS = { TOP_16: 8, TOP_8: 4, SEMIFINAL: 2, FINAL: 1 };
-const previous = { TOP_8: 'TOP_16', SEMIFINAL: 'TOP_8' };
-const phaseMatches = (t, c, phase) => DataManager.getMatchesByTournamentAndCategory(t, c).filter(match => match.phase === phase);
-const winner = match => match.ganadorId;
-const assertCompleted = (matches, count, message) => {
-    if (matches.length !== count || matches.some(match => match.estado !== 'finalizado' || !winner(match))) throw new Error(message);
+// El ranking se congela al crear el cuadro. Las rondas posteriores sólo
+// utilizan el seed original y los ganadores persistidos en los partidos.
+const TOP16_PAIRS = [[1, 16], [2, 15], [3, 14], [4, 13], [5, 12], [6, 11], [7, 10], [8, 9]];
+const stageMatches = (tournamentId, categoryId, phase) => DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId).filter(match => match.phase === phase);
+const winnerOf = match => match.ganadorId;
+const completed = (matches, expected, label) => {
+    if (matches.length !== expected || matches.some(match => match.estado !== 'finalizado' || !winnerOf(match))) throw new Error(`Registre resultados válidos de ${expected} partidos de ${label} antes de continuar.`);
 };
-const assertStage = (matches, eligible, phase) => {
-    if (matches.length > LIMITS[phase]) throw new Error(`La etapa ${phase} no puede tener más partidos.`);
+const assertUniqueTeams = (matches, label) => {
     const ids = matches.flatMap(match => [match.equipoLocalId, match.equipoVisitanteId]).filter(Boolean);
-    if (ids.some(id => !eligible.includes(id)) || new Set(ids).size !== ids.length) throw new Error(`La etapa ${phase} contiene equipos inválidos o repetidos.`);
+    if (new Set(ids).size !== ids.length) throw new Error(`${label} contiene equipos repetidos o posiciones sin resolver.`);
 };
-const addMatches = (t, c, phase, pairs, label) => {
-    if (!pairs.length) return [];
-    const planning = DataManager.getCategoryPlanning(t, c);
-    if (planning && !DataManager.getPlanningDatesForStage(t, c, phase).length) throw new Error(`Asigná ${label} a una jornada en Planificación antes de crear sus partidos.`);
+
+const addStage = (tournamentId, categoryId, phase, pairs, label, sourceMatchIds = [], seeds = []) => {
+    if (!DataManager.getDaySchedules(tournamentId).length) throw new Error('Configurá al menos una jornada horaria antes de generar la etapa.');
+    if (!DataManager.getTournamentCourts(tournamentId).length) throw new Error('Configurá al menos una cancha antes de generar la etapa.');
+    const planning = DataManager.getCategoryPlanning(tournamentId, categoryId);
+    if (planning && !DataManager.getPlanningDatesForStage(tournamentId, categoryId, phase).length) throw new Error(`Asigná ${label} a una jornada en Planificación antes de crear sus partidos.`);
     const created = DataManager.addMatches(pairs.map(([local, visitante], index) => ({
-        torneoId: t, categoriaId: c, zonaId: null, phase, tipo: phase.toLowerCase(), nombreEtapa: `${label} ${index + 1}`,
-        equipoLocalId: local, equipoVisitanteId: visitante, fecha: null, hora: null, cancha: null, orden: null, estado: 'pendiente', confirmado: true
+        torneoId: tournamentId, categoriaId: categoryId, zonaId: null, phase, tipo: phase.toLowerCase(), nombreEtapa: `${label} ${index + 1}`,
+        equipoLocalId: local || null, equipoVisitanteId: visitante || null, seedLocal: seeds[index]?.[0] || null, seedVisitante: seeds[index]?.[1] || null,
+        sourceMatchIds: sourceMatchIds[index] || [], fecha: null, hora: null, cancha: null, orden: index + 1, estado: 'pendiente', confirmado: true
     })));
-    SchedulerService.programarFase(t, c, phase, phase === 'TOP_16' ? 'ZONAS' : previous[phase]);
-    return created;
+    SchedulerService.programarFase(tournamentId, categoryId, phase);
+    const ids = new Set(created.map(match => match.id));
+    return DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId).filter(match => ids.has(match.id));
 };
-const eligible = (t, c, phase) => {
-    const table = PosicionesService.calcularPosiciones(t, c);
-    if (phase === 'TOP_16') {
-        const completion = SchedulerService.estadoFaseClasificatoria(t, c);
-        if (!completion.ok) throw new Error(completion.mensaje);
-        if (table.length < 16) throw new Error('Se necesitan al menos 16 equipos para generar el Top 16.');
-        return table.slice(0, 16).map(row => row.id);
-    }
-    const prior = phaseMatches(t, c, previous[phase]);
-    const count = phase === 'TOP_8' ? 8 : 4;
-    assertCompleted(prior, count, `Registre los resultados de ${count} partidos antes de continuar.`);
-    return prior.map(winner);
+
+const top16Ranking = (tournamentId, categoryId) => {
+    const completion = SchedulerService.estadoFaseClasificatoria(tournamentId, categoryId);
+    if (!completion.ok) throw new Error(completion.mensaje);
+    const table = PosicionesService.calcularPosiciones(tournamentId, categoryId);
+    if (table.length < 16) throw new Error('No se puede generar el Top 16: se necesitan al menos 16 equipos clasificados.');
+    return table.slice(0, 16);
+};
+
+const survivorsByOriginalSeed = matches => matches
+    .filter(match => match.ganadorId)
+    .map(match => ({ id: match.ganadorId, seed: match.ganadorId === match.equipoLocalId ? match.seedLocal : match.seedVisitante, source: match }))
+    .sort((left, right) => left.seed - right.seed);
+const eliminationPairs = survivors => {
+    if (survivors.length % 2) throw new Error('La etapa eliminatoria no tiene una cantidad par de clasificados.');
+    return Array.from({ length: survivors.length / 2 }, (_, index) => [survivors[index].id, survivors[survivors.length - 1 - index].id]);
 };
 
 export const PlayoffsService = {
-    generarCruces(t, c) { return this.generarTop16(t, c); },
-    generarTop16(t, c) {
-        const ids = eligible(t, c, 'TOP_16'); const existing = phaseMatches(t, c, 'TOP_16');
-        assertStage(existing, ids, 'TOP_16');
-        return existing.length ? existing : addMatches(t, c, 'TOP_16', TOP_16_PAIRS.map(([a, b]) => [ids[a - 1], ids[b - 1]]), 'Top 16');
+    generarTop16(tournamentId, categoryId) {
+        const existing = stageMatches(tournamentId, categoryId, 'TOP_16');
+        if (existing.length) return existing;
+        const ranking = top16Ranking(tournamentId, categoryId);
+        const pairs = TOP16_PAIRS.map(([left, right]) => [ranking[left - 1].id, ranking[right - 1].id]);
+        return addStage(tournamentId, categoryId, 'TOP_16', pairs, 'Top 16', [], TOP16_PAIRS);
     },
-    generarTop8(t, c) {
-        const ids = eligible(t, c, 'TOP_8'); const existing = phaseMatches(t, c, 'TOP_8');
-        assertStage(existing, ids, 'TOP_8');
-        return existing.length ? existing : addMatches(t, c, 'TOP_8', [[ids[0], ids[1]], [ids[2], ids[3]], [ids[4], ids[5]], [ids[6], ids[7]]], 'Top 8');
+
+    generarTop8(tournamentId, categoryId) {
+        const existing = stageMatches(tournamentId, categoryId, 'TOP_8');
+        if (existing.length) return existing;
+        const top16 = stageMatches(tournamentId, categoryId, 'TOP_16');
+        completed(top16, 8, 'Top 16');
+        const survivors = survivorsByOriginalSeed(top16);
+        assertUniqueTeams(top16, 'Top 16');
+        const pairs = eliminationPairs(survivors);
+        const sources = pairs.map(pair => pair.map(id => survivors.find(item => item.id === id).source.id));
+        const seeds = pairs.map(pair => pair.map(id => survivors.find(item => item.id === id).seed));
+        return addStage(tournamentId, categoryId, 'TOP_8', pairs, 'Top 8', sources, seeds);
     },
-    generarTop4(t, c) {
-        const prior = phaseMatches(t, c, 'TOP_8'); assertCompleted(prior, 4, 'Registre los resultados del Top 8 antes de continuar.');
-        return prior.map(winner);
+
+    // Top 4 es el estado de los cuatro supervivientes. Sus dos partidos son
+    // las semifinales; no se crea una ronda artificial adicional.
+    generarTop4(tournamentId, categoryId) {
+        const existing = stageMatches(tournamentId, categoryId, 'SEMIFINAL');
+        if (existing.length) return existing;
+        const top8 = stageMatches(tournamentId, categoryId, 'TOP_8');
+        completed(top8, 4, 'Top 8');
+        const survivors = survivorsByOriginalSeed(top8);
+        assertUniqueTeams(top8, 'Top 8');
+        const pairs = eliminationPairs(survivors);
+        const sources = pairs.map(pair => pair.map(id => survivors.find(item => item.id === id).source.id));
+        const seeds = pairs.map(pair => pair.map(id => survivors.find(item => item.id === id).seed));
+        return addStage(tournamentId, categoryId, 'SEMIFINAL', pairs, 'Semifinales · Top 4', sources, seeds);
     },
-    generarSemifinales(t, c) {
-        const ids = this.generarTop4(t, c); const existing = phaseMatches(t, c, 'SEMIFINAL');
-        assertStage(existing, ids, 'SEMIFINAL');
-        return existing.length ? existing : addMatches(t, c, 'SEMIFINAL', [[ids[0], ids[1]], [ids[2], ids[3]]], 'Semifinal');
+
+    generarSemifinales(tournamentId, categoryId) { return this.generarTop4(tournamentId, categoryId); },
+
+    generarFinal(tournamentId, categoryId) {
+        const existing = stageMatches(tournamentId, categoryId, 'FINAL');
+        if (existing.length) return existing;
+        const semifinales = stageMatches(tournamentId, categoryId, 'SEMIFINAL');
+        completed(semifinales, 2, 'Semifinales');
+        const finalists = semifinales.map(match => ({ id: match.ganadorId, seed: match.ganadorId === match.equipoLocalId ? match.seedLocal : match.seedVisitante, source: match })).sort((a, b) => a.seed - b.seed);
+        return addStage(tournamentId, categoryId, 'FINAL', [[finalists[0].id, finalists[1].id]], 'Final', [[finalists[0].source.id, finalists[1].source.id]], [[finalists[0].seed, finalists[1].seed]]);
     },
-    generarFinal(t, c) {
-        const prior = phaseMatches(t, c, 'SEMIFINAL'); assertCompleted(prior, 2, 'Registre las dos semifinales antes de generar la final.');
-        const existing = phaseMatches(t, c, 'FINAL');
-        return existing.length ? existing : addMatches(t, c, 'FINAL', [[winner(prior[0]), winner(prior[1])]], 'Final');
-    },
-    generarFinales(t, c) { return this.generarFinal(t, c); },
-    crearPartidoManual() { throw new Error('El fixture eliminatorio se genera automáticamente según la llave única.'); }
+
+    generarCuadroCompleto(tournamentId, categoryId) { return this.generarTop16(tournamentId, categoryId); },
+    crearPartidoManual() { throw new Error('El cuadro eliminatorio se genera automáticamente a partir de la clasificación congelada.'); }
 };
