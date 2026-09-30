@@ -66,7 +66,10 @@ export const PosicionesService = {
             .map(row => ({
                 ...row,
                 diferenciaSets: row.setsFavor - row.setsContra,
-                diferenciaPuntos: row.puntosFavor - row.puntosContra
+                diferenciaPuntos: row.puntosFavor - row.puntosContra,
+                // La clasificación de N3com se deriva de los puntos reales de
+                // todos los sets cargados, nunca de un marcador ficticio.
+                puntosClasificacion: row.puntosFavor
             }))
             .sort(compareBySetPoints(DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)));
     },
