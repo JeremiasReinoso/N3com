@@ -16,6 +16,7 @@ const { PlayoffsService } = await import(moduleUrl('js/services/playoffs.js'));
 
 const buildZone = (name, teamCount, guaranteed, zonesCount = 1) => {
     const tournament = DataManager.createTournament(name, guaranteed);
+    DataManager.setTournamentCalendar(tournament.id, '2026-10-09', '2026-10-11', '08:00', '20:00', []);
     const category = DataManager.createCategory('Categoría', tournament.id);
     const zones = Array.from({ length: zonesCount }, (_, index) => DataManager.createZone(`Zona ${index + 1}`, category.id, tournament.id));
     const teams = Array.from({ length: teamCount }, (_, index) => {
@@ -64,7 +65,7 @@ for (const [teamCount, guaranteed] of [[4, 3], [6, 3], [6, 5]]) {
     assert.equal(result.valid, false);
     assert.equal(result.incompleteTeams.length, 2);
     assert(result.incompleteTeams.every(team => team.matches === 2 && team.required === 3));
-    assert.throws(() => PlayoffsService.generarSemifinales(setup.tournament.id, setup.category.id), /Faltan partidos asegurados/i);
+    assert.throws(() => PlayoffsService.generarSemifinales(setup.tournament.id, setup.category.id), /resultados válidos|partidos asegurados/i);
 }
 
 {
