@@ -49,6 +49,29 @@ const logisticsSlotIssues = (candidate, scheduled, settings) => {
 
 const logisticsSlotIsValid = (candidate, scheduled, settings) => !Object.values(logisticsSlotIssues(candidate, scheduled, settings)).some(Boolean);
 
+const distributionDifference = loads => {
+    const values = [...loads.values()];
+    return values.length ? Math.max(...values) - Math.min(...values) : 0;
+};
+
+// Puntaje determinista de una agenda. El orden de los términos es deliberado:
+// una cancha equilibrada nunca puede compensar un conflicto deportivo.
+const scheduleScore = (matches, courts) => {
+    const loads = new Map(courts.map(court => [court.id, 0]));
+    const byDay = new Map();
+    matches.forEach(match => {
+        const court = courts.find(item => item.id === match.courtId || item.name === match.cancha);
+        if (court) loads.set(court.id, loads.get(court.id) + 1);
+        const key = `${match.fecha}|${match.hora}`;
+        const slot = byDay.get(key) || new Set();
+        if (court) slot.add(court.id);
+        byDay.set(key, slot);
+    });
+    const imbalance = distributionDifference(loads);
+    const slotSpread = [...byDay.values()].reduce((total, used) => total + Math.abs(courts.length - used.size), 0);
+    return { conflicts: 0, imbalance, slotSpread, byCourt: Object.fromEntries(loads) };
+};
+
 export const fixtureCompare = (left, right) => String(left.fecha || '9999-99-99').localeCompare(String(right.fecha || '9999-99-99'))
     || String(left.hora || '99:99').localeCompare(String(right.hora || '99:99'))
     || String(left.cancha || '').localeCompare(String(right.cancha || ''), 'es', { numeric: true })
@@ -86,6 +109,12 @@ export const LogisticsService = {
     // global del torneo. Nunca se generan horas fuera de este conjunto.
     generateTimeSlots(tournamentId) {
         return DataManager.getDaySchedules(tournamentId).flatMap(day => this.generateTimeBlocks(tournamentId, day).map(hora => ({ fecha: day.fecha, hora })));
+    },
+
+    getGeneralFixture(tournamentId, { includeDrafts = false } = {}) {
+        return this.getTournamentMatches(tournamentId)
+            .filter(match => includeDrafts || logisticsIsOfficial(match))
+            .sort(fixtureCompare);
     },
 
     // Explica qué regla bloqueó cada partido que no pudo colocarse. El
@@ -155,9 +184,9 @@ export const LogisticsService = {
                 }
             }
             candidates.sort((left, right) => Number(left.adjacent) - Number(right.adjacent)
+                || left.load - right.load
                 || left.assignment.fecha.localeCompare(right.assignment.fecha)
                 || left.assignment.hora.localeCompare(right.assignment.hora)
-                || left.load - right.load
                 || left.assignment.cancha.localeCompare(right.assignment.cancha, 'es', { numeric: true }));
             assignment = candidates[0]?.assignment || null;
             if (assignment) {
@@ -172,6 +201,52 @@ export const LogisticsService = {
         }
         if (updates.length) DataManager.updateMatches(updates);
         return { scheduled: updates.length, failures };
+    },
+
+    // Reasigna únicamente la propiedad cancha. Fecha, hora, equipos, fases,
+    // resultados y partidos finalizados permanecen intactos.
+    reorganizeCourts(tournamentId) {
+        const courts = DataManager.getTournamentCourts(tournamentId);
+        if (!courts.length) throw new Error('Configurá al menos una cancha para el torneo.');
+        const fixture = this.getGeneralFixture(tournamentId).filter(match => match.fecha && match.hora);
+        const movable = fixture.filter(match => match.estado !== 'finalizado');
+        const fixed = fixture.filter(match => match.estado === 'finalizado');
+        const loads = new Map(courts.map(court => [court.id, fixed.filter(match => logisticsCourtKey(match) === court.id || match.cancha === court.name).length]));
+        const usedBySlot = new Map();
+        const updates = [];
+        movable.sort(fixtureCompare).forEach(match => {
+            const key = `${match.fecha}|${match.hora}`;
+            const used = usedBySlot.get(key) || new Set();
+            const court = [...courts]
+                .filter(item => !used.has(item.id))
+                .sort((left, right) => loads.get(left.id) - loads.get(right.id)
+                    || (used.size ? Number(left.id === courts[(used.size) % courts.length]?.id) - Number(right.id === courts[(used.size) % courts.length]?.id) : 0)
+                    || left.name.localeCompare(right.name, 'es', { numeric: true }))[0];
+            if (!court) return;
+            used.add(court.id); usedBySlot.set(key, used);
+            loads.set(court.id, loads.get(court.id) + 1);
+            if (match.courtId !== court.id || match.cancha !== court.name) updates.push({ ...match, courtId: court.id, cancha: court.name });
+        });
+        if (updates.length) DataManager.updateMatches(updates);
+        const validation = this.validateSchedule(tournamentId);
+        return { updated: updates.length, validation, score: scheduleScore(this.getGeneralFixture(tournamentId), courts) };
+    },
+
+    // Regenera horas y canchas desde la fuente de partidos, sin reconstruir
+    // enfrentamientos ni tocar resultados. Los partidos finalizados conservan
+    // su asignación; los demás vuelven a ocupar los slots válidos.
+    reorganizeFixture(tournamentId) {
+        const data = this.getGeneralFixture(tournamentId, { includeDrafts: true });
+        const reset = data.filter(match => logisticsIsOfficial(match) && match.estado !== 'finalizado')
+            .map(match => ({ ...match, fecha: null, hora: null, courtId: null, cancha: null }));
+        if (reset.length) DataManager.updateMatches(reset);
+        const scheduled = this.generateSchedule(tournamentId);
+        return { ...scheduled, score: scheduleScore(this.getGeneralFixture(tournamentId), DataManager.getTournamentCourts(tournamentId)) };
+    },
+
+    scoreSchedule(tournamentId) {
+        const courts = DataManager.getTournamentCourts(tournamentId);
+        return scheduleScore(this.getGeneralFixture(tournamentId), courts);
     },
 
     validateSchedule(tournamentId) {
