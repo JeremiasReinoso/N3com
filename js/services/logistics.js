@@ -1,4 +1,5 @@
 import { DataManager } from '../data/dataManager.js';
+import { isAllowedSpecialCross } from './specialCrosses.js';
 
 const logisticsMinutesFromTime = time => {
     const [hour, minute] = String(time).split(':').map(Number);
@@ -273,7 +274,8 @@ export const LogisticsService = {
             if (!logisticsAllowedDates(tournamentId, match).includes(match.fecha)) issues.push(logisticsIssue(match, 'planning', `${label}: la fase no está habilitada para esa fecha.`));
             const local = match.equipoLocalId && DataManager.getTeamsByTournamentAndCategory(tournamentId, match.categoriaId).find(team => team.id === match.equipoLocalId);
             const visitante = match.equipoVisitanteId && DataManager.getTeamsByTournamentAndCategory(tournamentId, match.categoriaId).find(team => team.id === match.equipoVisitanteId);
-            if (match.phase === 'ZONAS' && (!local || !visitante || !match.zonaId || local.zonaId !== match.zonaId || visitante.zonaId !== match.zonaId)) issues.push(logisticsIssue(match, 'sports-integrity', `${label}: los equipos no pertenecen a la misma zona.`));
+            if (match.phase === 'ZONAS' && (!local || !visitante || !match.zonaId || local.zonaId !== match.zonaId || visitante.zonaId !== match.zonaId)
+                && !isAllowedSpecialCross({ match, category: DataManager.getCategory(match.categoriaId), teams: DataManager.getTeamsByTournamentAndCategory(tournamentId, match.categoriaId), zones: DataManager.getZonesByTournamentAndCategory(tournamentId, match.categoriaId) })) issues.push(logisticsIssue(match, 'sports-integrity', `${label}: los equipos no pertenecen a la misma zona.`));
             scheduled.push({ ...match, courtId });
         });
         scheduled.forEach((match, index) => scheduled.slice(index + 1).forEach(other => {
