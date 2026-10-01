@@ -46,6 +46,12 @@ const TYPE_BY_PHASE = { ZONAS: 'fase_zonas', TOP_16: 'top_16', TOP_8: 'top_8', T
 const phaseFor = match => LEGACY_PHASES[match.phase] ?? (match.phase || PHASE_BY_TYPE[match.tipo] || 'ZONAS');
 const normalizePlanningStage = stage => LEGACY_PHASES[stage] ?? stage;
 const isZonePhaseMatch = match => phaseFor(match) === 'ZONAS';
+const isAllowedSpecialCross = (match, category, local, visitante, zones) => {
+    if (match.tipo !== 'cruce_especial' || category?.nombre !== '+50 Mixto' || !local || !visitante) return false;
+    const localZone = zones.find(zone => zone.id === local.zonaId)?.nombre?.trim().toLocaleUpperCase('es');
+    const visitanteZone = zones.find(zone => zone.id === visitante.zonaId)?.nombre?.trim().toLocaleUpperCase('es');
+    return match.zonaId === local.zonaId && ['C', 'D'].includes(localZone) && ['C', 'D'].includes(visitanteZone) && localZone !== visitanteZone;
+};
 const groupPairKey = match => [
     match.torneoId,
     match.categoriaId,
@@ -94,7 +100,7 @@ const normalizeMatch = match => {
     return {
         ...match,
         phase,
-        tipo: TYPE_BY_PHASE[phase] || match.tipo || 'fase_zonas',
+        tipo: match.tipo === 'cruce_especial' ? match.tipo : (TYPE_BY_PHASE[phase] || match.tipo || 'fase_zonas'),
         estado: match.estado || 'pendiente',
         confirmado: match.confirmado ?? match.estado !== 'borrador',
         sets: match.sets || [],
@@ -471,7 +477,8 @@ export const DataManager = {
         const local = match.equipoLocalId ? data.teams.find(team => team.id === match.equipoLocalId) : null;
         const visitante = match.equipoVisitanteId ? data.teams.find(team => team.id === match.equipoVisitanteId) : null;
         if ((match.equipoLocalId && !local) || (match.equipoVisitanteId && !visitante) || (local && (local.torneoId !== match.torneoId || local.categoriaId !== match.categoriaId)) || (visitante && (visitante.torneoId !== match.torneoId || visitante.categoriaId !== match.categoriaId))) throw new Error('Los equipos deben pertenecer a la categoría del partido.');
-        if (phaseFor(match) === 'ZONAS' && (!local || !visitante || local.zonaId !== visitante.zonaId || !local.zonaId || match.zonaId !== local.zonaId)) throw new Error('No se pueden enfrentar equipos de zonas diferentes durante esta fase.');
+        if (phaseFor(match) === 'ZONAS' && (!local || !visitante || local.zonaId !== visitante.zonaId || !local.zonaId || match.zonaId !== local.zonaId)
+            && !isAllowedSpecialCross(match, category, local, visitante, data.zones.filter(zone => zone.categoriaId === match.categoriaId))) throw new Error('No se pueden enfrentar equipos de zonas diferentes durante esta fase.');
         if (match.fecha && category.planning?.days) {
             const planningPhase = phaseFor(match) === 'THIRD_PLACE' ? 'FINAL' : phaseFor(match);
             const day = category.planning.days.find(item => item.date === match.fecha);
