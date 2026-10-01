@@ -1,12 +1,13 @@
 import { DataManager } from '../data/dataManager.js';
 import { LogisticsService } from './logistics.js';
+import { SPECIAL_CROSS_TYPE, isAllowedSpecialCross } from './specialCrosses.js';
 
 const pairKey = (teamAId, teamBId) => {
     if (!teamAId || !teamBId || teamAId === teamBId) throw new Error('Un equipo no puede jugar contra sí mismo.');
     return [String(teamAId), String(teamBId)].sort().join(':');
 };
 const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'finalizado'].includes(match.estado);
-const isGroupMatch = match => match.phase === 'ZONAS' || !match.tipo || match.tipo === 'fase_zonas';
+const isGroupMatch = match => match.phase === 'ZONAS' || !match.tipo || match.tipo === 'fase_zonas' || match.tipo === SPECIAL_CROSS_TYPE;
 const schedulerMinutesFromTime = time => {
     const [hour, minute] = time.split(':').map(Number);
     return hour * 60 + minute;
@@ -171,10 +172,10 @@ export const SchedulerService = {
             if (!zoneTeams.length) continue;
             if (zoneTeams.length < 2) throw new Error(`${zone.nombre} necesita al menos dos equipos.`);
             if (assured > zoneTeams.length - 1 && (zoneTeams.length * assured) % 2 !== 0) throw new Error(`${zone.nombre} no puede repartir exactamente ${assured} partidos por equipo con ${zoneTeams.length} equipos.`);
-            const existing = existingFixture.filter(match => match.zonaId === zone.id);
+            const existing = existingFixture.filter(match => match.zonaId === zone.id && match.tipo !== SPECIAL_CROSS_TYPE);
             const counts = new Map(zoneTeams.map(team => [team.id, 0]));
             const pairsSeen = new Set();
-            existing.forEach(match => {
+            existingFixture.filter(match => [match.equipoLocalId, match.equipoVisitanteId].some(teamId => zoneTeams.some(team => team.id === teamId))).forEach(match => {
                 const key = pairKey(match.equipoLocalId, match.equipoVisitanteId);
                 if (pairsSeen.has(key)) throw new Error(`${zone.nombre} contiene un enfrentamiento duplicado.`);
                 pairsSeen.add(key);
@@ -333,7 +334,10 @@ export const SchedulerService = {
                 invalidMatches.push(match);
                 return;
             }
-            if (!local.zonaId || local.zonaId !== visitante.zonaId || match.zonaId !== local.zonaId) crossZoneMatches.push(match);
+            const category = DataManager.getCategory(categoriaId);
+            const categoryZones = zones;
+            if ((!local.zonaId || local.zonaId !== visitante.zonaId || match.zonaId !== local.zonaId)
+                && !isAllowedSpecialCross({ match, category, teams, zones: categoryZones })) crossZoneMatches.push(match);
             const key = pairKey(local.id, visitante.id);
             if (pairs.has(key) && !match.revancha && !pairs.get(key)?.revancha) duplicatePairs.push([pairs.get(key), match]);
             else pairs.set(key, match);
