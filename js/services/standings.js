@@ -1,7 +1,7 @@
 import { DataManager } from '../data/dataManager.js';
 
 // Sólo los partidos de zonas alimentan la tabla que clasifica al Top 16.
-const isGroupStandingMatch = match => match.phase === 'ZONAS' || (!match.phase && match.tipo === 'fase_zonas');
+const isGroupStandingMatch = match => match.phase === 'ZONAS' || (!match.phase && ['fase_zonas', 'cruce_especial'].includes(match.tipo));
 const hasSetResult = match => match.estado === 'finalizado' && Array.isArray(match.sets) && match.sets.length >= 2 && match.ganadorId;
 
 const compareBySetPoints = (matches) => (left, right) => {
