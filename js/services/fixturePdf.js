@@ -134,3 +134,40 @@ export const downloadFixtureCsv = (tournament, rows, suffix = 'completo') => {
     link.download = `fixture-${latin(tournament.nombre).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${suffix}.csv`;
     link.click();
 };
+
+const spreadsheetEscape = value => String(value ?? '')
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&apos;');
+const spreadsheetCell = value => `<Cell><Data ss:Type="String">${spreadsheetEscape(value)}</Data></Cell>`;
+const spreadsheetSheet = (name, rows, includeCourt = true) => {
+    const header = includeCourt
+        ? ['Fecha', 'Hora', 'Cancha', 'Categoría', 'Fase', 'Equipo 1', 'Equipo 2', 'Estado', 'Resultado']
+        : ['Fecha', 'Hora', 'Categoría', 'Fase', 'Equipo 1', 'Equipo 2', 'Estado', 'Resultado'];
+    const body = rows.map(row => {
+        const values = includeCourt
+            ? [row.fecha, row.hora, row.cancha, [row.categoryAge, row.modality].filter(Boolean).join(' · ') || row.categoryName, row.zoneName ? `${row.phaseLabel} · ${row.zoneName}` : row.phaseLabel, row.teamA, row.teamB, row.status, row.score]
+            : [row.fecha, row.hora, [row.categoryAge, row.modality].filter(Boolean).join(' · ') || row.categoryName, row.zoneName ? `${row.phaseLabel} · ${row.zoneName}` : row.phaseLabel, row.teamA, row.teamB, row.status, row.score];
+        return `<Row>${values.map(spreadsheetCell).join('')}</Row>`;
+    }).join('');
+    return `<Worksheet ss:Name="${spreadsheetEscape(name)}"><Table><Row>${header.map(spreadsheetCell).join('')}</Row>${body}</Table></Worksheet>`;
+};
+
+// Libro SpreadsheetML 2003: Excel y LibreOffice lo abren como un único
+// archivo con múltiples hojas, sin agregar una dependencia externa al
+// escritorio. Todas las hojas se proyectan desde las mismas filas generales.
+export const buildFixtureSpreadsheet = ({ tournament, rows, courts }) => {
+    const general = [...rows].sort((left, right) => String(left.fecha || '').localeCompare(String(right.fecha || '')) || String(left.hora || '').localeCompare(String(right.hora || '')) || String(left.cancha || '').localeCompare(String(right.cancha || ''), 'es', { numeric: true }));
+    const sheets = [spreadsheetSheet('Fixture General', general, true)];
+    courts.forEach(court => sheets.push(spreadsheetSheet(court.name, general.filter(row => row.cancha === court.name), false)));
+    return `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><DocumentProperties xmlns="urn:schemas-microsoft-com:office:office"><Title>${spreadsheetEscape(tournament?.nombre || 'Fixture')}</Title></DocumentProperties>${sheets.join('')}</Workbook>`;
+};
+
+export const downloadFixtureSpreadsheet = (tournament, rows, courts) => {
+    const xml = buildFixtureSpreadsheet({ tournament, rows, courts });
+    const safeName = latin(tournament.nombre).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8' }));
+    link.download = `fixture-${safeName}.xls`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+};
