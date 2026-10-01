@@ -577,6 +577,13 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 .draft-fixture-row:last-child { border-bottom: 0; }
 .draft-fixture-row > span { color: #63748d; font-weight: 700; }
 .draft-fixture-row button { padding: 7px 10px; font-size: .8rem; }
+.special-crosses { border: 1px solid #d9b86c; background: linear-gradient(135deg, #fffaf0, #fff); margin-bottom: 20px; }
+.special-cross-status { display: grid; grid-template-columns: 1fr auto 1fr; gap: 18px; align-items: start; margin: 12px 0 18px; }
+.special-cross-status h4 { margin: 0 0 8px; color: #74540b; }
+.special-cross-status ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.special-cross-status li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid #f0dfad; border-radius: 8px; background: #fff; }
+.special-cross-status li span { color: #74540b; font-size: .82rem; }
+.special-cross-vs { align-self: center; color: #a27612; }
 
 .resultados-list { grid-template-columns: 1fr; gap: 10px; }
 .result-row { display: grid; grid-template-columns: 145px minmax(250px, 1fr) minmax(185px, .65fr) minmax(210px, .75fr); align-items: stretch; padding: 0; overflow: hidden; }
