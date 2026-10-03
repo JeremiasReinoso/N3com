@@ -79,3 +79,41 @@ test('la planificación es independiente, compatible y nunca duplica ni elimina 
     const foreign = DataManager.createTeam('Equipo de otra categoría', women.id, tournament.id);
     assert.throws(() => DataManager.createManualMatch({ torneoId: tournament.id, categoriaId: mixed.id, zonaId: zone.id, phase: 'ZONAS', equipoLocalId: teams[0].id, equipoVisitanteId: foreign.id, fecha: '2026-10-09', hora: '18:00', cancha: 'Cancha 1' }), /categoría del partido/);
 });
+
+test('la planificación acepta cualquier distribución de etapas por jornada', () => {
+    const tournament = DataManager.createTournament('Planificación flexible', 1);
+    const category = DataManager.createCategory('+50 Mixto', tournament.id);
+    DataManager.setTournamentCalendar(tournament.id, '2026-10-09', '2026-10-11', '09:00', '20:00', []);
+    const save = days => DataManager.setCategoryPlanning(tournament.id, category.id, days);
+    const stages = () => DataManager.getCategoryPlanning(tournament.id, category.id).days.map(day => day.stages);
+
+    assert.doesNotThrow(() => save([
+        { date: '2026-10-09', stages: ['ZONAS', 'GARANTIZADOS'] },
+        { date: '2026-10-10', stages: ['ZONAS', 'GARANTIZADOS'] },
+        { date: '2026-10-11', stages: ['TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL'] }
+    ]));
+    assert.deepEqual(stages(), [['ZONAS', 'GARANTIZADOS'], ['ZONAS', 'GARANTIZADOS'], ['TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL']]);
+
+    assert.doesNotThrow(() => save([
+        { date: '2026-10-09', stages: ['ZONAS'] },
+        { date: '2026-10-10', stages: ['GARANTIZADOS'] },
+        { date: '2026-10-11', stages: ['TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL'] }
+    ]));
+    assert.doesNotThrow(() => save([
+        { date: '2026-10-09', stages: ['ZONAS', 'GARANTIZADOS'] },
+        { date: '2026-10-10', stages: ['GARANTIZADOS', 'TOP_16'] },
+        { date: '2026-10-11', stages: ['TOP_8', 'SEMIFINAL', 'FINAL'] }
+    ]));
+    assert.doesNotThrow(() => save([
+        { date: '2026-10-09', stages: [] },
+        { date: '2026-10-10', stages: [] },
+        { date: '2026-10-11', stages: [] }
+    ]));
+    assert.doesNotThrow(() => save([
+        { date: '2026-10-09', stages: ['ZONAS', 'GARANTIZADOS', 'TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL'] },
+        { date: '2026-10-10', stages: [] },
+        { date: '2026-10-11', stages: [] }
+    ]));
+    assert.throws(() => save([{ date: '09/10/2026', stages: ['FINAL'] }]), /fecha.*válida/);
+    assert.throws(() => save([{ date: '2026-10-09', stages: ['ETAPA_INEXISTENTE'] }]), /etapa no válida/);
+});
