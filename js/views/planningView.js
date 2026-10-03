@@ -51,7 +51,7 @@ export const initPlanningView = () => {
         return;
     }
     view.innerHTML = `
-        <div class="planning-heading"><div><span class="eyebrow">PLANIFICACIÓN POR CATEGORÍA</span><h2>Planificación — ${escapeHtml(category.nombre)}</h2><p>El calendario define los días disponibles. Aquí decidís qué etapas se jugarán en cada jornada; guardar no crea ni elimina partidos.</p></div><button id="configure-next-day" class="btn-primary" type="button">+ Configurar jornada</button></div>
+        <div class="planning-heading"><div><span class="eyebrow">PLANIFICACIÓN POR CATEGORÍA</span><h2>Planificación — ${escapeHtml(category.nombre)}</h2><p>El calendario define los días disponibles. Aquí decidís qué etapas se jugarán en cada jornada.</p><p>Esta configuración se utiliza para organizar la programación del torneo; guardar no crea ni elimina partidos.</p></div><button id="configure-next-day" class="btn-primary" type="button">+ Configurar jornada</button></div>
         ${!planning ? '<div class="planning-notice">Esta categoría todavía no tiene una planificación configurada.</div>' : ''}
         ${unavailableDays.length ? `<div class="planning-warning"><strong>Atención:</strong> hay jornadas fuera del calendario actual (${unavailableDays.map(day => formatDay(day.date)).join(', ')}). Se conservarán sin modificar hasta que vuelvas a habilitar esas fechas o resuelvas el conflicto.</div>` : ''}
         <form id="category-planning-form">
