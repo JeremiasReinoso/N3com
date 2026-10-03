@@ -12,7 +12,7 @@ const clip = (value, max) => {
     const text = String(value ?? '');
     return text.length > max ? `${text.slice(0, Math.max(1, max - 3))}...` : text;
 };
-const makePage = (tournament, rows, pageNumber, totalPages, subtitle = '') => {
+const makePage = (tournament, rows, pageNumber, totalPages, subtitle = '', courtName = '') => {
     const commands = [
         '0.08 0.12 0.2 rg', '40 543 762 32 re f', '1 1 1 rg', line(52, 554, 16, 'FIXTURE GENERAL DEL TORNEO', true),
         '0.08 0.12 0.2 rg', line(40, 523, 13, tournament.nombre, true),
@@ -21,7 +21,8 @@ const makePage = (tournament, rows, pageNumber, totalPages, subtitle = '') => {
         line(42, 507, 8, 'HORA', true), line(86, 507, 8, 'CANCHA', true), line(170, 507, 8, 'CATEGORIA / MODALIDAD', true),
         line(322, 507, 8, 'ETAPA / ZONA', true), line(460, 507, 8, 'PARTIDO', true), line(718, 507, 8, 'ESTADO', true)
     ];
-    if (subtitle) commands.push('0.35 0.42 0.55 rg', line(40, 493, 9, clip(subtitle, 78)));
+    const pageContext = [subtitle, courtName ? `CANCHA: ${courtName}` : ''].filter(Boolean).join(' · ');
+    if (pageContext) commands.push('0.35 0.42 0.55 rg', line(40, 493, 9, clip(pageContext, 78)));
     commands.push('0.35 0.42 0.55 rg', line(560, 523, 9, clip(`Pagina ${pageNumber} de ${totalPages}`, 34), true));
     let y = 476;
     let currentDate = null;
@@ -57,7 +58,7 @@ export const fixtureRows = ({ matches, categories, teams, zones, phaseLabels, fi
         .sort(fixtureCompare).map(match => {
             const item = category(match.categoriaId) || {};
             return {
-                id: match.id, fecha: match.fecha, hora: match.hora, cancha: match.cancha,
+                id: match.id, fecha: match.fecha, hora: match.hora, cancha: match.cancha, orden: match.orden,
                 categoryName: item.nombre || 'Sin categoría', categoryAge: item.edad || '', modality: item.modalidad || '',
                 phaseLabel: phaseLabels[match.phase || 'ZONAS'] || match.phase || 'Fase de zonas', zoneName: zone(match.zonaId),
                 teamA: team(match.equipoLocalId), teamB: team(match.equipoVisitanteId), status: statusLabel(match.estado),
@@ -67,26 +68,35 @@ export const fixtureRows = ({ matches, categories, teams, zones, phaseLabels, fi
 };
 
 export const buildFixturePdf = (tournament, rows, subtitle = '') => {
-    // El corte de páginas se calcula con los puntos realmente consumidos:
-    // un encabezado de jornada ocupa más alto que una fila simple.
+    // Cada página representa una única cancha y una única jornada. Así la
+    // exportación sigue siendo una proyección del fixture general, pero nunca
+    // mezcla canchas en la misma hoja.
+    const sortedRows = [...rows].sort(fixtureCompare);
+    const courts = [...new Set(sortedRows.map(row => row.cancha || 'Sin cancha'))]
+        .sort((left, right) => left.localeCompare(right, 'es', { numeric: true }));
     const budget = 476 - 46;
     const pages = [];
-    let current = [];
-    let used = 0;
-    let lastDate = null;
-    rows.forEach(row => {
-        const rowHeight = row.sets?.length ? 30 : 20;
-        if (current.length && used + rowHeight + (row.fecha === lastDate ? 0 : 26) > budget) {
-            pages.push(current);
-            current = [];
-            used = 0;
-            lastDate = null;
-        }
-        used += rowHeight + (row.fecha === lastDate ? 0 : 26);
-        lastDate = row.fecha;
-        current.push(row);
+    courts.forEach(courtName => {
+        const courtRows = sortedRows.filter(row => (row.cancha || 'Sin cancha') === courtName);
+        const dates = [...new Set(courtRows.map(row => row.fecha || ''))].sort((left, right) => left.localeCompare(right));
+        dates.forEach(date => {
+            const dateRows = courtRows.filter(row => (row.fecha || '') === date);
+            let current = [];
+            let used = 0;
+            dateRows.forEach(row => {
+                const rowHeight = row.sets?.length ? 30 : 20;
+                if (current.length && used + rowHeight > budget) {
+                    pages.push({ courtName, rows: current });
+                    current = [];
+                    used = 0;
+                }
+                used += rowHeight + (current.length ? 0 : 26);
+                current.push(row);
+            });
+            if (current.length) pages.push({ courtName, rows: current });
+        });
     });
-    pages.push(current);
+    if (!pages.length) pages.push({ courtName: '', rows: [] });
     const objects = [];
     const add = value => { objects.push(value); return objects.length; };
     const catalogId = add('');
@@ -94,8 +104,8 @@ export const buildFixturePdf = (tournament, rows, subtitle = '') => {
     const fontId = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
     const boldId = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
     const pageIds = [];
-    pages.forEach((pageRows, index) => {
-        const stream = makePage(tournament, pageRows, index + 1, pages.length, subtitle);
+    pages.forEach((page, index) => {
+        const stream = makePage(tournament, page.rows, index + 1, pages.length, subtitle, page.courtName);
         const contentId = add(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
         pageIds.push(add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldId} 0 R >> >> /Contents ${contentId} 0 R >>`));
     });
@@ -156,7 +166,7 @@ const spreadsheetSheet = (name, rows, includeCourt = true) => {
 // archivo con múltiples hojas, sin agregar una dependencia externa al
 // escritorio. Todas las hojas se proyectan desde las mismas filas generales.
 export const buildFixtureSpreadsheet = ({ tournament, rows, courts }) => {
-    const general = [...rows].sort((left, right) => String(left.fecha || '').localeCompare(String(right.fecha || '')) || String(left.hora || '').localeCompare(String(right.hora || '')) || String(left.cancha || '').localeCompare(String(right.cancha || ''), 'es', { numeric: true }));
+    const general = [...rows].sort(fixtureCompare);
     const sheets = [spreadsheetSheet('Fixture General', general, true)];
     courts.forEach(court => sheets.push(spreadsheetSheet(court.name, general.filter(row => row.cancha === court.name), false)));
     return `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><DocumentProperties xmlns="urn:schemas-microsoft-com:office:office"><Title>${spreadsheetEscape(tournament?.nombre || 'Fixture')}</Title></DocumentProperties>${sheets.join('')}</Workbook>`;
