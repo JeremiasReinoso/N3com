@@ -36,6 +36,9 @@ export const initPlanningView = () => {
         return;
     }
     const dates = DataManager.getCalendarDates(tournamentId);
+    const activePlanning = DataManager.getActivePlanning(tournamentId);
+    const selectedCategoryIds = new Set(activePlanning?.selectedCategories || [categoryId]);
+    const selectedDatesByCategory = activePlanning?.categoryDates || {};
     const planning = DataManager.getCategoryPlanning(tournamentId, categoryId);
     const byDate = new Map((planning?.days || []).map(day => [day.date, day.stages]));
     const matches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId);
@@ -49,10 +52,12 @@ export const initPlanningView = () => {
         ${!planning ? '<div class="planning-notice">Esta categoría todavía no tiene una planificación configurada.</div>' : ''}
         ${unavailableDays.length ? `<div class="planning-warning"><strong>Atención:</strong> hay jornadas fuera del calendario actual (${unavailableDays.map(day => formatDay(day.date)).join(', ')}). Se conservarán sin modificar hasta que vuelvas a habilitar esas fechas o resuelvas el conflicto.</div>` : ''}
         <form id="category-planning-form">
+            <fieldset class="planning-categories"><legend>Categorías incluidas en esta planificación</legend><div class="planning-category-grid">${DataManager.getCategoriesByTournament(tournamentId).map(item => `<label class="planning-category"><input type="checkbox" name="planning-category" value="${item.id}" ${selectedCategoryIds.has(item.id) ? 'checked' : ''}><span>${escapeHtml(item.nombre)}</span></label>`).join('')}</div><p class="helper-text">Sólo estas categorías participarán en el fixture, la programación, el PDF y la hoja de cálculo actuales.</p></fieldset>
             <div class="planning-days">${dates.map(date => {
                 const stages = byDate.get(date) || [];
                 const [statusClass, statusLabel] = dayStatus(stages, matches.filter(match => match.fecha === date));
-                return `<fieldset class="planning-day" data-date="${date}"><legend><span>${escapeHtml(formatDay(date))}</span><small>${date.split('-').reverse().join('/')}</small></legend><span class="planning-status ${statusClass}">${statusLabel}</span><div class="planning-stage-grid">${PLANNING_STAGE_OPTIONS.map(([value, label]) => `<label class="planning-stage"><input type="checkbox" name="${date}" value="${value}" ${stages.includes(value) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div><button class="btn-secondary edit-planning-day" type="button">Editar jornada</button></fieldset>`;
+                const categoryDates = DataManager.getCategoriesByTournament(tournamentId).map(item => `<label class="planning-category-date"><input type="checkbox" name="planning-date-${item.id}" value="${date}" ${selectedDatesByCategory[item.id]?.includes(date) || (!activePlanning && item.id === categoryId && stages.length) ? 'checked' : ''}><span>${escapeHtml(item.nombre)}</span></label>`).join('');
+                return `<fieldset class="planning-day" data-date="${date}"><legend><span>${escapeHtml(formatDay(date))}</span><small>${date.split('-').reverse().join('/')}</small></legend><span class="planning-status ${statusClass}">${statusLabel}</span><div class="planning-category-date-grid">${categoryDates}</div><div class="planning-stage-grid">${PLANNING_STAGE_OPTIONS.map(([value, label]) => `<label class="planning-stage"><input type="checkbox" name="${date}" value="${value}" ${stages.includes(value) ? 'checked' : ''}><span>${label}</span></label>`).join('')}</div><button class="btn-secondary edit-planning-day" type="button">Editar jornada</button></fieldset>`;
             }).join('')}</div>
             <div class="planning-actions"><p>Podés seleccionar varias etapas por día y modificar esta configuración más adelante sin perder partidos.</p><button class="btn-primary btn-large" type="submit">Guardar planificación</button></div>
         </form>`;
@@ -67,9 +72,13 @@ export const initPlanningView = () => {
     view.querySelector('#category-planning-form').addEventListener('submit', event => {
         event.preventDefault();
         try {
+            const selectedCategories = [...view.querySelectorAll('input[name="planning-category"]:checked')].map(input => input.value);
+            const categoryDates = Object.fromEntries(selectedCategories.map(categoryId => [categoryId, [...view.querySelectorAll(`input[name="planning-date-${categoryId}"]:checked`)].map(input => input.value)]));
+            if (!selectedCategories.length) throw new Error('Seleccione al menos una categoría para la planificación.');
+            DataManager.setTournamentPlanning(tournamentId, { selectedCategories, categoryDates });
             const days = dates.map(date => ({ date, stages: [...view.querySelectorAll(`input[name="${date}"]:checked`)].map(input => input.value) }));
             unavailableDays.forEach(day => days.push(day));
-            DataManager.setCategoryPlanning(tournamentId, categoryId, days);
+            if (selectedCategories.includes(categoryId)) DataManager.setCategoryPlanning(tournamentId, categoryId, days);
             initPlanningView();
         } catch (error) { alert(error.message); }
     });
