@@ -55,3 +55,17 @@ test('la hoja de cálculo tiene una fuente general y una vista por cancha', () =
     assert.equal((workbook.match(/ss:Name="Cancha [123]"/g) || []).length, 3);
     assert((workbook.match(/<Row>/g) || []).length >= rows.length + 4, 'El libro contiene encabezado y filas del fixture general y sus vistas.');
 });
+
+test('regenerar el fixture conserva los partidos y recalcula su asignación sin duplicarlos', () => {
+    const tournament = createScenario(12, 3);
+    const before = LogisticsService.generateSchedule(tournament.id);
+    assert.equal(before.failures.length, 0);
+    const original = LogisticsService.getTournamentMatches(tournament.id).map(match => ({ id: match.id, fecha: match.fecha, hora: match.hora, cancha: match.cancha }));
+    const regenerated = LogisticsService.reorganizeFixture(tournament.id);
+    assert.equal(regenerated.failures.length, 0);
+    const after = LogisticsService.getTournamentMatches(tournament.id);
+    assert.equal(after.length, original.length, 'Regenerar no debe crear partidos nuevos.');
+    assert.deepEqual(after.map(match => match.id).sort(), original.map(match => match.id).sort());
+    assert(after.every(match => match.fecha && match.hora && match.courtId && match.cancha));
+    assert.equal(new Set(after.map(match => match.id)).size, after.length);
+});
