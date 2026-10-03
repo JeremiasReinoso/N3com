@@ -1,14 +1,8 @@
 import { AppState } from '../core/state.js';
-import { DataManager, PLANNING_STAGES } from '../data/dataManager.js';
+import { DataManager } from '../data/dataManager.js';
+import { TOURNAMENT_STAGES, TOURNAMENT_STAGE_LABELS, stageFromMatchPhase, normalizeTournamentStage } from '../domain/tournamentStages.js';
 
-export const PLANNING_STAGE_OPTIONS = [
-    [PLANNING_STAGES.ZONES, 'Fase de zonas'],
-    [PLANNING_STAGES.GUARANTEED, 'Partidos garantizados'],
-    [PLANNING_STAGES.ROUND_OF_16, 'Octavos de final (Top 16 → Top 8)'],
-    [PLANNING_STAGES.QUARTERFINALS, 'Cuartos de final (Top 8 → Top 4)'],
-    [PLANNING_STAGES.SEMIFINALS, 'Semifinales'],
-    [PLANNING_STAGES.FINAL, 'Final']
-];
+export const PLANNING_STAGE_OPTIONS = TOURNAMENT_STAGES.map(stage => [stage, TOURNAMENT_STAGE_LABELS[stage]]);
 
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
@@ -16,11 +10,11 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character =>
 const formatDay = date => new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: '2-digit', month: 'long' })
     .format(new Date(`${date}T12:00:00`));
 const isOfficial = match => match.confirmado || ['pendiente', 'programado', 'finalizado'].includes(match.estado);
-const matchesStage = (match, stages) => stages.some(stage => (
-    stage === PLANNING_STAGES.GUARANTEED ? match.phase === 'ZONAS'
-        : stage === PLANNING_STAGES.FINAL ? match.phase === 'FINAL'
-            : match.phase === stage
-));
+const matchesStage = (match, stages) => stages.some(stage => {
+    const normalizedStage = normalizeTournamentStage(stage);
+    const matchStage = stageFromMatchPhase(match.phase);
+    return normalizedStage === matchStage || (matchStage === 'fase_zonas' && normalizedStage === 'partidos_garantizados');
+});
 const dayStatus = (stages, matches) => {
     if (!stages.length) return ['unconfigured', 'Sin configurar'];
     const relevant = matches.filter(match => matchesStage(match, stages));
