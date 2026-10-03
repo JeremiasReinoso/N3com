@@ -40,6 +40,11 @@ const normalizeCourt = (court, index) => ({
     name: String(court?.name || court?.nombre || `Cancha ${index + 1}`).trim() || `Cancha ${index + 1}`
 });
 const validHours = (start, end) => /^\d{2}:\d{2}$/.test(start) && /^\d{2}:\d{2}$/.test(end) && minutesFromTime(start) < minutesFromTime(end);
+const validPlanningDate = date => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+    const parsed = new Date(`${date}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
+};
 const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', cruces: 'TOP_16', cuarto_final: 'TOP_8', top_16: 'TOP_16', top_8: 'TOP_8', top_4: 'TOP_4', semifinal: 'SEMIFINAL', tercer_puesto: 'THIRD_PLACE', final: 'FINAL' };
 const LEGACY_PHASES = {};
 const TYPE_BY_PHASE = { ZONAS: 'fase_zonas', TOP_16: 'top_16', TOP_8: 'top_8', TOP_4: 'top_4', SEMIFINAL: 'semifinal', THIRD_PLACE: 'tercer_puesto', FINAL: 'final' };
@@ -273,6 +278,7 @@ export const DataManager = {
         const seenDates = new Set();
         const normalizedDays = (days || []).map(day => {
             const date = String(day?.date || '');
+            if (!date || !validPlanningDate(date)) throw new Error('La fecha de la planificación no es válida.');
             if (!calendarDates.has(date) && previousByDate.get(date) !== JSON.stringify(day.stages || [])) throw new Error('Esta fecha no está habilitada en el calendario del torneo.');
             if (seenDates.has(date)) throw new Error('Una jornada no puede aparecer dos veces en la planificación.');
             seenDates.add(date);
