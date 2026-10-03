@@ -1,5 +1,6 @@
 import { AppState } from '../core/state.js';
 import { DataManager } from '../data/dataManager.js';
+import { normalizeTournamentStage, stageFromMatchPhase, TOURNAMENT_STAGE_LABELS } from '../domain/tournamentStages.js';
 import { SchedulerService } from '../services/scheduler.js';
 import { LogisticsService, fixtureCompare } from '../services/logistics.js';
 import { downloadFixturePdf, downloadFixtureSpreadsheet, fixtureRows } from '../services/fixturePdf.js';
@@ -81,7 +82,7 @@ export const initScheduleView = () => {
     const activeTeamOptions = selected => activeTeams.map(team => option(team.id, team.nombre, team.id === selected)).join('');
     const courtOptions = selected => courts.map(court => option(court.id, court.name, court.id === selected || court.name === selected)).join('');
     const dateOptions = selected => `${selected && !calendarDates.includes(selected) ? option(selected, `${formatDay(selected)} · fuera del calendario`, true) : ''}${calendarDates.map(date => option(date, formatDay(date), date === selected)).join('')}`;
-    const stageSummary = day => day.stages?.length ? day.stages.map(stage => PHASE_LABELS[stage] || (stage === 'GARANTIZADOS' ? 'Partidos garantizados' : stage)).join(' · ') : 'Sin etapas configuradas';
+    const stageSummary = day => day.stages?.length ? day.stages.map(stage => TOURNAMENT_STAGE_LABELS[normalizeTournamentStage(stage)] || stage).join(' · ') : 'Sin etapas configuradas';
     const modalities = [...new Set(categories.map(item => categoryParts(item).modality).filter(Boolean))];
     const specialCrosses = SpecialCrossService.getCandidates(tournamentId, activeCategoryId);
     const specialTeamOption = team => `<option value="${escapeHtml(team.id)}"${team.missing ? '' : ' disabled'}>${escapeHtml(`${team.nombre} — ${team.matches}/${team.required} partidos${team.missing ? ` · faltan ${team.missing}` : ' · completo'}`)}</option>`;
@@ -114,7 +115,7 @@ export const initScheduleView = () => {
     const selectedPairingDay = () => view.querySelector('#pairing-day')?.value || '';
     const renderPairingContext = () => {
         const date = selectedPairingDay(); const day = planningDays.find(item => item.date === date);
-        const hasZoneStage = !planning || day?.stages?.some(stage => ['ZONAS', 'GARANTIZADOS'].includes(stage));
+        const hasZoneStage = !planning || day?.stages?.some(stage => ['fase_zonas', 'partidos_garantizados'].includes(normalizeTournamentStage(stage)));
         view.querySelector('#pairing-day-context').innerHTML = `<strong>${escapeHtml(formatDay(date))}</strong><span>${escapeHtml(stageSummary(day || { stages: [] }))}</span>`;
         view.querySelector('#btn-generar-emparejamientos').disabled = !date || !hasZoneStage;
     };
