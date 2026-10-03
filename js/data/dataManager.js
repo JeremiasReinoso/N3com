@@ -1,17 +1,9 @@
 // Persistencia local del flujo principal del torneo. Esta pantalla funciona de
 // forma autónoma y no depende de la gestión de licencias.
+import { TOURNAMENT_STAGES, normalizeTournamentStage } from '../domain/tournamentStages.js';
+
 const STORAGE_KEY = 'newcom_data';
 const CLASSIFICATION_MODE = { SETS: 'sets', POINTS: 'points' };
-export const PLANNING_STAGES = Object.freeze({
-    ZONES: 'ZONAS',
-    GUARANTEED: 'GARANTIZADOS',
-    TOP_16: 'TOP_16',
-    TOP_8: 'TOP_8',
-    TOP_4: 'TOP_4',
-    SEMIFINALS: 'SEMIFINAL',
-    FINAL: 'FINAL'
-});
-const VALID_PLANNING_STAGES = new Set(Object.values(PLANNING_STAGES));
 // N3com tiene un único formato oficial: zonas, tabla general por puntos reales
 // de set y llave Top 16. Los valores históricos se leen como este formato para
 // que ningún torneo antiguo siga afectando la generación de partidos.
@@ -49,7 +41,7 @@ const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', cruces: 'TOP_16', cuarto_final: 'TO
 const LEGACY_PHASES = {};
 const TYPE_BY_PHASE = { ZONAS: 'fase_zonas', TOP_16: 'top_16', TOP_8: 'top_8', TOP_4: 'top_4', SEMIFINAL: 'semifinal', THIRD_PLACE: 'tercer_puesto', FINAL: 'final' };
 const phaseFor = match => LEGACY_PHASES[match.phase] ?? (match.phase || PHASE_BY_TYPE[match.tipo] || 'ZONAS');
-const normalizePlanningStage = stage => LEGACY_PHASES[stage] ?? stage;
+const normalizePlanningStage = stage => normalizeTournamentStage(LEGACY_PHASES[stage] ?? stage);
 const isZonePhaseMatch = match => phaseFor(match) === 'ZONAS';
 const isAllowedSpecialCross = (match, category, local, visitante, zones) => {
     if (match.tipo !== 'cruce_especial' || category?.nombre !== '+50 Mixto' || !local || !visitante) return false;
@@ -265,7 +257,7 @@ export const DataManager = {
             ...category.planning,
             days: category.planning.days.map(day => ({
                 date: day.date,
-                stages: [...new Set((day.stages || []).map(normalizePlanningStage).filter(stage => VALID_PLANNING_STAGES.has(stage)))]
+                stages: [...new Set((day.stages || []).map(normalizePlanningStage).filter(stage => TOURNAMENT_STAGES.includes(stage)))]
             })).sort((left, right) => left.date.localeCompare(right.date))
         };
     },
@@ -283,7 +275,7 @@ export const DataManager = {
             if (seenDates.has(date)) throw new Error('Una jornada no puede aparecer dos veces en la planificación.');
             seenDates.add(date);
             const stages = [...new Set((day?.stages || []).map(normalizePlanningStage).filter(Boolean))];
-            if (stages.some(stage => !VALID_PLANNING_STAGES.has(stage))) throw new Error('La planificación contiene una etapa no válida.');
+            if (stages.some(stage => !TOURNAMENT_STAGES.includes(stage))) throw new Error('La planificación contiene una etapa no válida.');
             return { date, stages };
         }).sort((left, right) => left.date.localeCompare(right.date));
         category.planning = { days: normalizedDays, updatedAt: new Date().toISOString() };
@@ -293,9 +285,11 @@ export const DataManager = {
     getPlanningDatesForStage(torneoId, categoriaId, phase) {
         const planning = this.getCategoryPlanning(torneoId, categoriaId);
         if (!planning) return [];
-        phase = normalizePlanningStage(phase);
-        const accepted = phase === 'ZONAS' ? new Set(['ZONAS', 'GARANTIZADOS']) : new Set([phase]);
-        return planning.days.filter(day => day.stages.some(stage => accepted.has(stage))).map(day => day.date);
+        const stage = normalizePlanningStage(phase);
+        const accepted = stage === 'fase_zonas'
+            ? new Set(['fase_zonas', 'partidos_garantizados'])
+            : new Set([stage]);
+        return planning.days.filter(day => day.stages.some(item => accepted.has(normalizePlanningStage(item)))).map(day => day.date);
     },
     createCategory(nombre, torneoId) {
         return this.createCategories([nombre], torneoId)[0];
@@ -442,7 +436,7 @@ export const DataManager = {
     createManualMatch(match) {
         const planning = this.getCategoryPlanning(match.torneoId, match.categoriaId);
         if (planning && match.fecha) {
-            const planningPhase = phaseFor(match) === 'THIRD_PLACE' ? 'FINAL' : phaseFor(match);
+            const planningPhase = phaseFor(match) === 'THIRD_PLACE' ? 'final' : phaseFor(match);
             if (!this.getPlanningDatesForStage(match.torneoId, match.categoriaId, planningPhase).includes(match.fecha)) throw new Error('La etapa de este partido no está configurada para la jornada seleccionada.');
         }
         return this.addMatches([{ ...match, estado: 'pendiente', confirmado: true }]);
@@ -486,10 +480,11 @@ export const DataManager = {
         if (phaseFor(match) === 'ZONAS' && (!local || !visitante || local.zonaId !== visitante.zonaId || !local.zonaId || match.zonaId !== local.zonaId)
             && !isAllowedSpecialCross(match, category, local, visitante, data.zones.filter(zone => zone.categoriaId === match.categoriaId))) throw new Error('No se pueden enfrentar equipos de zonas diferentes durante esta fase.');
         if (match.fecha && category.planning?.days) {
-            const planningPhase = phaseFor(match) === 'THIRD_PLACE' ? 'FINAL' : phaseFor(match);
+            const planningPhase = phaseFor(match) === 'THIRD_PLACE' ? 'final' : phaseFor(match);
             const day = category.planning.days.find(item => item.date === match.fecha);
-            const accepted = planningPhase === 'ZONAS' ? ['ZONAS', 'GARANTIZADOS'] : [planningPhase];
-            if (!day?.stages?.some(stage => accepted.includes(stage))) throw new Error('La etapa de este partido no está permitida en la jornada elegida para su categoría.');
+            const normalizedPhase = normalizePlanningStage(planningPhase);
+            const accepted = normalizedPhase === 'fase_zonas' ? ['fase_zonas', 'partidos_garantizados'] : [normalizedPhase];
+            if (!day?.stages?.some(stage => accepted.includes(normalizePlanningStage(stage)))) throw new Error('La etapa de este partido no está permitida en la jornada elegida para su categoría.');
         }
     },
     _validateScheduleConflicts(matches) {
