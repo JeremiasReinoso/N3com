@@ -573,7 +573,7 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
 .schedule-stage { color: #71829d; font-size: .78rem; font-weight: 700; }
 .schedule-score { min-width: 58px; padding: 6px 9px; border-radius: 8px; color: #126637; background: var(--success-soft); font-weight: 900; text-align: center; }
 .draft-fixture-list { display: grid; margin-top: 12px; border: 1px solid #e3ebf6; border-radius: 10px; overflow: hidden; }
-.draft-fixture-row { display: grid; grid-template-columns: minmax(145px, .7fr) minmax(220px, 1.4fr) auto; gap: 12px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #edf2f8; font-size: .88rem; }
+.draft-fixture-row { display: grid; grid-template-columns: minmax(135px, .8fr) minmax(110px, .5fr) minmax(110px, .5fr) minmax(150px, 1fr) minmax(220px, 1.4fr) auto; gap: 12px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #edf2f8; font-size: .88rem; }
 .draft-fixture-row:last-child { border-bottom: 0; }
 .draft-fixture-row > span { color: #63748d; font-weight: 700; }
 .draft-fixture-row button { padding: 7px 10px; font-size: .8rem; }
