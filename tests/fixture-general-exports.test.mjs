@@ -165,6 +165,13 @@ test('el PDF completo, el PDF de una jornada y el de una cancha reflejan el fixt
     assert.equal((fullPdf.match(/ vs /g) || []).length, rows.length, 'El PDF debe tener exactamente un renglón por partido.');
     rows.forEach(row => assert(fullPdf.includes(row.cancha), 'El PDF debe mostrar la cancha de cada partido.'));
     rows.forEach(row => assert(fullPdf.includes(row.categoryAge), 'El PDF debe mostrar la edad de la categoría.'));
+    assert.equal((fullPdf.match(/\/Type \/Page \/Parent/g) || []).length, 4, 'El PDF completo debe separar cada cancha y jornada en su propia página.');
+    const pageStreams = [...fullPdf.matchAll(/stream\n([\s\S]*?)\nendstream/g)].map(match => match[1]);
+    assert.equal(pageStreams.length, 4, 'El PDF debe tener un stream de contenido por página.');
+    pageStreams.forEach(stream => {
+        const pageCourts = ['Cancha 1', 'Cancha 2'].filter(court => stream.includes(court));
+        assert.equal(pageCourts.length, 1, 'Cada página del PDF debe contener una sola cancha.');
+    });
 
     const dayRows = rowsFor(tournament.id, categories, { date: '2026-10-09' });
     const dayPdf = decode(buildFixturePdf(tournament, dayRows, 'JORNADA: VIERNES 09 DE OCTUBRE DE 2026'));
