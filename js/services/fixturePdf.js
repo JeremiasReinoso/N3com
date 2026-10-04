@@ -36,7 +36,7 @@ const makePage = (tournament, rows, pageNumber, totalPages, subtitle = '', court
         const stage = `${row.phaseLabel}${row.zoneName ? ` · ${row.zoneName}` : ''}`;
         const match = `${row.teamA} vs ${row.teamB}`;
         const score = row.sets?.length ? `${row.sets.map((set, index) => `S${index + 1}: ${set.puntosLocal}-${set.puntosVisitante}`).join('  ')}  Resultado: ${row.score || ''}` : '';
-        commands.push(line(42, y, 9, clip(row.hora || '--:--', 6), true));
+        commands.push(line(42, y, 9, row.horaInicio ? clip(row.horaInicio, 6) : '', true));
         commands.push(line(86, y, 9, clip(row.cancha || 'Sin cancha', 15)));
         commands.push(line(170, y, 9, clip(category, 30)));
         commands.push(line(322, y, 9, clip(stage, 28)));
@@ -54,11 +54,15 @@ export const fixtureRows = ({ matches, categories, teams, zones, phaseLabels, fi
     const category = id => categories.find(item => item.id === id);
     const team = id => teams.find(item => item.id === id)?.nombre || 'Equipo no disponible';
     const zone = id => zones.find(item => item.id === id)?.nombre || '';
-    return matches.filter(match => (!filters.date || match.fecha === filters.date) && (!filters.courtId || match.courtId === filters.courtId || match.cancha === filters.courtName))
-        .sort(fixtureCompare).map(match => {
+    const sorted = matches.filter(match => (!filters.date || match.fecha === filters.date) && (!filters.courtId || match.courtId === filters.courtId || match.cancha === filters.courtName))
+        .sort(fixtureCompare);
+    const firstByDate = new Set();
+    return sorted.map(match => {
             const item = category(match.categoriaId) || {};
+            const horaInicio = firstByDate.has(match.fecha) ? '' : match.hora || '';
+            firstByDate.add(match.fecha);
             return {
-                id: match.id, fecha: match.fecha, hora: match.hora, cancha: match.cancha, orden: match.orden,
+                id: match.id, fecha: match.fecha, hora: match.hora, horaInicio, cancha: match.cancha, orden: match.orden,
                 categoryName: item.nombre || 'Sin categoría', categoryAge: item.edad || '', modality: item.modalidad || '',
                 phaseLabel: phaseLabels[match.phase || 'ZONAS'] || match.phase || 'Fase de zonas', zoneName: zone(match.zonaId),
                 teamA: team(match.equipoLocalId), teamB: team(match.equipoVisitanteId), status: statusLabel(match.estado),
@@ -172,12 +176,129 @@ export const buildFixtureSpreadsheet = ({ tournament, rows, courts }) => {
     return `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><DocumentProperties xmlns="urn:schemas-microsoft-com:office:office"><Title>${spreadsheetEscape(tournament?.nombre || 'Fixture')}</Title></DocumentProperties>${sheets.join('')}</Workbook>`;
 };
 
+const xlsxColumn = index => {
+    let value = index + 1;
+    let result = '';
+    while (value) {
+        const remainder = (value - 1) % 26;
+        result = String.fromCharCode(65 + remainder) + result;
+        value = Math.floor((value - 1) / 26);
+    }
+    return result;
+};
+
+const xlsxXmlEscape = value => String(value ?? '')
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&apos;');
+
+const xlsxCell = (value, rowNumber, columnNumber, style = 2) => {
+    const reference = `${xlsxColumn(columnNumber)}${rowNumber}`;
+    return `<c r="${reference}" t="inlineStr" s="${style}"><is><t xml:space="preserve">${xlsxXmlEscape(value)}</t></is></c>`;
+};
+
+const xlsxRows = (rows, includeCourt = true) => {
+    const header = ['Fecha', 'Hora inicio', ...(includeCourt ? ['Cancha'] : []), 'Categoría', 'Zona', 'Etapa', 'Partido', 'Equipo 1', 'Equipo 2', 'Estado', 'Resultado'];
+    const sorted = [...rows].sort(fixtureCompare);
+    const body = sorted.map((row, index) => {
+        const firstOfDate = index === 0 || sorted[index - 1].fecha !== row.fecha;
+        const values = [
+            row.fecha,
+            firstOfDate ? (row.hora || row.horaInicio || '') : '',
+            ...(includeCourt ? [row.cancha] : []),
+            [row.categoryAge, row.modality].filter(Boolean).join(' · ') || row.categoryName,
+            row.zoneName,
+            row.phaseLabel,
+            `${row.teamA} vs ${row.teamB}`,
+            row.teamA,
+            row.teamB,
+            row.status,
+            row.score
+        ];
+        const style = index % 2 ? 3 : 2;
+        return `<row r="${index + 2}">${values.map((value, column) => xlsxCell(value, index + 2, column, style)).join('')}</row>`;
+    }).join('');
+    const lastColumn = xlsxColumn(header.length - 1);
+    const headerXml = `<row r="1">${header.map((value, column) => xlsxCell(value, 1, column, 1)).join('')}</row>`;
+    return `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="18"/><cols>${header.map((_, index) => `<col min="${index + 1}" max="${index + 1}" width="${index === 0 ? 16 : index === 1 ? 12 : 20}" customWidth="1"/>`).join('')}</cols><sheetData>${headerXml}${body}</sheetData><autoFilter ref="A1:${lastColumn}${Math.max(1, sorted.length + 1)}"/></worksheet>`;
+};
+
+const xlsxZip = entries => {
+    const encoder = new TextEncoder();
+    const chunks = [];
+    const central = [];
+    let offset = 0;
+    const crc32 = bytes => {
+        let crc = 0xffffffff;
+        for (const byte of bytes) {
+            crc ^= byte;
+            for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+        }
+        return (crc ^ 0xffffffff) >>> 0;
+    };
+    entries.forEach(({ name, content }) => {
+        const nameBytes = encoder.encode(name);
+        const data = typeof content === 'string' ? encoder.encode(content) : content;
+        const crc = crc32(data);
+        const local = new Uint8Array(30 + nameBytes.length + data.length);
+        const view = new DataView(local.buffer);
+        view.setUint32(0, 0x04034b50, true); view.setUint16(4, 20, true); view.setUint16(6, 0x800, true);
+        view.setUint16(8, 0, true); view.setUint16(10, 0, true); view.setUint16(12, 0, true);
+        view.setUint32(14, crc, true); view.setUint32(18, data.length, true); view.setUint32(22, data.length, true);
+        view.setUint16(26, nameBytes.length, true); view.setUint16(28, 0, true);
+        local.set(nameBytes, 30); local.set(data, 30 + nameBytes.length);
+        chunks.push(local);
+        const record = new Uint8Array(46 + nameBytes.length);
+        const centralView = new DataView(record.buffer);
+        centralView.setUint32(0, 0x02014b50, true); centralView.setUint16(4, 20, true); centralView.setUint16(6, 20, true);
+        centralView.setUint16(8, 0x800, true); centralView.setUint16(10, 0, true); centralView.setUint16(12, 0, true); centralView.setUint16(14, 0, true);
+        centralView.setUint32(16, crc, true); centralView.setUint32(20, data.length, true); centralView.setUint32(24, data.length, true);
+        centralView.setUint16(28, nameBytes.length, true); centralView.setUint16(30, 0, true); centralView.setUint16(32, 0, true); centralView.setUint16(34, 0, true); centralView.setUint16(36, 0, true);
+        centralView.setUint32(38, 0, true); centralView.setUint32(42, offset, true); record.set(nameBytes, 46);
+        central.push(record); offset += local.length;
+    });
+    const centralSize = central.reduce((total, chunk) => total + chunk.length, 0);
+    const end = new Uint8Array(22); const endView = new DataView(end.buffer);
+    endView.setUint32(0, 0x06054b50, true); endView.setUint16(8, entries.length, true); endView.setUint16(10, entries.length, true);
+    endView.setUint32(12, centralSize, true); endView.setUint32(16, offset, true); endView.setUint16(20, 0, true);
+    const output = new Uint8Array(offset + centralSize + end.length); let cursor = 0;
+    chunks.forEach(chunk => { output.set(chunk, cursor); cursor += chunk.length; });
+    central.forEach(chunk => { output.set(chunk, cursor); cursor += chunk.length; });
+    output.set(end, cursor);
+    return output;
+};
+
+export const buildFixtureXlsx = ({ tournament, rows, courts }) => {
+    const safeSheetName = (name, used) => {
+        const base = String(name || 'Cancha').replace(/[\\/:?*\[\]]/g, ' ').slice(0, 31) || 'Cancha';
+        let candidate = base; let suffix = 2;
+        while (used.has(candidate)) candidate = `${base.slice(0, 27)} (${suffix++})`;
+        used.add(candidate); return candidate;
+    };
+    const usedNames = new Set(['Fixture completo']);
+    const sheetNames = ['Fixture completo', ...(courts || []).map(court => safeSheetName(court.name, usedNames))];
+    const sheets = [xlsxRows(rows, true), ...(courts || []).map(court => xlsxRows(rows.filter(row => row.cancha === court.name), false))];
+    const relationships = sheets.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join('');
+    const workbookSheets = sheetNames.map((name, index) => `<sheet name="${xlsxXmlEscape(name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join('');
+    const contentTypes = ['<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>', '<Default Extension="xml" ContentType="application/xml"/>', '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>', '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>', '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>', ...sheets.map((_, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`)].join('');
+    const styles = '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0E7490"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="4"><xf/><xf applyFont="1" applyFill="1" fontId="1" fillId="2"/><xf/><xf fillId="0"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+    const core = `<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">${xlsxXmlEscape(tournament?.nombre || 'Fixture')}</dc:title></cp:coreProperties>`;
+    return xlsxZip([
+        { name: '[Content_Types].xml', content: `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">${contentTypes}</Types>` },
+        { name: '_rels/.rels', content: '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>' },
+        { name: 'docProps/core.xml', content: core },
+        { name: 'xl/workbook.xml', content: `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets>${workbookSheets}</sheets></workbook>` },
+        { name: 'xl/_rels/workbook.xml.rels', content: `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relationships}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+        { name: 'xl/styles.xml', content: styles },
+        ...sheets.map((sheet, index) => ({ name: `xl/worksheets/sheet${index + 1}.xml`, content: sheet }))
+    ]);
+};
+
 export const downloadFixtureSpreadsheet = (tournament, rows, courts) => {
-    const xml = buildFixtureSpreadsheet({ tournament, rows, courts });
+    const xlsx = buildFixtureXlsx({ tournament, rows, courts });
     const safeName = latin(tournament.nombre).toLowerCase().replace(/[^a-z0-9]+/g, '-');
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8' }));
-    link.download = `fixture-${safeName}.xls`;
+    link.href = URL.createObjectURL(new Blob([xlsx], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    link.download = `fixture-${safeName}.xlsx`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 };
