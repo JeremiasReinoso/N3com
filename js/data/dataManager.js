@@ -588,9 +588,13 @@ export const DataManager = {
     },
     getTournamentCourts(torneoId) {
         const tournament = this.getTournament(torneoId);
+        const configuredCount = Number(tournament?.cantidadCanchas || 0);
+        if (Number.isInteger(configuredCount) && configuredCount > 0) {
+            const configured = Array.isArray(tournament?.courts) ? tournament.courts.map(normalizeCourt) : [];
+            return Array.from({ length: configuredCount }, (_, index) => configured[index] || normalizeCourt(null, index));
+        }
         if (Array.isArray(tournament?.courts) && tournament.courts.length) return tournament.courts.map(normalizeCourt);
-        const count = Number(tournament?.cantidadCanchas || 0);
-        return Number.isInteger(count) && count > 0 ? defaultCourts(count) : [];
+        return [];
     },
     getTournamentSchedulingSettings(torneoId) {
         const tournament = this.getTournament(torneoId);
@@ -609,7 +613,7 @@ export const DataManager = {
     },
     setTournamentCourtCount(torneoId, cantidadCanchas) {
         const count = Number(cantidadCanchas);
-        if (!Number.isInteger(count) || count < 1 || count > 20) throw new Error('Ingrese entre 1 y 20 canchas disponibles.');
+        if (!Number.isInteger(count) || count < 1) throw new Error('Ingrese una cantidad entera positiva de canchas disponibles.');
         const data = this._getStorage();
         const tournament = data.tournaments.find(item => item.id === torneoId);
         if (!tournament) throw new Error('No se encontró el torneo.');
@@ -625,7 +629,7 @@ export const DataManager = {
     },
     setTournamentCourts(torneoId, courts) {
         const normalized = (courts || []).map(normalizeCourt);
-        if (!normalized.length || normalized.length > 20) throw new Error('El torneo debe tener entre 1 y 20 canchas.');
+        if (!normalized.length) throw new Error('El torneo debe tener al menos una cancha.');
         if (new Set(normalized.map(court => court.name.toLocaleLowerCase('es'))).size !== normalized.length) throw new Error('Los nombres de las canchas no pueden repetirse.');
         const data = this._getStorage();
         const tournament = data.tournaments.find(item => item.id === torneoId);
