@@ -36,8 +36,27 @@ for (const [teamCount, guaranteed] of [[4, 3], [6, 3], [6, 5]]) {
 }
 
 {
+    // Con más asegurados que cruces posibles la zona se juega completa y
+    // avisa: nunca se repiten enfrentamientos ni se bloquea el torneo.
     const setup = buildZone('imposible', 3, 3);
-    assert.throws(() => SchedulerService.generarEmparejamientos(setup.tournament.id, setup.category.id), /Zona 1.*3 equipos/i);
+    SchedulerService.generarEmparejamientos(setup.tournament.id, setup.category.id);
+    const result = SchedulerService.validateGuaranteedMatches(setup.tournament.id, setup.category.id);
+    assert.equal(result.valid, true);
+    assert.deepEqual([...counts(setup.tournament, setup.category, setup.teams).values()], [2, 2, 2]);
+    assert(result.avisos.some(aviso => /Zona 1/.test(aviso) && /2 partidos por equipo/.test(aviso)), 'Debe avisar el tope de la zona.');
+}
+
+{
+    // 3 equipos con 1 partido asegurado: 3×1 no es par, así que se juega lo
+    // posible y el equipo sin rival queda informado como aviso.
+    const setup = buildZone('paridad', 3, 1);
+    SchedulerService.generarEmparejamientos(setup.tournament.id, setup.category.id);
+    const result = SchedulerService.validateGuaranteedMatches(setup.tournament.id, setup.category.id);
+    assert.equal(result.valid, true, 'Una zona corta no debe bloquear la validación.');
+    assert.equal(DataManager.getMatchesByTournamentAndCategory(setup.tournament.id, setup.category.id).length, 1);
+    assert([...counts(setup.tournament, setup.category, setup.teams).values()].every(count => count <= 1), 'Nadie puede superar los partidos asegurados.');
+    assert(result.avisos.some(aviso => /Zona 1/.test(aviso)), 'La zona sin más cruces debe quedar en los avisos.');
+    assert.equal(SchedulerService.estadoFaseClasificatoria(setup.tournament.id, setup.category.id).ok, false, 'Los partidos siguen pendientes de finalizar.');
 }
 
 {

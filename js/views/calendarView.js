@@ -97,6 +97,7 @@ export function initCalendarView() {
                 <label class="form-field"><span class="calendar-settings-label">Hasta</span><input id="hora-fin" type="time" value="${defaultEnd}" required></label>
                 <label class="form-field"><span class="calendar-settings-label">Duración del bloque (min)</span><input id="duracion-bloque" type="number" min="5" max="240" step="5" value="${settings.blockDuration}" required></label>
                 <label class="form-field"><span class="calendar-settings-label">Intervalo entre partidos (min)</span><input id="intervalo-partidos" type="number" min="0" max="120" value="${settings.intervaloPartidos}" required></label>
+                <div class="form-field"><span class="calendar-settings-label">Cómo se calcula</span><p class="helper-text">En cada cancha el próximo partido arranca cada "Intervalo" minutos (ej.: 30 → 08:00, 08:30, 09:00). Si el intervalo es menor que la duración del bloque, manda la duración del bloque.</p></div>
                 </div>
                 <p id="periodo-torneo-resumen" class="tournament-period-summary" aria-live="polite">${periodSummary(fechaInicio, fechaFin)}</p>
                 <div class="form-actions calendar-settings-actions"><button class="btn-primary" type="submit">Guardar calendario</button></div>

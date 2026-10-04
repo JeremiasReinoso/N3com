@@ -17,6 +17,7 @@ const { PosicionesService } = await import('../js/services/standings.js');
 test('fixture general: cuatro categorías comparten dos canchas, bloques y descanso', () => {
     memory.clear();
     const tournament = DataManager.createTournament('Regional de Newcom', 1);
+    DataManager.setTournamentSetFormats(tournament.id, { zones: 'two_sets_15' });
     DataManager.setTournamentCalendar(tournament.id, '2026-10-09', '2026-10-10', '08:00', '11:00', []);
     DataManager.setTournamentCourts(tournament.id, [{ id: 'principal', name: 'Cancha 1' }, { id: 'auxiliar', name: 'Cancha 2' }]);
     DataManager.setTournamentSchedulingSettings(tournament.id, 30, 0, 30);
