@@ -1,14 +1,10 @@
 import { AppState } from '../core/state.js';
 import { DataManager, PLANNING_STAGES } from '../data/dataManager.js';
+import { PLANNING_STAGE_DEFINITIONS } from '../domain/tournamentStages.js';
 
-export const PLANNING_STAGE_OPTIONS = [
-    [PLANNING_STAGES.ZONES, 'Fase de zonas'],
-    [PLANNING_STAGES.GUARANTEED, 'Partidos garantizados'],
-    [PLANNING_STAGES.ROUND_OF_16, 'Octavos de final (Top 16 → Top 8)'],
-    [PLANNING_STAGES.QUARTERFINALS, 'Cuartos de final (Top 8 → Top 4)'],
-    [PLANNING_STAGES.SEMIFINALS, 'Semifinales'],
-    [PLANNING_STAGES.FINAL, 'Final']
-];
+export const PLANNING_STAGE_OPTIONS = PLANNING_STAGE_DEFINITIONS
+    .filter(({ id }) => id !== PLANNING_STAGES.TOP_4)
+    .map(({ id, label }) => [id, label]);
 
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
