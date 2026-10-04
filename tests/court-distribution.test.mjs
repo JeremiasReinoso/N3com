@@ -56,6 +56,28 @@ test('la hoja de cálculo tiene una fuente general y una vista por cancha', () =
     assert((workbook.match(/<Row>/g) || []).length >= rows.length + 4, 'El libro contiene encabezado y filas del fixture general y sus vistas.');
 });
 
+test('la asignación obligatoria usa la cantidad configurada incluso con datos legacy', () => {
+    const tournament = createScenario(3, 5);
+    const before = LogisticsService.getTournamentMatches(tournament.id);
+    const fixture = LogisticsService.getGeneralFixture(tournament.id);
+    assert.equal(fixture.length, before.length);
+    assert(fixture.every(match => match.courtId && match.cancha));
+    assert.deepEqual([...new Set(fixture.map(match => match.cancha))].sort((a, b) => a.localeCompare(b, 'es', { numeric: true })), ['Cancha 1', 'Cancha 2', 'Cancha 3']);
+    assert.equal(DataManager.getTournamentCourts(tournament.id).length, 5);
+});
+
+test('la asignación obligatoria soporta una y diez canchas sin duplicar partidos', () => {
+    const one = createScenario(8, 1);
+    const oneFixture = LogisticsService.getGeneralFixture(one.id);
+    assert(oneFixture.every(match => match.cancha === 'Cancha 1'));
+
+    const ten = createScenario(10, 10);
+    const tenFixture = LogisticsService.getGeneralFixture(ten.id);
+    assert.equal(tenFixture.length, 10);
+    assert.equal(new Set(tenFixture.map(match => match.id)).size, 10);
+    assert.equal(new Set(tenFixture.map(match => match.cancha)).size, 10);
+});
+
 test('regenerar el fixture conserva los partidos y recalcula su asignación sin duplicarlos', () => {
     const tournament = createScenario(12, 3);
     const before = LogisticsService.generateSchedule(tournament.id);
