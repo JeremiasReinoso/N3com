@@ -6,6 +6,17 @@ const logisticsMinutesFromTime = time => {
     return hour * 60 + minute;
 };
 const timeFromMinutes = minutes => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+const logisticsTimeBlocksForDay = (tournamentId, day) => {
+    const settings = DataManager.getTournamentSchedulingSettings(tournamentId);
+    if (!day?.fecha || !/^\d{2}:\d{2}$/.test(day.inicio || '') || !/^\d{2}:\d{2}$/.test(day.fin || '')) return [];
+    const start = logisticsMinutesFromTime(day.inicio);
+    const end = logisticsMinutesFromTime(day.fin);
+    const slotInterval = settings.slotInterval || settings.blockDuration;
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start >= end || slotInterval < 1 || settings.blockDuration < 1) return [];
+    const blocks = [];
+    for (let minute = start; minute + settings.blockDuration <= end; minute += slotInterval) blocks.push(timeFromMinutes(minute));
+    return blocks;
+};
 const logisticsPhaseFor = match => match.phase || 'ZONAS';
 const logisticsIsOfficial = match => match.confirmado || ['pendiente', 'programado', 'confirmado', 'en_juego', 'finalizado'].includes(match.estado);
 const logisticsTeamsOverlap = (left, right) => [left.equipoLocalId, left.equipoVisitanteId].filter(Boolean)
@@ -25,6 +36,17 @@ const logisticsAllowedDates = (tournamentId, match) => {
     const phase = logisticsPhaseFor(match);
     const planned = DataManager.getPlanningDatesForStage(tournamentId, match.categoriaId, phase);
     return calendar.filter(date => planned.includes(date));
+};
+
+// La disponibilidad se calcula sobre el fixture completo, nunca por categoría.
+// Esto permite ordenar primero los partidos que tienen menos alternativas y
+// reservarles el recurso global antes de ocupar slots más flexibles.
+const logisticsCandidateCapacity = (tournamentId, match, days, courts) => {
+    const dates = logisticsAllowedDates(tournamentId, match);
+    return dates.reduce((total, date) => {
+        const day = days.find(item => item.fecha === date);
+        return total + (day ? logisticsTimeBlocksForDay(tournamentId, day).length : 0) * courts.length;
+    }, 0);
 };
 
 // Devuelve qué regla impide ocupar ese bloque. Se usa tanto para aceptar una
@@ -158,7 +180,11 @@ export const LogisticsService = {
         const occupied = all.filter(match => match.fecha && match.hora && match.cancha);
         const courtLoads = new Map(courts.map(court => [court.id, occupied.filter(match => logisticsCourtKey(match) === court.id || match.cancha === court.name).length]));
         const pending = all.filter(match => match.estado !== 'finalizado' && (!match.fecha || !match.hora || !match.cancha))
+            // Todos los partidos ya están reunidos en `all`. La capacidad se
+            // calcula sobre fechas y canchas globales para no consumir los
+            // recursos en el orden accidental de las categorías.
             .sort((left, right) => (phaseOrder[logisticsPhaseFor(left)] || 99) - (phaseOrder[logisticsPhaseFor(right)] || 99)
+                || logisticsCandidateCapacity(tournamentId, left, days, courts) - logisticsCandidateCapacity(tournamentId, right, days, courts)
                 || Number(left.ronda || left.orden || 0) - Number(right.ronda || right.orden || 0)
                 || String(left.id).localeCompare(String(right.id)));
         const updates = [];
