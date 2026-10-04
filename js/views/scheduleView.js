@@ -63,7 +63,7 @@ export const initScheduleView = () => {
     const allMatches = LogisticsService.getTournamentMatches(tournamentId);
     const activeMatches = allMatches.filter(match => match.categoriaId === activeCategoryId);
     const drafts = activeMatches.filter(match => !isOfficialMatch(match));
-    const official = allMatches.filter(isOfficialMatch).sort(fixtureCompare);
+    const official = LogisticsService.getGeneralFixture(tournamentId).filter(isOfficialMatch);
     const activeTeams = allTeams.filter(team => team.categoriaId === activeCategoryId);
     const calendarDates = DataManager.getCalendarDates(tournamentId);
     const planning = DataManager.getCategoryPlanning(tournamentId, activeCategoryId);
