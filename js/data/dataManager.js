@@ -1,16 +1,24 @@
 // Persistencia local del flujo principal del torneo. Esta pantalla funciona de
 // forma autónoma y no depende de la gestión de licencias.
-import { TOURNAMENT_STAGES, normalizeTournamentStage } from '../domain/tournamentStages.js';
-
 const STORAGE_KEY = 'newcom_data';
 const CLASSIFICATION_MODE = { SETS: 'sets', POINTS: 'points' };
+export const PLANNING_STAGES = Object.freeze({
+    ZONES: 'ZONAS',
+    GUARANTEED: 'GARANTIZADOS',
+    TOP_16: 'TOP_16',
+    TOP_8: 'TOP_8',
+    TOP_4: 'TOP_4',
+    SEMIFINALS: 'SEMIFINAL',
+    FINAL: 'FINAL'
+});
+const VALID_PLANNING_STAGES = new Set(Object.values(PLANNING_STAGES));
 // N3com tiene un único formato oficial: zonas, tabla general por puntos reales
 // de set y llave Top 16. Los valores históricos se leen como este formato para
 // que ningún torneo antiguo siga afectando la generación de partidos.
 const normalizeClassificationMode = () => CLASSIFICATION_MODE.POINTS;
 let sequence = 0;
 
-const emptyData = () => ({ tournaments: [], categories: [], teams: [], zones: [], matches: [], calendar: [], plannings: [] });
+const emptyData = () => ({ tournaments: [], categories: [], teams: [], zones: [], matches: [], calendar: [] });
 const makeId = (prefix) => `${prefix}_${Date.now()}_${++sequence}`;
 const datesBetween = (startDate, endDate) => {
     const dates = [];
@@ -41,7 +49,7 @@ const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', cruces: 'TOP_16', cuarto_final: 'TO
 const LEGACY_PHASES = {};
 const TYPE_BY_PHASE = { ZONAS: 'fase_zonas', TOP_16: 'top_16', TOP_8: 'top_8', TOP_4: 'top_4', SEMIFINAL: 'semifinal', THIRD_PLACE: 'tercer_puesto', FINAL: 'final' };
 const phaseFor = match => LEGACY_PHASES[match.phase] ?? (match.phase || PHASE_BY_TYPE[match.tipo] || 'ZONAS');
-const normalizePlanningStage = stage => normalizeTournamentStage(LEGACY_PHASES[stage] ?? stage);
+const normalizePlanningStage = stage => LEGACY_PHASES[stage] ?? stage;
 const isZonePhaseMatch = match => phaseFor(match) === 'ZONAS';
 const isAllowedSpecialCross = (match, category, local, visitante, zones) => {
     if (match.tipo !== 'cruce_especial' || category?.nombre !== '+50 Mixto' || !local || !visitante) return false;
@@ -154,7 +162,6 @@ export const DataManager = {
         try {
             const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
             const data = { ...emptyData(), ...(parsed || {}) };
-            data.plannings = Array.isArray(data.plannings) ? data.plannings : [];
             // Los torneos creados antes de esta opción conservan el formato
             // histórico basado en sets ganados.
             data.tournaments = data.tournaments.map(tournament => ({
@@ -227,93 +234,12 @@ export const DataManager = {
         data.zones = data.zones.filter(zone => !belongsToTournament(zone));
         data.matches = data.matches.filter(match => !belongsToTournament(match));
         data.calendar = data.calendar.filter(entry => entry.torneoId !== torneoId);
-        data.plannings = data.plannings.filter(planning => planning.torneoId !== torneoId);
         this._setStorage(data);
         return tournament;
     },
 
     getCategoriesByTournament(torneoId) { return this._getStorage().categories.filter(category => category.torneoId === torneoId); },
     getCategory(id) { return this._getStorage().categories.find(category => category.id === id) || null; },
-    getPlanningsByTournament(torneoId) {
-        return this._getStorage().plannings
-            .filter(planning => planning.torneoId === torneoId)
-            .sort((left, right) => String(left.createdAt || '').localeCompare(String(right.createdAt || '')))
-            .map(planning => this._materializePlanning(planning));
-    },
-    getPlanning(torneoId, planningId) {
-        const planning = this.getPlanningsByTournament(torneoId).find(item => item.id === planningId);
-        return planning ? this._materializePlanning(planning) : null;
-    },
-    getActivePlanning(torneoId) {
-        const planning = this.getPlanningsByTournament(torneoId).at(-1);
-        return planning ? this._materializePlanning(planning) : null;
-    },
-    _materializePlanning(planning) {
-        const data = this._getStorage();
-        const categoryIds = new Set(planning.selectedCategories || []);
-        const categoryDates = Object.fromEntries(Object.entries(planning.categoryDates || {}).map(([categoryId, dates]) => [categoryId, [...new Set(dates || [])]]));
-        const selectedDates = [...new Set(planning.selectedDates || Object.values(categoryDates).flat())].sort();
-        const matches = data.matches.filter(match => {
-            if (match.torneoId !== planning.torneoId || !categoryIds.has(match.categoriaId)) return false;
-            const dates = categoryDates[match.categoriaId] || selectedDates;
-            return !match.fecha || !dates.length || dates.includes(match.fecha);
-        });
-        const matchIds = matches.map(match => match.id);
-        return {
-            ...planning,
-            selectedCategories: [...categoryIds],
-            categoryDates,
-            selectedDates,
-            matches,
-            matchIds,
-            schedule: matches.filter(match => match.fecha && match.hora),
-            courts: [...new Set(matches.map(match => match.courtId).filter(Boolean))]
-        };
-    },
-    getPlanningMatches(torneoId, planningId = null, { includeDrafts = true } = {}) {
-        const planning = planningId ? this.getPlanning(torneoId, planningId) : this.getActivePlanning(torneoId);
-        if (!planning) return null;
-        return planning.matches.filter(match => includeDrafts || match.confirmado || match.estado !== 'borrador');
-    },
-    setTournamentPlanning(torneoId, { selectedCategories = [], categoryDates = {}, planningId = null } = {}) {
-        const data = this._getStorage();
-        const categories = data.categories.filter(category => category.torneoId === torneoId);
-        const categoryIds = [...new Set(selectedCategories)].filter(categoryId => categories.some(category => category.id === categoryId));
-        if (!categoryIds.length) throw new Error('Seleccione al menos una categoría para la planificación.');
-        const calendarDates = new Set(this.getCalendarDates(torneoId));
-        const normalizedCategoryDates = Object.fromEntries(categoryIds.map(categoryId => {
-            const dates = [...new Set((categoryDates[categoryId] || []).map(String))];
-            if (!dates.length) throw new Error('Cada categoría seleccionada debe tener al menos una fecha.');
-            if (dates.some(date => !calendarDates.has(date))) throw new Error('Una fecha de la planificación no está habilitada en el calendario del torneo.');
-            return [categoryId, dates.sort()];
-        }));
-        const selectedDates = [...new Set(Object.values(normalizedCategoryDates).flat())].sort();
-        if (!selectedDates.length) throw new Error('Seleccione al menos una fecha para la planificación.');
-        const now = new Date().toISOString();
-        let planning = planningId && data.plannings.find(item => item.id === planningId && item.torneoId === torneoId);
-        const previousCategoryDates = planning?.categoryDates || {};
-        const rebuildSchedule = !planning || categoryIds.some(categoryId => JSON.stringify(previousCategoryDates[categoryId] || []) !== JSON.stringify(normalizedCategoryDates[categoryId] || []));
-        if (!planning) {
-            planning = { id: makeId('planning'), torneoId, createdAt: now };
-            data.plannings.push(planning);
-        }
-        planning.selectedCategories = categoryIds;
-        planning.categoryDates = normalizedCategoryDates;
-        planning.selectedDates = selectedDates;
-        planning.updatedAt = now;
-        if (rebuildSchedule) {
-            const selected = new Set(categoryIds);
-            data.matches.forEach(match => {
-                if (match.torneoId !== torneoId || !selected.has(match.categoriaId) || match.estado === 'finalizado') return;
-                match.fecha = null;
-                match.hora = null;
-                match.courtId = null;
-                match.cancha = null;
-            });
-        }
-        this._setStorage(data);
-        return this._materializePlanning(planning);
-    },
     getCategoryRestBlocks(id) { return Math.max(0, Number(this.getCategory(id)?.minimumRestBlocks || 0)); },
     setCategoryRestBlocks(torneoId, categoriaId, blocks) {
         const value = Number(blocks);
@@ -339,7 +265,7 @@ export const DataManager = {
             ...category.planning,
             days: category.planning.days.map(day => ({
                 date: day.date,
-                stages: [...new Set((day.stages || []).map(normalizePlanningStage).filter(stage => TOURNAMENT_STAGES.includes(stage)))]
+                stages: [...new Set((day.stages || []).map(normalizePlanningStage).filter(stage => VALID_PLANNING_STAGES.has(stage)))]
             })).sort((left, right) => left.date.localeCompare(right.date))
         };
     },
@@ -357,7 +283,7 @@ export const DataManager = {
             if (seenDates.has(date)) throw new Error('Una jornada no puede aparecer dos veces en la planificación.');
             seenDates.add(date);
             const stages = [...new Set((day?.stages || []).map(normalizePlanningStage).filter(Boolean))];
-            if (stages.some(stage => !TOURNAMENT_STAGES.includes(stage))) throw new Error('La planificación contiene una etapa no válida.');
+            if (stages.some(stage => !VALID_PLANNING_STAGES.has(stage))) throw new Error('La planificación contiene una etapa no válida.');
             return { date, stages };
         }).sort((left, right) => left.date.localeCompare(right.date));
         category.planning = { days: normalizedDays, updatedAt: new Date().toISOString() };
@@ -365,17 +291,11 @@ export const DataManager = {
         return category.planning;
     },
     getPlanningDatesForStage(torneoId, categoriaId, phase) {
-        const activePlanning = this.getActivePlanning(torneoId);
-        if (activePlanning?.selectedCategories?.includes(categoriaId)) {
-            return activePlanning.categoryDates?.[categoriaId] || activePlanning.selectedDates || [];
-        }
         const planning = this.getCategoryPlanning(torneoId, categoriaId);
         if (!planning) return [];
-        const stage = normalizePlanningStage(phase);
-        const accepted = stage === 'fase_zonas'
-            ? new Set(['fase_zonas', 'partidos_garantizados'])
-            : new Set([stage]);
-        return planning.days.filter(day => day.stages.some(item => accepted.has(normalizePlanningStage(item)))).map(day => day.date);
+        phase = normalizePlanningStage(phase);
+        const accepted = phase === 'ZONAS' ? new Set(['ZONAS', 'GARANTIZADOS']) : new Set([phase]);
+        return planning.days.filter(day => day.stages.some(stage => accepted.has(stage))).map(day => day.date);
     },
     createCategory(nombre, torneoId) {
         return this.createCategories([nombre], torneoId)[0];
@@ -504,7 +424,7 @@ export const DataManager = {
         this._setStorage(data);
         return created;
     },
-    updateMatches(matches, { planningId = null } = {}) {
+    updateMatches(matches) {
         const data = this._getStorage();
         const byId = new Map(matches.map(match => [match.id, normalizeMatch(match)]));
         byId.forEach((match, id) => {
@@ -515,14 +435,14 @@ export const DataManager = {
         });
         const updated = data.matches.map(match => byId.get(match.id) || match);
         assertUniqueGroupPairs(updated);
-        this._validateScheduleConflicts(updated, planningId);
+        this._validateScheduleConflicts(updated);
         data.matches = updated;
         this._setStorage(data);
     },
     createManualMatch(match) {
         const planning = this.getCategoryPlanning(match.torneoId, match.categoriaId);
         if (planning && match.fecha) {
-            const planningPhase = phaseFor(match) === 'THIRD_PLACE' ? 'final' : phaseFor(match);
+            const planningPhase = phaseFor(match) === 'THIRD_PLACE' ? 'FINAL' : phaseFor(match);
             if (!this.getPlanningDatesForStage(match.torneoId, match.categoriaId, planningPhase).includes(match.fecha)) throw new Error('La etapa de este partido no está configurada para la jornada seleccionada.');
         }
         return this.addMatches([{ ...match, estado: 'pendiente', confirmado: true }]);
@@ -566,29 +486,13 @@ export const DataManager = {
         if (phaseFor(match) === 'ZONAS' && (!local || !visitante || local.zonaId !== visitante.zonaId || !local.zonaId || match.zonaId !== local.zonaId)
             && !isAllowedSpecialCross(match, category, local, visitante, data.zones.filter(zone => zone.categoriaId === match.categoriaId))) throw new Error('No se pueden enfrentar equipos de zonas diferentes durante esta fase.');
         if (match.fecha && category.planning?.days) {
-            const planningPhase = phaseFor(match) === 'THIRD_PLACE' ? 'final' : phaseFor(match);
-            const activePlanning = this.getActivePlanning(match.torneoId);
-            const activeDates = activePlanning?.selectedCategories?.includes(match.categoriaId)
-                ? new Set(activePlanning.categoryDates?.[match.categoriaId] || [])
-                : null;
-            const day = activeDates ? { date: match.fecha, stages: [...activeDates] } : category.planning.days.find(item => item.date === match.fecha);
-            const normalizedPhase = normalizePlanningStage(planningPhase);
-            const accepted = normalizedPhase === 'fase_zonas' ? ['fase_zonas', 'partidos_garantizados'] : [normalizedPhase];
-            if (activeDates ? !activeDates.has(match.fecha) : !day?.stages?.some(stage => accepted.includes(normalizePlanningStage(stage)))) throw new Error('La etapa de este partido no está permitida en la jornada elegida para su categoría.');
+            const planningPhase = phaseFor(match) === 'THIRD_PLACE' ? 'FINAL' : phaseFor(match);
+            const day = category.planning.days.find(item => item.date === match.fecha);
+            const accepted = planningPhase === 'ZONAS' ? ['ZONAS', 'GARANTIZADOS'] : [planningPhase];
+            if (!day?.stages?.some(stage => accepted.includes(stage))) throw new Error('La etapa de este partido no está permitida en la jornada elegida para su categoría.');
         }
     },
-    _validateScheduleConflicts(matches, planningId = null) {
-        if (planningId) {
-            const planning = this.getPlanning(matches[0]?.torneoId, planningId);
-            if (planning) {
-                const selected = new Set(planning.selectedCategories);
-                matches = matches.filter(match => {
-                    if (!selected.has(match.categoriaId)) return false;
-                    const dates = planning.categoryDates?.[match.categoriaId] || planning.selectedDates;
-                    return !match.fecha || dates.includes(match.fecha);
-                });
-            }
-        }
+    _validateScheduleConflicts(matches) {
         const scheduledMatches = matches.filter(match => match.fecha && match.hora);
         scheduledMatches.forEach((match, index, scheduled) => {
             scheduled.slice(index + 1).forEach(other => {
@@ -759,14 +663,12 @@ export const DataManager = {
         const categories = data.categories.filter(category => category.torneoId === torneoId);
         return [...targets].map(date => {
             const plannedCategories = categories.filter(category => category.planning?.days?.some(day => day.date === date && day.stages?.length));
-            const plannedEntities = data.plannings.filter(planning => planning.torneoId === torneoId && planning.selectedDates?.includes(date));
-            const planningCategoryIds = new Set(plannedEntities.flatMap(planning => planning.selectedCategories || []));
             const matches = data.matches.filter(match => match.torneoId === torneoId && match.fecha === date);
             return {
                 date,
-                categoryIds: [...new Set([...plannedCategories.map(category => category.id), ...planningCategoryIds, ...matches.map(match => match.categoriaId)])],
-                categoryNames: [...new Set([...plannedCategories.map(category => category.nombre), ...[...planningCategoryIds].map(categoryId => categories.find(category => category.id === categoryId)?.nombre).filter(Boolean), ...matches.map(match => categories.find(category => category.id === match.categoriaId)?.nombre).filter(Boolean)])],
-                planningCount: plannedCategories.length + plannedEntities.length,
+                categoryIds: [...new Set([...plannedCategories.map(category => category.id), ...matches.map(match => match.categoriaId)])],
+                categoryNames: [...new Set([...plannedCategories.map(category => category.nombre), ...matches.map(match => categories.find(category => category.id === match.categoriaId)?.nombre).filter(Boolean)])],
+                planningCount: plannedCategories.length,
                 matchCount: matches.length
             };
         }).filter(usage => usage.planningCount || usage.matchCount);
