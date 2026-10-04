@@ -101,6 +101,69 @@ export const fixtureCompare = (left, right) => String(left.fecha || '9999-99-99'
     || Number(left.orden || Number.MAX_SAFE_INTEGER) - Number(right.orden || Number.MAX_SAFE_INTEGER);
 
 export const LogisticsService = {
+    // Completa la asignación persistida de todos los partidos que forman parte
+    // del fixture. Es deliberadamente global: las categorías comparten las
+    // mismas canchas y ninguna pantalla debe inventar una asignación propia.
+    ensureAllMatchesHaveCourts(tournamentId, { includeDrafts = false } = {}) {
+        const courts = DataManager.getTournamentCourts(tournamentId);
+        const matches = this.getTournamentMatches(tournamentId)
+            .filter(match => includeDrafts || logisticsIsOfficial(match));
+        if (!matches.length) return { matches, updated: 0 };
+        if (!courts.length) throw new Error(`No se pudieron asignar las canchas a todos los partidos. Se detectaron ${matches.length} partidos sin cancha. Revisá la configuración logística del torneo.`);
+
+        const courtIds = new Set(courts.map(court => court.id));
+        const courtNames = new Map(courts.map(court => [court.name, court.id]));
+        const bySlot = new Map();
+        const loadsByDate = new Map();
+        const updates = [];
+        const ordered = [...matches].sort(fixtureCompare);
+        const dateKey = match => match.fecha || '__sin_fecha__';
+        const slotKey = match => `${dateKey(match)}|${match.hora || '__sin_hora__'}`;
+        const loadsFor = date => {
+            if (!loadsByDate.has(date)) loadsByDate.set(date, new Map(courts.map(court => [court.id, 0])));
+            return loadsByDate.get(date);
+        };
+        const usedFor = key => {
+            if (!bySlot.has(key)) bySlot.set(key, new Set());
+            return bySlot.get(key);
+        };
+        const configuredCourt = match => courtIds.has(match.courtId)
+            ? courts.find(court => court.id === match.courtId)
+            : courts.find(court => court.id === courtNames.get(match.cancha));
+
+        ordered.forEach(match => {
+            const existingCourt = configuredCourt(match);
+            if (existingCourt) {
+                loadsFor(dateKey(match)).set(existingCourt.id, loadsFor(dateKey(match)).get(existingCourt.id) + 1);
+                usedFor(slotKey(match)).add(existingCourt.id);
+                if (match.courtId !== existingCourt.id || match.cancha !== existingCourt.name) updates.push({ ...match, courtId: existingCourt.id, cancha: existingCourt.name });
+                return;
+            }
+
+            const date = dateKey(match);
+            const loads = loadsFor(date);
+            const used = usedFor(slotKey(match));
+            const available = courts.filter(court => !used.has(court.id));
+            // Prefer una cancha libre en el mismo bloque. Si los datos ya
+            // contienen más partidos simultáneos que canchas, el fallback
+            // sigue asignando una cancha válida y deja el conflicto visible
+            // para validateSchedule, sin perder el partido.
+            const candidates = available.length ? available : courts;
+            const court = [...candidates].sort((left, right) => loads.get(left.id) - loads.get(right.id)
+                || left.name.localeCompare(right.name, 'es', { numeric: true }))[0];
+            loads.set(court.id, loads.get(court.id) + 1);
+            used.add(court.id);
+            updates.push({ ...match, courtId: court.id, cancha: court.name });
+        });
+
+        if (updates.length) DataManager.updateMatches(updates);
+        const normalized = this.getTournamentMatches(tournamentId)
+            .filter(match => includeDrafts || logisticsIsOfficial(match));
+        const missing = normalized.filter(match => !configuredCourt(match));
+        if (missing.length) throw new Error(`No se pudieron asignar las canchas a todos los partidos. Se detectaron ${missing.length} partidos sin cancha. Revisá la configuración logística del torneo.`);
+        return { matches: normalized, updated: updates.length };
+    },
+
     getTournamentMatches(tournamentId) {
         return DataManager.getCategoriesByTournament(tournamentId)
             .flatMap(category => DataManager.getMatchesByTournamentAndCategory(tournamentId, category.id));
@@ -135,9 +198,7 @@ export const LogisticsService = {
     },
 
     getGeneralFixture(tournamentId, { includeDrafts = false } = {}) {
-        return this.getTournamentMatches(tournamentId)
-            .filter(match => includeDrafts || logisticsIsOfficial(match))
-            .sort(fixtureCompare);
+        return this.ensureAllMatchesHaveCourts(tournamentId, { includeDrafts }).matches.sort(fixtureCompare);
     },
 
     // Explica qué regla bloqueó cada partido que no pudo colocarse. El
