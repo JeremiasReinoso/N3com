@@ -169,7 +169,7 @@ const pairAndProgram = setup => {
     DataManager.setTournamentSchedulingSettings(setup.tournament.id, 30, 60, 30);
     const conflicts = LogisticsService.getConflicts(setup.tournament.id);
     assert.equal(conflicts.length, 1, 'Al pasar a 60 minutos de intervalo, los partidos de 09:00 y 09:30 quedan en conflicto.');
-    assert.equal(conflicts[0].type, 'court');
+    assert.equal(conflicts[0].type, 'invalid-time', 'El intervalo violado se reporta como horario inválido.');
 }
 
 console.log('Programación: categorías mezcladas en el mismo día y cadencia (intervalo) respetada entre partidos.');

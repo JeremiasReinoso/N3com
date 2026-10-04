@@ -1,5 +1,6 @@
 ﻿// Verificación de escritorio (Electron) de las vistas Programación y Fixture,
 // el formato de sets por fase y la carga de resultados.
+
 // Se ejecuta con el binario de Electron de Windows:
 //   electron tests/smoke/app
 // No forma parte de `npm test`; sirve para comprobar la interfaz real
@@ -142,6 +143,7 @@ const main = async () => {
         check('todos los partidos programados tienen hora', programmed.cards > 0 && programmed.withTime === programmed.cards);
         check('todos los partidos programados tienen cancha', programmed.withCourt === programmed.cards);
         check('en cada horario juegan las dos categorías del mismo día', programmed.slots > 0 && programmed.mixedSlots === programmed.slots);
+
         check('sin conflictos el estado queda en LISTO', programmed.statusChip === 'LISTO');
         check('el filtro por día muestra sólo esa jornada', report.filterDay > 0 && report.filterOtherDay === 0);
         check('los filtros día y cancha se combinan', report.filterDayCourt > 0 && report.filterDayCourt <= report.filterDay);
@@ -171,6 +173,7 @@ const main = async () => {
         check('el PDF de posiciones se entrega al navegador', downloads.some(name => /^clasificacion-.*\.pdf$/.test(name)));
         check('limpiar la programación deja sólo los partidos finalizados con horario', report.limpiar?.scheduled === report.limpiar?.finished && report.limpiar?.finished > 0 && report.limpiar?.pendingLeft === 0);
         check('limpiar la programación informa cuántos partidos se desprogramaron', /\d+ partido\(s\) quedaron sin programar/.test(report.limpiar?.alerts || ''));
+
         check('el ancho reducido pasa a tarjetas y oculta la cabecera', Boolean(narrow && narrow.columns === 2 && narrow.head === 'none'));
         check('en ancho normal la tabla mantiene sus seis columnas', Boolean(wide && wide.columns === 6 && wide.head === 'grid'));
         if (print) {

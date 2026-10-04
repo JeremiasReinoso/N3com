@@ -1,21 +1,22 @@
 import { DataManager } from '../data/dataManager.js';
 import { LogisticsService } from './logistics.js';
+import { SPECIAL_CROSS_TYPE, isAllowedSpecialCross } from './specialCrosses.js';
 
 const pairKey = (teamAId, teamBId) => {
     if (!teamAId || !teamBId || teamAId === teamBId) throw new Error('Un equipo no puede jugar contra sí mismo.');
     return [String(teamAId), String(teamBId)].sort().join(':');
 };
 const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'finalizado'].includes(match.estado);
-const isGroupMatch = match => match.phase === 'ZONAS' || !match.tipo || match.tipo === 'fase_zonas';
-const isAllVsAllMatch = match => match.phase === 'ALL_VS_ALL' || match.tipo === 'cruces_todos_contra_todos';
+const isGroupMatch = match => match.phase === 'ZONAS' || !match.tipo || match.tipo === 'fase_zonas' || match.tipo === SPECIAL_CROSS_TYPE;
 const schedulerAllVsAllTournament = torneoId => DataManager.getTournamentMethod(torneoId) === 'all_vs_all';
+const isAllVsAllMatch = match => match.phase === 'ALL_VS_ALL' || match.tipo === 'cruces_todos_contra_todos';
 const schedulerMinutesFromTime = time => {
     const [hour, minute] = time.split(':').map(Number);
     return hour * 60 + minute;
 };
 const schedulerTimeFromMinutes = minutes => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 const dayCapacity = (day, settings, courtCount) => {
-    const duration = Number(settings.duracionPartido);
+    const duration = Number(settings.blockDuration || settings.duracionPartido);
     const step = Math.max(duration, Number(settings.intervaloPartidos || 0));
     const available = schedulerMinutesFromTime(day.fin) - schedulerMinutesFromTime(day.inicio);
     return step > 0 ? Math.max(0, Math.floor((available - duration) / step + 1) * courtCount) : 0;
@@ -134,8 +135,8 @@ const assignRounds = (existing, pairs) => {
 };
 
 export const SchedulerService = {
-    // La fase se deriva de resultados y de un cierre explícito de los cruces.
-    // Así no se habilitan semifinales sólo por haber terminado los asegurados.
+    // La fase se deriva únicamente del cuadro de eliminación y de los
+    // resultados reales. No existe una fase deportiva alternativa.
     getTournamentPhase(torneoId, categoriaId) {
         if (!schedulerAllVsAllTournament(torneoId)) return 'STANDARD';
         const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
@@ -149,13 +150,83 @@ export const SchedulerService = {
         return 'ALL_VS_ALL';
     },
 
+    // Genera únicamente los cruces necesarios para que cada equipo alcance el
+    // mínimo configurado. Cada par usa una clave normalizada: A-B y B-A son
+    // el mismo enfrentamiento.
+    generarEmparejamientos(torneoId, categoriaId, options = {}) {
+        if (options.date) {
+            const calendarDates = DataManager.getCalendarDates(torneoId);
+            if (!calendarDates.includes(options.date)) throw new Error('Esta fecha no está habilitada en el calendario del torneo.');
+            const planning = DataManager.getCategoryPlanning(torneoId, categoriaId);
+            if (planning && !DataManager.getPlanningDatesForStage(torneoId, categoriaId, 'ZONAS').includes(options.date)) throw new Error('Esta jornada no tiene configurada la fase de zonas o los partidos garantizados.');
+        }
+        const tournament = DataManager.getTournament(torneoId);
+        if (!tournament) throw new Error('Seleccione un torneo válido.');
+        const assured = Number(tournament.partidos_asegurados);
+        const teams = DataManager.getTeamsByTournamentAndCategory(torneoId, categoriaId);
+        const zones = DataManager.getZonesByTournamentAndCategory(torneoId, categoriaId);
+        if (!teams.length) throw new Error('La categoría seleccionada no tiene equipos.');
+        if (teams.some(team => !team.zonaId)) throw new Error('Asigne una zona a todos los equipos antes de emparejar.');
+
+        // Repara duplicados de datos locales creados por versiones anteriores
+        // antes de calcular. Las altas y ediciones actuales siempre rechazan
+        // duplicados; no se eliminan silenciosamente en esos flujos.
+        DataManager.deduplicateGroupMatches(torneoId, categoriaId);
+        const existingFixture = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(isGroupMatch);
+        const existingValidation = this.validateGuaranteedMatches(torneoId, categoriaId);
+        if (existingValidation.invalidMatches.length || existingValidation.crossZoneMatches.length || existingValidation.scheduleConflicts.length) {
+            throw new Error(existingValidation.mensaje);
+        }
+
+        const pending = [];
+        for (const zone of zones) {
+            const zoneTeams = teams.filter(team => team.zonaId === zone.id);
+            if (!zoneTeams.length) continue;
+            if (zoneTeams.length < 2) throw new Error(`${zone.nombre} necesita al menos dos equipos.`);
+            // La zona nunca juega más allá de lo que permite repetir cruces:
+            // si los asegurados no entran, se juega menos y se avisa.
+            const zoneRequired = zoneRequirement(zone, zoneTeams, assured);
+            const existing = existingFixture.filter(match => match.zonaId === zone.id && match.tipo !== SPECIAL_CROSS_TYPE);
+            const counts = new Map(zoneTeams.map(team => [team.id, 0]));
+            const pairsSeen = new Set();
+            existingFixture.filter(match => [match.equipoLocalId, match.equipoVisitanteId].some(teamId => zoneTeams.some(team => team.id === teamId))).forEach(match => {
+                const key = pairKey(match.equipoLocalId, match.equipoVisitanteId);
+                if (pairsSeen.has(key)) throw new Error(`${zone.nombre} contiene un enfrentamiento duplicado.`);
+                pairsSeen.add(key);
+                counts.set(match.equipoLocalId, (counts.get(match.equipoLocalId) || 0) + 1);
+                counts.set(match.equipoVisitanteId, (counts.get(match.equipoVisitanteId) || 0) + 1);
+            });
+
+            if ([...counts.values()].every(count => count >= zoneRequired)) continue;
+            let generated;
+            try {
+                generated = buildBalancedPairs(zoneTeams, counts, pairsSeen, zoneRequired);
+            } catch {
+                // Sin repetir cruces la zona no da abasto: se juega lo que
+                // permite y la validación lo informa como aviso.
+                generated = buildPartialPairs(zoneTeams, counts, pairsSeen, zoneRequired);
+            }
+            assignRounds(existing, generated).forEach(({ local, visitante, ronda, revancha }) => {
+                pending.push({ torneoId, categoriaId, zonaId: zone.id, tipo: 'fase_zonas', phase: 'ZONAS', ronda, revancha: Boolean(revancha), equipoLocalId: local.id, equipoVisitanteId: visitante.id, fecha: null, hora: null, cancha: null, estado: 'borrador', confirmado: false, setsLocal: null, setsVisitante: null });
+            });
+        }
+        const created = pending.length ? DataManager.addMatches(pending) : [];
+        const validation = this.validateGuaranteedMatches(torneoId, categoriaId);
+        if (!validation.valid) {
+            // No se confirma una solución parcial si una validación posterior
+            // detecta un dato inesperado: se revierte sólo lo creado en esta
+            // ejecución y se conserva el fixture que ya existía.
+            created.forEach(match => DataManager.removeMatch(match.id));
+            throw new Error(validation.mensaje);
+        }
+        this.redistribuirFechas(torneoId, categoriaId, options.date ? [options.date] : null);
+        return pending.length;
+    },
+
     getAllVsAllCrosses(torneoId, categoriaId) {
         return DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(isAllVsAllMatch);
     },
 
-    // Cada tanda propone como máximo un partido por equipo. Se prioriza a los
-    // equipos con menos encuentros totales y nunca se reutiliza un rival ya
-    // enfrentado; las zonas dejan de participar en este cálculo.
     proponerCrucesTodosContraTodos(torneoId, categoriaId) {
         if (!schedulerAllVsAllTournament(torneoId)) throw new Error('Los cruces libres sólo están disponibles para el método Todos contra todos.');
         if (this.getTournamentPhase(torneoId, categoriaId) !== 'ALL_VS_ALL') throw new Error('La fase de cruces no está habilitada para esta categoría.');
@@ -239,76 +310,6 @@ export const SchedulerService = {
         DataManager.setAllVsAllCrossesClosed(torneoId, categoriaId, true);
     },
 
-    // Genera únicamente los cruces necesarios para que cada equipo alcance el
-    // mínimo configurado. Cada par usa una clave normalizada: A-B y B-A son
-    // el mismo enfrentamiento.
-    generarEmparejamientos(torneoId, categoriaId, options = {}) {
-        if (options.date) {
-            if (!DataManager.getCalendarDates(torneoId).includes(options.date)) throw new Error('Esta fecha no está habilitada en el calendario del torneo.');
-            const planning = DataManager.getCategoryPlanning(torneoId, categoriaId);
-            if (planning && !DataManager.getPlanningDatesForStage(torneoId, categoriaId, 'ZONAS').includes(options.date)) throw new Error('Esta jornada no tiene configurada la fase de zonas o los partidos garantizados.');
-        }
-        const tournament = DataManager.getTournament(torneoId);
-        if (!tournament) throw new Error('Seleccione un torneo válido.');
-        const assured = Number(tournament.partidos_asegurados);
-        const teams = DataManager.getTeamsByTournamentAndCategory(torneoId, categoriaId);
-        const zones = DataManager.getZonesByTournamentAndCategory(torneoId, categoriaId);
-        if (!teams.length) throw new Error('La categoría seleccionada no tiene equipos.');
-        if (teams.some(team => !team.zonaId)) throw new Error('Asigne una zona a todos los equipos antes de emparejar.');
-
-        // Repara duplicados de datos locales creados por versiones anteriores
-        // antes de calcular. Las altas y ediciones actuales siempre rechazan
-        // duplicados; no se eliminan silenciosamente en esos flujos.
-        DataManager.deduplicateGroupMatches(torneoId, categoriaId);
-        const existingFixture = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(isGroupMatch);
-        const existingValidation = this.validateGuaranteedMatches(torneoId, categoriaId);
-        if (existingValidation.invalidMatches.length || existingValidation.crossZoneMatches.length || existingValidation.scheduleConflicts.length) {
-            throw new Error(existingValidation.mensaje);
-        }
-
-        const pending = [];
-        for (const zone of zones) {
-            const zoneTeams = teams.filter(team => team.zonaId === zone.id);
-            if (!zoneTeams.length) continue;
-            if (zoneTeams.length < 2) throw new Error(`${zone.nombre} necesita al menos dos equipos.`);
-            // La zona nunca juega más allá de lo que permite repetir cruces:
-            // si los asegurados no entran, se juega menos y se avisa.
-            const zoneRequired = zoneRequirement(zone, zoneTeams, assured);
-            const existing = existingFixture.filter(match => match.zonaId === zone.id);
-            const counts = new Map(zoneTeams.map(team => [team.id, 0]));
-            const pairsSeen = new Set();
-            existing.forEach(match => {
-                const key = pairKey(match.equipoLocalId, match.equipoVisitanteId);
-                if (pairsSeen.has(key)) throw new Error(`${zone.nombre} contiene un enfrentamiento duplicado.`);
-                pairsSeen.add(key);
-                counts.set(match.equipoLocalId, (counts.get(match.equipoLocalId) || 0) + 1);
-                counts.set(match.equipoVisitanteId, (counts.get(match.equipoVisitanteId) || 0) + 1);
-            });
-
-            if ([...counts.values()].every(count => count >= zoneRequired)) continue;
-            let generated;
-            try {
-                generated = buildBalancedPairs(zoneTeams, counts, pairsSeen, zoneRequired);
-            } catch {
-                generated = buildPartialPairs(zoneTeams, counts, pairsSeen, zoneRequired);
-            }
-            assignRounds(existing, generated).forEach(({ local, visitante, ronda }) => {
-                pending.push({ torneoId, categoriaId, zonaId: zone.id, tipo: 'fase_zonas', ronda, equipoLocalId: local.id, equipoVisitanteId: visitante.id, fecha: null, hora: null, cancha: null, estado: 'borrador', confirmado: false, setsLocal: null, setsVisitante: null });
-            });
-        }
-        const created = pending.length ? DataManager.addMatches(pending) : [];
-        const validation = this.validateGuaranteedMatches(torneoId, categoriaId);
-        if (!validation.valid) {
-            // No se confirma una solución parcial si una validación posterior
-            // detecta un dato inesperado: se revierte sólo lo creado en esta
-            // ejecución y se conserva el fixture que ya existía.
-            created.forEach(match => DataManager.removeMatch(match.id));
-            throw new Error(validation.mensaje);
-        }
-        this.redistribuirFechas(torneoId, categoriaId, options.date ? [options.date] : null);
-        return pending.length;
-    },
-
     recrearBorradores(torneoId, categoriaId) {
         const groupMatches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(isGroupMatch);
         if (groupMatches.some(isOfficialMatch)) throw new Error('No se puede rehacer un fixture que ya tiene partidos confirmados.');
@@ -325,7 +326,10 @@ export const SchedulerService = {
         if (planning && !dates.length) throw new Error('Configurá Fase de zonas o Partidos garantizados en la planificación de esta categoría.');
         if (!dates.length) return 0;
         const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
-            .filter(match => isGroupMatch(match) && match.estado !== 'finalizado');
+            // La regeneración completa sólo debe ubicar partidos nuevos. Una
+            // fecha/hora/cancha ya guardada puede ser una edición manual y no
+            // se toca al volver a ejecutar el generador.
+            .filter(match => isGroupMatch(match) && match.estado !== 'finalizado' && !match.fecha);
         if (!matches.length) return 0;
         const dailyTargets = dates.map((fecha, index) => ({
             fecha,
@@ -431,9 +435,12 @@ export const SchedulerService = {
                 invalidMatches.push(match);
                 return;
             }
-            if (!local.zonaId || local.zonaId !== visitante.zonaId || match.zonaId !== local.zonaId) crossZoneMatches.push(match);
+            const category = DataManager.getCategory(categoriaId);
+            const categoryZones = zones;
+            if ((!local.zonaId || local.zonaId !== visitante.zonaId || match.zonaId !== local.zonaId)
+                && !isAllowedSpecialCross({ match, category, teams, zones: categoryZones })) crossZoneMatches.push(match);
             const key = pairKey(local.id, visitante.id);
-            if (pairs.has(key)) duplicatePairs.push([pairs.get(key), match]);
+            if (pairs.has(key) && !match.revancha && !pairs.get(key)?.revancha) duplicatePairs.push([pairs.get(key), match]);
             else pairs.set(key, match);
             if (requireSchedule && (!match.fecha || !match.hora || !match.cancha)) unscheduledMatches.push(match);
         });
@@ -545,20 +552,21 @@ export const SchedulerService = {
         const settings = DataManager.getTournamentSchedulingSettings(torneoId);
         const priorDays = daySchedules.slice(0, -1);
         const courtCount = DataManager.getTournamentCourtCount(torneoId);
-        const priorCapacity = priorDays.reduce((total, day) => total + dayCapacity(day, { duracionPartido: settings.blockDuration, intervaloPartidos: settings.intervaloPartidos }, courtCount), 0);
+        const priorCapacity = priorDays.reduce((total, day) => total + dayCapacity(day, settings, courtCount), 0);
         const pendingCount = groupMatches.filter(match => match.estado !== 'finalizado').length;
         const schedulingDays = planning ? daySchedules : (priorDays.length && pendingCount <= priorCapacity ? priorDays : daySchedules);
         this.redistribuirFechas(torneoId, categoriaId, schedulingDays.map(day => day.fecha));
         // La asignación logística es global: considera simultáneamente los
         // partidos de todas las categorías que comparten las canchas.
-        return LogisticsService.programTournament(torneoId).scheduled;
+        return LogisticsService.generateSchedule(torneoId).scheduled;
     },
 
     // Propuesta automática reutilizable para cada etapa eliminatoria. El árbitro
     // puede editar luego fecha, hora o cancha sin crear otro partido.
     programarFase(torneoId, categoriaId, phase, afterPhase = null) {
         const configuredDays = DataManager.getDaySchedules(torneoId);
-        if (!configuredDays.length) return 0;
+        if (!configuredDays.length) throw new Error('Configurá al menos una jornada horaria antes de generar la etapa.');
+        if (!DataManager.getTournamentCourts(torneoId).length) throw new Error('Configurá al menos una cancha antes de generar la etapa.');
         const planning = DataManager.getCategoryPlanning(torneoId, categoriaId);
         const planningPhase = phase === 'THIRD_PLACE' ? 'FINAL' : phase;
         const plannedDates = DataManager.getPlanningDatesForStage(torneoId, categoriaId, planningPhase);
@@ -571,6 +579,6 @@ export const SchedulerService = {
             : (finalStages.includes(phase) ? [configuredDays.at(-1), ...configuredDays.slice(0, -1)] : [...configuredDays.slice(0, -1), configuredDays.at(-1)]);
         const targets = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => match.phase === phase && match.estado !== 'finalizado' && (!match.fecha || !match.hora || !match.cancha));
         if (!targets.length) return 0;
-        return LogisticsService.programTournament(torneoId).scheduled;
+        return LogisticsService.generateSchedule(torneoId).scheduled;
     }
 };

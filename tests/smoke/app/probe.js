@@ -2,6 +2,7 @@
 // Recorre el flujo real de Programación: emparejar, confirmar, programar,
 // filtrar, cambiar de vista, guardar descansos y formato de sets; y luego
 // carga un resultado en Resultados con el formato activo.
+
 (async () => {
     const report = { alerts: [], errors: [] };
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -52,6 +53,7 @@
         blocksHint: text('.schedule-global-config .helper-text'),
         formatZones: document.querySelector('#set-format-form [name="zones"]')?.value,
         formatPlayoffs: document.querySelector('#set-format-form [name="playoffs"]')?.value
+
     };
 
     await step('emparejar', async () => {
@@ -86,6 +88,7 @@
         await wait(250);
     });
 
+
     await step('programar', async () => {
         document.querySelector('#btn-generar-programacion').click();
         await wait(400);
@@ -98,12 +101,14 @@
             atSlot.add(category.id);
             slots.set(key, atSlot);
         }));
+
         report.afterProgram = {
             cards: cards.length,
             withTime: cards.filter(card => /^\d{2}:\d{2}$/.test((card.querySelector('.fixture-cell-time strong')?.textContent || '').trim())).length,
             withCourt: cards.filter(card => /^Cancha/.test((card.querySelector('.fixture-cell-court strong')?.textContent || '').trim())).length,
             slots: slots.size,
             mixedSlots: [...slots.values()].filter(atSlot => atSlot.size === categories.length).length,
+
             statusChip: text('.schedule-conflicts .match-status'),
             conflictText: text('.schedule-conflicts p')
         };
@@ -192,6 +197,7 @@
         await wait(700);
         report.results.backToSchedule = document.getElementById('view-programacion').classList.contains('active');
     });
+
 
     await step('exportar', async () => {
         const before = report.alerts.length;
@@ -339,6 +345,7 @@
             sinHorario: [...document.querySelectorAll('#fixture-list .fixture-cell-time strong')].filter(node => node.textContent.trim() === 'Sin horario').length
         };
     });
+
 
     report.tournamentId = tournament.id;
     return report;

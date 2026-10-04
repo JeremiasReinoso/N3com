@@ -2,7 +2,8 @@ import { DataManager } from '../data/dataManager.js';
 
 // La tabla general del método Todos contra todos acumula también los cruces
 // libres. Las eliminatorias siguen sin alterar los puntos de clasificación.
-const isGroupStandingMatch = match => match.phase === 'ZONAS' || match.phase === 'ALL_VS_ALL' || !match.tipo || match.tipo === 'fase_zonas' || match.tipo === 'cruces_todos_contra_todos';
+const isGroupStandingMatch = match => match.phase === 'ZONAS' || match.phase === 'ALL_VS_ALL' || !match.tipo
+    || ['fase_zonas', 'cruces_todos_contra_todos', 'cruce_especial'].includes(match.tipo);
 const hasSetResult = match => match.estado === 'finalizado' && Array.isArray(match.sets) && match.sets.length >= 1 && match.ganadorId;
 
 // Los puntos de clasificación son la fuente de orden en los dos modos:
@@ -28,7 +29,6 @@ const compareRows = (classificationMode, left, right) => (
 
 export const PosicionesService = {
     calcularPosiciones(torneoId, categoriaId) {
-        const classificationMode = DataManager.getTournamentClassificationMode(torneoId);
         const teams = DataManager.getTeamsByTournamentAndCategory(torneoId, categoriaId);
         const rows = new Map(teams.map(team => [team.id, {
             ...team,
@@ -81,7 +81,7 @@ export const PosicionesService = {
                 diferenciaSets: row.setsFavor - row.setsContra,
                 diferenciaPuntos: row.puntosFavor - row.puntosContra
             }))
-            .sort((left, right) => compareRows(classificationMode, left, right));
+            .sort((left, right) => compareRows(DataManager.getTournamentClassificationMode(torneoId), left, right));
     },
 
     calcularClasificacionFinal(torneoId, categoriaId) {
@@ -91,17 +91,7 @@ export const PosicionesService = {
         if (!final) return null;
 
         const runnerUpId = final.ganadorId === final.equipoLocalId ? final.equipoVisitanteId : final.equipoLocalId;
-        const generalIndex = new Map(general.map((team, index) => [team.id, index]));
-        const scheduledThirdPlace = matches.find(match => match.phase === 'THIRD_PLACE');
-        // Si se habilitó el partido por el tercer puesto, la tabla final no
-        // inventa ese resultado: espera su marcador real para publicar 1.º–3.º.
-        if (scheduledThirdPlace && !hasSetResult(scheduledThirdPlace)) return null;
-        const thirdPlace = scheduledThirdPlace && hasSetResult(scheduledThirdPlace) ? scheduledThirdPlace : null;
-        const thirdIds = thirdPlace ? [thirdPlace.ganadorId, thirdPlace.ganadorId === thirdPlace.equipoLocalId ? thirdPlace.equipoVisitanteId : thirdPlace.equipoLocalId] : matches
-            .filter(match => match.phase === 'SEMIFINAL' && hasSetResult(match))
-            .map(match => match.ganadorId === match.equipoLocalId ? match.equipoVisitanteId : match.equipoLocalId)
-            .sort((left, right) => (generalIndex.get(left) ?? Infinity) - (generalIndex.get(right) ?? Infinity));
-        const orderedIds = [...new Set([final.ganadorId, runnerUpId, ...thirdIds])];
+        const orderedIds = [...new Set([final.ganadorId, runnerUpId])];
         return [
             ...orderedIds.map(id => general.find(team => team.id === id)).filter(Boolean),
             ...general.filter(team => !orderedIds.includes(team.id))

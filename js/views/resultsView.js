@@ -109,7 +109,9 @@ export function initResultadosView(options = {}) {
         const saved = match.sets?.[index];
         const decider = format.sets !== 1 && index === 2;
         const label = decider ? 'Set 3 (desempate)' : `Set ${index + 1} (a ${format.points})`;
-        return `<div class="set-points ${decider ? 'third-set' : ''}"><span>${label}</span><input data-side="local" type="number" min="0" inputmode="numeric" aria-label="Puntos de ${team(match.equipoLocalId)} en ${label}" value="${saved?.puntosLocal ?? ''}"><b>–</b><input data-side="visitante" type="number" min="0" inputmode="numeric" aria-label="Puntos de ${team(match.equipoVisitanteId)} en ${label}" value="${saved?.puntosVisitante ?? ''}"></div>`;
+        const thirdEnabled = decider && match.sets?.length === 3;
+        const disabled = decider && !thirdEnabled ? ' disabled' : '';
+        return `<div class="set-points ${decider ? 'third-set' : ''}"><span>${label}</span><input data-side="local" type="number" min="0" inputmode="numeric" aria-label="Puntos de ${team(match.equipoLocalId)} en ${label}" value="${saved?.puntosLocal ?? ''}"${disabled}><b>–</b><input data-side="visitante" type="number" min="0" inputmode="numeric" aria-label="Puntos de ${team(match.equipoVisitanteId)} en ${label}" value="${saved?.puntosVisitante ?? ''}"${disabled}></div>`;
     }).join('');
     const savedSets = match => `<div class="saved-sets">${match.sets.map((set, index) => `<span><strong>S${index + 1}</strong> ${set.puntosLocal}–${set.puntosVisitante}</span>`).join('')}</div>`;
     const scoreLabel = (match, format) => format.sets === 1 && match.sets?.length === 1
@@ -118,6 +120,8 @@ export function initResultadosView(options = {}) {
     const matchCard = match => {
         const format = formatForMatch(match);
         const finished = match.estado === 'finalizado';
+        const unresolved = !match.equipoLocalId || !match.equipoVisitanteId;
+        if (unresolved) return `<article class="card set-result-card"><div class="set-result-head"><div><span class="match-status pending">PENDIENTE</span><strong>${stage(match)} · ${zone(match.zonaId)}</strong></div><small>${schedule(match)}</small></div><div class="set-result-teams"><strong>${team(match.equipoLocalId)}</strong><span>vs</span><strong>${team(match.equipoVisitanteId)}</strong></div><p class="helper-text">Se habilita cuando finalicen los partidos anteriores.</p></article>`;
         const expanded = options.expandedMatchId === match.id;
         const quickButtons = format.sets === 1
             ? `<div><button type="button" class="quick-result" data-id="${match.id}" data-result="local-win">${team(match.equipoLocalId)} gana</button><button type="button" class="quick-result" data-id="${match.id}" data-result="visitante-win">${team(match.equipoVisitanteId)} gana</button></div>`
@@ -168,7 +172,19 @@ export function initResultadosView(options = {}) {
             button.setAttribute('aria-expanded', String(willOpen));
             if (willOpen) editor.querySelector('input')?.focus();
         }));
-        list.querySelectorAll('.set-points input').forEach(input => input.addEventListener('input', () => refreshPreview(input.closest('.set-result-card'))));
+        list.querySelectorAll('.set-points input').forEach(input => input.addEventListener('input', () => {
+            const card = input.closest('.set-result-card');
+            refreshPreview(card);
+            const sets = [...card.querySelectorAll('.set-points')];
+            if (sets.length === 3) {
+                const firstTwo = sets.slice(0, 2).map(row => [row.querySelector('[data-side="local"]').value, row.querySelector('[data-side="visitante"]').value]);
+                const needsThird = firstTwo.every(set => set[0] !== '' && set[1] !== '')
+                    && firstTwo[0][0] !== firstTwo[0][1]
+                    && firstTwo[1][0] !== firstTwo[1][1]
+                    && ((Number(firstTwo[0][0]) > Number(firstTwo[0][1])) !== (Number(firstTwo[1][0]) > Number(firstTwo[1][1])));
+                sets[2].querySelectorAll('input').forEach(field => { field.disabled = !needsThird; });
+            }
+        }));
         list.querySelectorAll('.quick-result').forEach(button => button.addEventListener('click', () => {
             const format = formatByKey[button.closest('.set-result-card')?.dataset.format];
             try { DataManager.updateMatchResult(button.dataset.id, quickResultsFor(format)[button.dataset.result]); refreshKeepingSearch(button.dataset.id); } catch (error) { alert(error.message); }

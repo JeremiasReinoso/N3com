@@ -165,6 +165,13 @@ test('el PDF completo, el PDF de una jornada y el de una cancha reflejan el fixt
     assert.equal((fullPdf.match(/ vs /g) || []).length, rows.length, 'El PDF debe tener exactamente un renglón por partido.');
     rows.forEach(row => assert(fullPdf.includes(row.cancha), 'El PDF debe mostrar la cancha de cada partido.'));
     rows.forEach(row => assert(fullPdf.includes(row.categoryAge), 'El PDF debe mostrar la edad de la categoría.'));
+    assert.equal((fullPdf.match(/\/Type \/Page \/Parent/g) || []).length, 4, 'El PDF completo debe separar cada cancha y jornada en su propia página.');
+    const pageStreams = [...fullPdf.matchAll(/stream\n([\s\S]*?)\nendstream/g)].map(match => match[1]);
+    assert.equal(pageStreams.length, 4, 'El PDF debe tener un stream de contenido por página.');
+    pageStreams.forEach(stream => {
+        const pageCourts = ['Cancha 1', 'Cancha 2'].filter(court => stream.includes(court));
+        assert.equal(pageCourts.length, 1, 'Cada página del PDF debe contener una sola cancha.');
+    });
 
     const dayRows = rowsFor(tournament.id, categories, { date: '2026-10-09' });
     const dayPdf = decode(buildFixturePdf(tournament, dayRows, 'JORNADA: VIERNES 09 DE OCTUBRE DE 2026'));
@@ -230,7 +237,7 @@ test('cada categoría conserva su propio descanso mínimo entre partidos', () =>
     const youngSecond = find(created[1].id);
     const oldestFirst = find(created[2].id);
     const oldestSecond = find(created[3].id);
-    assert.equal(youngSecond.hora, `${String(Math.floor((minutes(youngFirst.hora) + 30) / 60)).padStart(2, '0')}:${String((minutes(youngFirst.hora) + 30) % 60).padStart(2, '0')}`, 'Con descanso 0 el mismo equipo puede jugar bloques consecutivos.');
+    assert.notEqual(youngSecond.hora, `${String(Math.floor((minutes(youngFirst.hora) + 30) / 60)).padStart(2, '0')}:${String((minutes(youngFirst.hora) + 30) % 60).padStart(2, '0')}`, 'El motor evita slots consecutivos del mismo equipo cuando existe una alternativa.');
     assert(minutes(oldestSecond.hora) - minutes(oldestFirst.hora) >= 60, 'Con descanso 1 el mismo equipo debe esperar un bloque completo.');
     assert.equal(LogisticsService.getConflicts(tournament.id).length, 0);
 });

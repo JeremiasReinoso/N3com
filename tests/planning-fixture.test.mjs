@@ -24,11 +24,11 @@ test('la planificación es independiente, compatible y nunca duplica ni elimina 
     ]);
     DataManager.setCategoryPlanning(tournament.id, women.id, [
         { date: '2026-10-09', stages: ['ZONAS'] },
-        { date: '2026-10-10', stages: ['ALL_VS_ALL', 'SEMIFINAL', 'FINAL'] }
+        { date: '2026-10-10', stages: ['TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL'] }
     ]);
     DataManager.setCategoryPlanning(tournament.id, men.id, [
-        { date: '2026-10-09', stages: ['ZONAS', 'ALL_VS_ALL'] },
-        { date: '2026-10-10', stages: ['ALL_VS_ALL', 'SEMIFINAL', 'FINAL'] }
+        { date: '2026-10-09', stages: ['ZONAS'] },
+        { date: '2026-10-10', stages: ['TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL'] }
     ]);
     assert.notDeepEqual(DataManager.getCategoryPlanning(tournament.id, mixed.id).days, DataManager.getCategoryPlanning(tournament.id, women.id).days);
 
@@ -46,7 +46,7 @@ test('la planificación es independiente, compatible y nunca duplica ni elimina 
     const ids = before.map(match => match.id).sort();
 
     DataManager.setCategoryPlanning(tournament.id, mixed.id, [
-        { date: '2026-10-09', stages: ['ZONAS', 'ALL_VS_ALL'] },
+        { date: '2026-10-09', stages: ['ZONAS'] },
         { date: '2026-10-10', stages: ['SEMIFINAL', 'FINAL'] }
     ]);
     assert.deepEqual(DataManager.getMatchesByTournamentAndCategory(tournament.id, mixed.id).map(match => match.id).sort(), ids, 'Cambiar la planificación no debe borrar ni recrear partidos.');
@@ -78,4 +78,68 @@ test('la planificación es independiente, compatible y nunca duplica ni elimina 
 
     const foreign = DataManager.createTeam('Equipo de otra categoría', women.id, tournament.id);
     assert.throws(() => DataManager.createManualMatch({ torneoId: tournament.id, categoriaId: mixed.id, zonaId: zone.id, phase: 'ZONAS', equipoLocalId: teams[0].id, equipoVisitanteId: foreign.id, fecha: '2026-10-09', hora: '18:00', cancha: 'Cancha 1' }), /categoría del partido/);
+});
+
+test('la planificación acepta cualquier distribución de etapas por jornada', () => {
+    const tournament = DataManager.createTournament('Planificación flexible', 1);
+    const category = DataManager.createCategory('+50 Mixto', tournament.id);
+    DataManager.setTournamentCalendar(tournament.id, '2026-10-09', '2026-10-11', '09:00', '20:00', []);
+    const save = days => DataManager.setCategoryPlanning(tournament.id, category.id, days);
+    const stages = () => DataManager.getCategoryPlanning(tournament.id, category.id).days.map(day => day.stages);
+
+    assert.doesNotThrow(() => save([
+        { date: '2026-10-09', stages: ['ZONAS', 'GARANTIZADOS'] },
+        { date: '2026-10-10', stages: ['ZONAS', 'GARANTIZADOS'] },
+        { date: '2026-10-11', stages: ['TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL'] }
+    ]));
+    assert.deepEqual(stages(), [['fase_zonas', 'partidos_garantizados'], ['fase_zonas', 'partidos_garantizados'], ['octavos', 'cuartos', 'semifinales', 'final']]);
+
+    assert.doesNotThrow(() => save([
+        { date: '2026-10-09', stages: ['ZONAS'] },
+        { date: '2026-10-10', stages: ['GARANTIZADOS'] },
+        { date: '2026-10-11', stages: ['TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL'] }
+    ]));
+    assert.doesNotThrow(() => save([
+        { date: '2026-10-09', stages: ['ZONAS', 'GARANTIZADOS'] },
+        { date: '2026-10-10', stages: ['GARANTIZADOS', 'TOP_16'] },
+        { date: '2026-10-11', stages: ['TOP_8', 'SEMIFINAL', 'FINAL'] }
+    ]));
+    assert.doesNotThrow(() => save([
+        { date: '2026-10-09', stages: [] },
+        { date: '2026-10-10', stages: [] },
+        { date: '2026-10-11', stages: [] }
+    ]));
+    assert.doesNotThrow(() => save([
+        { date: '2026-10-09', stages: ['ZONAS', 'GARANTIZADOS', 'TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL'] },
+        { date: '2026-10-10', stages: [] },
+        { date: '2026-10-11', stages: [] }
+    ]));
+    assert.throws(() => save([{ date: '09/10/2026', stages: ['FINAL'] }]), /fecha.*válida/);
+    assert.throws(() => save([{ date: '2026-10-09', stages: ['ETAPA_INEXISTENTE'] }]), /etapa no válida/);
+});
+
+test('las seis etapas oficiales se guardan con IDs canónicos y sobreviven a la reapertura', () => {
+    const tournament = DataManager.createTournament('IDs oficiales', 1);
+    const category = DataManager.createCategory('+50 Mixto', tournament.id);
+    DataManager.setTournamentCalendar(tournament.id, '2026-10-09', '2026-10-11', '09:00', '20:00', []);
+    const save = stages => DataManager.setCategoryPlanning(tournament.id, category.id, [{ date: '2026-10-09', stages }]);
+    const official = ['fase_zonas', 'partidos_garantizados', 'octavos', 'cuartos', 'semifinales', 'final'];
+
+    official.forEach(stage => assert.doesNotThrow(() => save([stage])));
+    assert.doesNotThrow(() => save(['fase_zonas', 'partidos_garantizados']));
+    assert.doesNotThrow(() => save(['octavos', 'cuartos']));
+    assert.doesNotThrow(() => save(['cuartos', 'semifinales', 'final']));
+    assert.doesNotThrow(() => DataManager.setCategoryPlanning(tournament.id, category.id, [
+        { date: '2026-10-09', stages: ['fase_zonas', 'partidos_garantizados'] },
+        { date: '2026-10-10', stages: ['fase_zonas', 'partidos_garantizados'] },
+        { date: '2026-10-11', stages: ['octavos', 'cuartos', 'semifinales', 'final'] }
+    ]));
+
+    const reopened = DataManager.getCategoryPlanning(tournament.id, category.id);
+    assert.deepEqual(reopened.days, [
+        { date: '2026-10-09', stages: ['fase_zonas', 'partidos_garantizados'] },
+        { date: '2026-10-10', stages: ['fase_zonas', 'partidos_garantizados'] },
+        { date: '2026-10-11', stages: ['octavos', 'cuartos', 'semifinales', 'final'] }
+    ]);
+    assert.doesNotThrow(() => DataManager.setCategoryPlanning(tournament.id, category.id, reopened.days));
 });

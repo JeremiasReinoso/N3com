@@ -33,9 +33,10 @@ export const initTorneosVer = async () => {
         event.preventDefault();
         const name = view.querySelector('#torneo-nombre').value.trim();
         const assured = Number(view.querySelector('#torneo-partidos').value);
-        const classificationMode = new FormData(event.currentTarget).get('classification-mode');
-        const method = new FormData(event.currentTarget).get('tournament-method');
         if (!name || !Number.isInteger(assured) || assured < 1) return alert('Ingrese un nombre y una cantidad válida de partidos.');
+        const form = new FormData(event.currentTarget);
+        const classificationMode = form.get('classification-mode') || 'sets';
+        const method = form.get('tournament-method') || 'standard';
         const button = event.currentTarget.querySelector('button[type="submit"]'); button.disabled = true;
         try {
             await LicenciaRepo.consumirTorneo();

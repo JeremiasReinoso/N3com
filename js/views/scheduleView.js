@@ -1,11 +1,13 @@
 import { AppState } from '../core/state.js';
 import { DataManager } from '../data/dataManager.js';
+import { normalizeTournamentStage, stageFromMatchPhase, TOURNAMENT_STAGE_LABELS } from '../domain/tournamentStages.js';
 import { SchedulerService } from '../services/scheduler.js';
 import { LogisticsService, fixtureCompare } from '../services/logistics.js';
-import { downloadFixturePdf, fixtureRows } from '../services/fixturePdf.js';
+import { downloadFixturePdf, downloadFixtureSpreadsheet, fixtureRows } from '../services/fixturePdf.js';
+import { SpecialCrossService } from '../services/specialCrosses.js';
 
 const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'confirmado', 'en_juego', 'finalizado'].includes(match.estado);
-export const PHASE_LABELS = { ZONAS: 'Fase de zonas', ALL_VS_ALL: 'Cruces', TOP_16: 'Octavos', TOP_8: 'Cuartos de final', SEMIFINAL: 'Semifinales', THIRD_PLACE: 'Tercer puesto', FINAL: 'Final' };
+export const PHASE_LABELS = { ZONAS: 'Partidos asegurados', TOP_16: 'Top 16', TOP_8: 'Top 8', SEMIFINAL: 'Semifinales · Top 4', FINAL: 'Final' };
 const STATUS_LABELS = { borrador: 'Sin programar', pendiente: 'Confirmado', programado: 'Programado', confirmado: 'Confirmado', en_juego: 'En juego', finalizado: 'Finalizado' };
 export const CONFLICT_LABELS = {
     court: 'Conflictos de cancha',
@@ -15,7 +17,13 @@ export const CONFLICT_LABELS = {
     'no-date': 'Partidos sin día',
     'no-time': 'Partidos sin horario',
     'no-court': 'Partidos sin cancha',
-    unscheduled: 'Partidos sin programar'
+    unscheduled: 'Partidos sin programar',
+    'invalid-court': 'Cancha inválida',
+    'invalid-time': 'Horario inválido',
+    category: 'Categoría inválida',
+    phase: 'Fase inválida',
+    'sports-integrity': 'Integridad deportiva',
+    distribution: 'Distribución de canchas'
 };
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
 const formatDay = date => date ? new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: '2-digit', month: 'long' }).format(new Date(`${date}T12:00:00`)) : 'Sin fecha asignada';
@@ -51,16 +59,18 @@ export const initScheduleView = () => {
     }
 
     const categories = DataManager.getCategoriesByTournament(tournamentId);
+    const activePlanning = DataManager.getActivePlanning(tournamentId);
     const allTeams = categories.flatMap(category => DataManager.getTeamsByTournamentAndCategory(tournamentId, category.id));
     const allZones = categories.flatMap(category => DataManager.getZonesByTournamentAndCategory(tournamentId, category.id));
-    const allMatches = LogisticsService.getTournamentMatches(tournamentId);
+    const allMatches = LogisticsService.getTournamentMatches(tournamentId, { planningId: activePlanning?.id || null });
     const activeMatches = allMatches.filter(match => match.categoriaId === activeCategoryId);
     const drafts = activeMatches.filter(match => !isOfficialMatch(match));
     const official = allMatches.filter(isOfficialMatch).sort(fixtureCompare);
     const activeTeams = allTeams.filter(team => team.categoriaId === activeCategoryId);
     const calendarDates = DataManager.getCalendarDates(tournamentId);
     const planning = DataManager.getCategoryPlanning(tournamentId, activeCategoryId);
-    const planningDays = planning?.days?.filter(day => calendarDates.includes(day.date)) || calendarDates.map(date => ({ date, stages: [] }));
+    const planningDates = activePlanning?.categoryDates?.[activeCategoryId] || planning?.days?.filter(day => calendarDates.includes(day.date)).map(day => day.date) || calendarDates;
+    const planningDays = planningDates.map(date => planning?.days?.find(day => day.date === date) || ({ date, stages: [] }));
     const courts = DataManager.getTournamentCourts(tournamentId);
     const settings = DataManager.getTournamentSchedulingSettings(tournamentId);
     const setFormats = DataManager.getTournamentSetFormats(tournamentId);
@@ -68,7 +78,7 @@ export const initScheduleView = () => {
     const daySchedules = DataManager.getDaySchedules(tournamentId);
     const previewBlocks = daySchedules.length ? LogisticsService.generateTimeBlocks(tournamentId, daySchedules[0]) : [];
     const firstBlocks = previewBlocks.length ? `${previewBlocks.slice(0, 6).join(', ')}${previewBlocks.length > 6 ? '…' : ''}` : 'primero guardá una jornada en Calendario';
-    const conflicts = LogisticsService.getConflicts(tournamentId);
+    const conflicts = LogisticsService.getConflicts(tournamentId, activePlanning?.id || null);
     const conflictGroups = Map.groupBy(conflicts, issue => issue.type);
     const zoneAvisos = SchedulerService.estadoFaseClasificatoria(tournamentId, activeCategoryId).avisos || [];
     const teamName = id => allTeams.find(team => team.id === id)?.nombre || 'Equipo no disponible';
@@ -77,11 +87,14 @@ export const initScheduleView = () => {
     const activeTeamOptions = selected => activeTeams.map(team => option(team.id, team.nombre, team.id === selected)).join('');
     const courtOptions = selected => courts.map(court => option(court.id, court.name, court.id === selected || court.name === selected)).join('');
     const dateOptions = selected => `${selected && !calendarDates.includes(selected) ? option(selected, `${formatDay(selected)} · fuera del calendario`, true) : ''}${calendarDates.map(date => option(date, formatDay(date), date === selected)).join('')}`;
-    const stageSummary = day => day.stages?.length ? day.stages.map(stage => PHASE_LABELS[stage] || (stage === 'GARANTIZADOS' ? 'Partidos garantizados' : stage)).join(' · ') : 'Sin etapas configuradas';
+    const stageSummary = day => day.stages?.length ? day.stages.map(stage => TOURNAMENT_STAGE_LABELS[normalizeTournamentStage(stage)] || stage).join(' · ') : 'Sin etapas configuradas';
     const modalities = [...new Set(categories.map(item => categoryParts(item).modality).filter(Boolean))];
+    const specialCrosses = SpecialCrossService.getCandidates(tournamentId, activeCategoryId);
+    const specialTeamOption = team => `<option value="${escapeHtml(team.id)}"${team.missing ? '' : ' disabled'}>${escapeHtml(`${team.nombre} — ${team.matches}/${team.required} partidos${team.missing ? ` · faltan ${team.missing}` : ' · completo'}`)}</option>`;
+    const specialCrossMarkup = specialCrosses?.available ? `<section class="special-crosses panel-control" aria-label="Cruces especiales de +50 Mixto"><div class="form-title"><div><h3>Cruces especiales — +50 Mixto</h3><p>Algunos equipos de Zona C y Zona D necesitan completar partidos garantizados. Seleccioná manualmente los enfrentamientos que querés agregar.</p></div><span class="calendar-chip">SOLO C ↔ D</span></div><div class="special-cross-status"><div><h4>Zona C</h4><ul>${specialCrosses.zones[0].teams.map(team => `<li><strong>${escapeHtml(team.nombre)}</strong><span>${team.matches}/${team.required} partidos${team.missing ? ` · faltan ${team.missing}` : ' · completo'}</span></li>`).join('')}</ul></div><strong class="special-cross-vs">VS</strong><div><h4>Zona D</h4><ul>${specialCrosses.zones[1].teams.map(team => `<li><strong>${escapeHtml(team.nombre)}</strong><span>${team.matches}/${team.required} partidos${team.missing ? ` · faltan ${team.missing}` : ' · completo'}</span></li>`).join('')}</ul></div></div><form id="special-cross-form" class="form-grid"><label class="form-field">Equipo Zona C<select name="local" required><option value="">Seleccionar</option>${specialCrosses.zones[0].teams.map(team => specialTeamOption(team)).join('')}</select></label><label class="form-field">Equipo Zona D<select name="visitante" required><option value="">Seleccionar</option>${specialCrosses.zones[1].teams.map(team => specialTeamOption(team)).join('')}</select></label><button class="btn-secondary" type="submit">Crear enfrentamiento</button></form></section>` : '';
 
     view.innerHTML = `
-        <div class="fixture-heading"><div><span class="eyebrow">ORGANIZACIÓN DEL TORNEO</span><h2>Programación y Fixture General</h2><p>Una única agenda cronológica para todas las categorías y las canchas compartidas del torneo.</p></div><div class="fixture-export-actions"><button id="export-fixture-full" class="btn-primary" type="button">Exportar fixture completo</button><button id="print-fixture" class="btn-secondary" type="button">Imprimir</button></div></div>
+        <div class="fixture-heading"><div><span class="eyebrow">ORGANIZACIÓN DEL TORNEO</span><h2>Programación y Fixture General</h2><p>Una única agenda cronológica para todas las categorías y las canchas compartidas del torneo.</p></div><div class="fixture-export-actions"><button id="export-fixture-full" class="btn-primary" type="button">Exportar fixture completo</button><button id="export-fixture-spreadsheet" class="btn-secondary" type="button">Exportar hoja de cálculo</button><button id="print-fixture" class="btn-secondary" type="button">Imprimir</button></div></div>
         <section class="schedule-global-config panel-control">
             <div class="form-title"><div><h3>Configuración logística global</h3><p>Estas canchas pertenecen al torneo y pueden ser utilizadas por todas las categorías.</p></div><span class="calendar-chip">${courts.length} CANCHA${courts.length === 1 ? '' : 'S'}</span></div>
             <form id="court-config-form"><div class="court-config-list">${courts.map(court => `<div class="court-config-row"><label class="form-field">Nombre de cancha<input data-court-id="${escapeHtml(court.id)}" value="${escapeHtml(court.name)}" required maxlength="40"></label><button class="remove-court btn-secondary" data-court-id="${escapeHtml(court.id)}" type="button">Eliminar cancha</button></div>`).join('')}</div><div class="form-actions"><button id="add-court" class="btn-secondary" type="button">+ Agregar cancha</button><button class="btn-primary" type="submit">Guardar canchas</button></div></form>
@@ -92,11 +105,12 @@ export const initScheduleView = () => {
         <section class="pairing-context panel-control">
             <div class="form-title"><div><h3>Emparejamientos — ${escapeHtml(activeCategory.nombre)}</h3><p>Los emparejamientos definen quién juega; la programación global define cuándo y dónde.</p></div><span class="calendar-chip">${planning ? 'PLANIFICADA' : 'SIN PLANIFICAR'}</span></div>
             <div class="pairing-day-selector"><label class="form-field">Jornada<select id="pairing-day">${planningDays.map(day => option(day.date, `${formatDay(day.date)} — ${stageSummary(day)}`)).join('')}</select></label><div id="pairing-day-context" class="pairing-day-context"></div></div>
-            <div class="form-actions"><button id="btn-generar-emparejamientos" class="btn-secondary" type="button">Generar emparejamientos</button><button id="btn-confirmar-emparejamientos" class="btn-primary" type="button">Confirmar emparejamientos</button><button id="btn-generar-programacion" class="btn-primary btn-large" type="button">Programar todos los partidos</button><button id="btn-limpiar-programacion" class="btn-secondary" type="button">Limpiar programación</button></div>
+            <div class="form-actions"><button id="btn-generar-emparejamientos" class="btn-secondary" type="button">Generar emparejamientos</button><button id="btn-confirmar-emparejamientos" class="btn-primary" type="button">Confirmar emparejamientos</button><button id="btn-generar-programacion" class="btn-primary btn-large" type="button">Programar todos los partidos</button><button id="btn-limpiar-programacion" class="btn-secondary" type="button">Limpiar programación</button><button id="btn-reorganizar-canchas" class="btn-secondary" type="button">Reorganizar canchas</button><button id="btn-reorganizar-fixture" class="btn-secondary" type="button">Reorganizar fixture completo</button></div>
             ${zoneAvisos.length ? `<div class="schedule-zone-avisos" role="status"><strong>Aviso de zonas</strong><ul>${zoneAvisos.map(aviso => `<li>${escapeHtml(aviso)}</li>`).join('')}</ul></div>` : ''}
             <details class="schedule-editor"><summary>+ Crear partido manual de zona</summary><form id="manual-group-match-form"><div class="form-grid"><label class="form-field">Equipo A<select name="local" required><option value="">Seleccionar</option>${activeTeamOptions('')}</select></label><label class="form-field">Equipo B<select name="visitante" required><option value="">Seleccionar</option>${activeTeamOptions('')}</select></label><label class="form-field">Fecha<select name="fecha" required>${dateOptions(planningDays[0]?.date)}</select></label><label class="form-field">Hora<input name="hora" type="time" required></label><label class="form-field">Cancha<select name="courtId" required><option value="">Seleccionar</option>${courtOptions('')}</select></label><label class="form-field">Orden<input name="orden" type="number" min="1"></label></div><button class="btn-secondary" type="submit">Crear partido manual</button></form></details>
         </section>
-        <section class="fixture-preview"><div class="schedule-board-head"><div><h3>Previsualización antes de confirmar</h3><p>Estos cruces todavía no aparecen en Resultados.</p></div><span class="calendar-chip">${drafts.length} BORRADORES</span></div><div class="draft-fixture-list">${drafts.length ? drafts.map(match => `<div class="draft-fixture-row"><span>${escapeHtml(formatDay(match.fecha))} · ${escapeHtml(zoneName(match.zonaId))}</span><strong>${escapeHtml(teamName(match.equipoLocalId))} <b>vs</b> ${escapeHtml(teamName(match.equipoVisitanteId))}</strong><button type="button" class="eliminar-borrador btn-secondary" data-id="${match.id}">Quitar</button></div>`).join('') : '<div class="empty-state compact">No hay emparejamientos pendientes de confirmación.</div>'}</div></section>
+        ${specialCrossMarkup}
+        <section class="fixture-preview"><div class="schedule-board-head"><div><h3>Previsualización antes de confirmar</h3><p>Estos cruces todavía no aparecen en Resultados. La programación asignará automáticamente horario y cancha.</p></div><span class="calendar-chip">${drafts.length} BORRADORES</span></div><div class="draft-fixture-list">${drafts.length ? drafts.map(match => `<div class="draft-fixture-row"><span>${escapeHtml(formatDay(match.fecha))}</span><span>${escapeHtml(match.hora || 'Horario automático')}</span><span>${escapeHtml(match.cancha || 'Cancha automática')}</span><span>${escapeHtml(PHASE_LABELS[matchPhase(match)] || matchPhase(match))}${match.zonaId ? ` · ${escapeHtml(zoneName(match.zonaId))}` : ''}</span><strong>${escapeHtml(teamName(match.equipoLocalId))} <b>vs</b> ${escapeHtml(teamName(match.equipoVisitanteId))}</strong><button type="button" class="eliminar-borrador btn-secondary" data-id="${match.id}">Quitar</button></div>`).join('') : '<div class="empty-state compact">No hay emparejamientos pendientes de confirmación.</div>'}</div></section>
         <section class="fixture-board" aria-label="Fixture general del torneo">
             <div class="schedule-board-head"><div><h3>Fixture General</h3><p>Orden: día, hora, cancha y orden del partido.</p></div><div class="fixture-view-toggle"><button class="btn-secondary active" data-view-mode="day" type="button">Por día</button><button class="btn-secondary" data-view-mode="court" type="button">Por cancha</button></div></div>
             <div class="fixture-filters"><label>Día<select id="fixture-filter-date"><option value="">Todos los días</option>${calendarDates.map(date => option(date, formatDay(date))).join('')}<option value="__none">Sin fecha</option></select></label><label>Categoría<select id="fixture-filter-category"><option value="">Todas</option>${categories.map(item => option(item.id, item.nombre)).join('')}</select></label><label>Modalidad<select id="fixture-filter-modality"><option value="">Todas</option>${modalities.map(value => option(value, value)).join('')}</select></label><label>Etapa<select id="fixture-filter-phase"><option value="">Todas</option>${Object.entries(PHASE_LABELS).map(([value, label]) => option(value, label)).join('')}</select></label><label>Zona<select id="fixture-filter-zone"><option value="">Todas</option>${allZones.map(zone => option(zone.id, `${category(zone.categoriaId)?.nombre} · ${zone.nombre}`)).join('')}</select></label><label>Cancha<select id="fixture-filter-court"><option value="">Todas</option>${courts.map(court => option(court.id, court.name)).join('')}</select></label><label>Estado<select id="fixture-filter-status"><option value="">Todos</option>${[...new Set(official.map(match => match.estado))].map(value => option(value, STATUS_LABELS[value] || value)).join('')}</select></label><button id="clear-fixture-filters" class="btn-secondary" type="button">Limpiar filtros</button></div>
@@ -107,7 +121,7 @@ export const initScheduleView = () => {
     const selectedPairingDay = () => view.querySelector('#pairing-day')?.value || '';
     const renderPairingContext = () => {
         const date = selectedPairingDay(); const day = planningDays.find(item => item.date === date);
-        const hasZoneStage = !planning || day?.stages?.some(stage => ['ZONAS', 'GARANTIZADOS'].includes(stage));
+        const hasZoneStage = !planning || day?.stages?.some(stage => ['fase_zonas', 'partidos_garantizados'].includes(normalizeTournamentStage(stage)));
         view.querySelector('#pairing-day-context').innerHTML = `<strong>${escapeHtml(formatDay(date))}</strong><span>${escapeHtml(stageSummary(day || { stages: [] }))}</span>`;
         view.querySelector('#btn-generar-emparejamientos').disabled = !date || !hasZoneStage;
     };
@@ -120,7 +134,7 @@ export const initScheduleView = () => {
             <div class="fixture-cell fixture-cell-category"><strong>${escapeHtml(parts.age)}</strong>${parts.modality ? `<span class="fixture-cell-note">${escapeHtml(parts.modality)}</span>` : ''}</div>
             <div class="fixture-cell fixture-cell-stage"><strong>${escapeHtml(PHASE_LABELS[matchPhase(match)] || matchPhase(match))}</strong>${match.zonaId ? `<span class="fixture-cell-note">${escapeHtml(zoneName(match.zonaId))}</span>` : ''}</div>
             <div class="fixture-cell fixture-cell-teams"><div class="fixture-teams"><strong>${escapeHtml(teamName(match.equipoLocalId))}</strong><b>vs</b><strong>${escapeHtml(teamName(match.equipoVisitanteId))}</strong></div></div>
-            <div class="fixture-cell fixture-cell-status"><span class="match-status ${match.estado === 'finalizado' ? 'finished' : 'pending'}">${escapeHtml(STATUS_LABELS[match.estado] || match.estado)}</span></div>
+            <div class="fixture-cell fixture-cell-status"><span class="match-status ${match.estado === 'finalizado' ? 'finished' : 'pending'}">${escapeHtml(STATUS_LABELS[match.estado] || match.estado)}</span>${match.estado === 'finalizado' ? `<span class="fixture-cell-note">${escapeHtml((match.sets || []).map((set, index) => `S${index + 1}: ${set.puntosLocal}-${set.puntosVisitante}`).join(' · '))}<br>Resultado: ${escapeHtml(match.score)}</span>` : ''}</div>
             ${editor(match)}
         </article>`;
     };
@@ -147,14 +161,18 @@ export const initScheduleView = () => {
     view.querySelector('#set-format-form').addEventListener('submit', event => { event.preventDefault(); try { const values = new FormData(event.currentTarget); DataManager.setTournamentSetFormats(tournamentId, { zones: values.get('zones'), playoffs: values.get('playoffs') }); alert('Formato de sets guardado.'); initScheduleView(); } catch (error) { alert(error.message); } });
     view.querySelectorAll('.eliminar-borrador').forEach(button => button.addEventListener('click', () => { try { DataManager.removeMatch(button.dataset.id); initScheduleView(); } catch (error) { alert(error.message); } }));
     view.querySelector('#btn-generar-emparejamientos').addEventListener('click', () => { try { const count = SchedulerService.generarEmparejamientos(tournamentId, activeCategoryId, { date: selectedPairingDay() }); alert(`${count} emparejamiento${count === 1 ? '' : 's'} creado${count === 1 ? '' : 's'}.`); initScheduleView(); } catch (error) { alert(error.message); } });
+    view.querySelector('#special-cross-form')?.addEventListener('submit', event => { event.preventDefault(); try { const values = new FormData(event.currentTarget); SpecialCrossService.create(tournamentId, activeCategoryId, values.get('local'), values.get('visitante')); initScheduleView(); } catch (error) { alert(error.message); } });
     view.querySelector('#btn-confirmar-emparejamientos').addEventListener('click', () => { try { const count = SchedulerService.confirmarEmparejamientos(tournamentId, activeCategoryId); alert(`${count} partido${count === 1 ? '' : 's'} confirmado${count === 1 ? '' : 's'}. Ahora podés programar el torneo completo.`); initScheduleView(); } catch (error) { alert(error.message); } });
-    view.querySelector('#btn-generar-programacion').addEventListener('click', () => { try { const result = LogisticsService.programTournament(tournamentId); const warning = result.failures.length ? `\n\nNo se encontró un horario disponible para ${result.failures.length} partido(s) respetando las reglas actuales:\n${result.failures.map(item => `• ${item.label}\n   Motivo: ${item.reasons.join(' · ')}`).join('\n')}` : ''; alert(`${result.scheduled} partido(s) programado(s).${warning}`); initScheduleView(); } catch (error) { alert(error.message); } });
+    view.querySelector('#btn-generar-programacion').addEventListener('click', () => { try { const result = LogisticsService.programTournament(tournamentId, activePlanning?.id || null); const warning = result.failures.length ? `\n\nNo se encontró un horario disponible para ${result.failures.length} partido(s) respetando las reglas actuales:\n${result.failures.map(item => `• ${item.label}\n   Motivo: ${item.reasons.join(' · ')}`).join('\n')}` : ''; alert(`${result.scheduled} partido(s) programado(s).${warning}`); initScheduleView(); } catch (error) { alert(error.message); } });
     view.querySelector('#btn-limpiar-programacion').addEventListener('click', () => { if (!confirm('Se quitará el día, la hora y la cancha de todos los partidos pendientes. Se conservan los equipos, los resultados y los partidos finalizados. ¿Continuar?')) return; try { const cleared = DataManager.clearTournamentSchedule(tournamentId); alert(`${cleared} partido(s) quedaron sin programar. Ahora podés programarlos de nuevo.`); initScheduleView(); } catch (error) { alert(error.message); } });
+    view.querySelector('#btn-reorganizar-canchas').addEventListener('click', () => { try { const result = LogisticsService.reorganizeCourts(tournamentId, activePlanning?.id || null); if (result.validation && !result.validation.valid) throw new Error(result.validation.issues.map(issue => issue.message).join('\n')); alert(`${result.updated} partido(s) reorganizado(s).`); initScheduleView(); } catch (error) { alert(error.message); } });
+    view.querySelector('#btn-reorganizar-fixture').addEventListener('click', () => { if (!window.confirm('Se regenerarán horarios y canchas de los partidos no finalizados. ¿Continuar?')) return; try { const result = LogisticsService.reorganizeFixture(tournamentId, activePlanning?.id || null); alert(`${result.scheduled} partido(s) reprogramado(s).`); initScheduleView(); } catch (error) { alert(error.message); } });
     view.querySelector('#manual-group-match-form').addEventListener('submit', event => { event.preventDefault(); try { const values = new FormData(event.currentTarget); const local = activeTeams.find(team => team.id === values.get('local')); const court = courts.find(item => item.id === values.get('courtId')); DataManager.createManualMatch({ torneoId: tournamentId, categoriaId: activeCategoryId, zonaId: local?.zonaId, tipo: 'fase_zonas', phase: 'ZONAS', equipoLocalId: values.get('local'), equipoVisitanteId: values.get('visitante'), fecha: values.get('fecha'), hora: values.get('hora'), courtId: court.id, cancha: court.name, orden: values.get('orden') ? Number(values.get('orden')) : null, estado: 'programado' }); initScheduleView(); } catch (error) { alert(error.message); } });
     view.querySelectorAll('.fixture-filters select').forEach(select => select.addEventListener('change', renderFixture));
     view.querySelector('#clear-fixture-filters').addEventListener('click', () => { view.querySelectorAll('.fixture-filters select').forEach(select => { select.value = ''; }); renderFixture(); });
     view.querySelectorAll('[data-view-mode]').forEach(button => button.addEventListener('click', () => { viewMode = button.dataset.viewMode; view.querySelectorAll('[data-view-mode]').forEach(item => item.classList.toggle('active', item === button)); renderFixture(); }));
     view.querySelector('#export-fixture-full').addEventListener('click', () => downloadFixturePdf(tournament, exportRows({}), 'completo', 'TODAS LAS JORNADAS DEL TORNEO'));
+    view.querySelector('#export-fixture-spreadsheet').addEventListener('click', () => downloadFixtureSpreadsheet(tournament, exportRows({}), courts));
     view.querySelector('#export-fixture-day').addEventListener('click', () => { const date = view.querySelector('#fixture-filter-date').value; if (!date || date === '__none') return alert('Seleccioná un día en los filtros para exportarlo.'); downloadFixturePdf(tournament, exportRows({ date }), date, `JORNADA: ${formatDay(date).toUpperCase()}`); });
     view.querySelector('#export-fixture-court').addEventListener('click', () => { const courtId = view.querySelector('#fixture-filter-court').value; const court = courts.find(item => item.id === courtId); if (!court) return alert('Seleccioná una cancha en los filtros para exportarla.'); downloadFixturePdf(tournament, exportRows({ courtId, courtName: court.name }), court.name.toLowerCase().replace(/\s+/g, '-'), `CANCHA: ${court.name.toUpperCase()}`); });
     view.querySelector('#print-fixture').addEventListener('click', () => window.print());
