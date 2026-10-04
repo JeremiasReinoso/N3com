@@ -14,13 +14,8 @@ const logisticsCourtKey = match => match.courtId || match.cancha;
 const phaseOrder = { ZONAS: 1, TOP_16: 2, TOP_8: 3, SEMIFINAL: 4, FINAL: 5 };
 const logisticsIssue = (match, type, message) => ({ matchId: match.id, type, message });
 
-const logisticsAllowedDates = (tournamentId, match, planningId = null) => {
+const logisticsAllowedDates = (tournamentId, match) => {
     const calendar = DataManager.getCalendarDates(tournamentId);
-    const activePlanning = planningId ? DataManager.getPlanning(tournamentId, planningId) : DataManager.getActivePlanning(tournamentId);
-    if (activePlanning) {
-        const categoryDates = activePlanning.categoryDates?.[match.categoriaId] || activePlanning.selectedDates;
-        return calendar.filter(date => categoryDates.includes(date));
-    }
     const planning = DataManager.getCategoryPlanning(tournamentId, match.categoriaId);
     if (!planning) {
         const phase = logisticsPhaseFor(match);
@@ -84,9 +79,7 @@ export const fixtureCompare = (left, right) => String(left.fecha || '9999-99-99'
     || Number(left.orden || Number.MAX_SAFE_INTEGER) - Number(right.orden || Number.MAX_SAFE_INTEGER);
 
 export const LogisticsService = {
-    getTournamentMatches(tournamentId, { planningId = null, includeDrafts = true } = {}) {
-        const planningMatches = DataManager.getPlanningMatches(tournamentId, planningId, { includeDrafts });
-        if (planningMatches) return planningMatches;
+    getTournamentMatches(tournamentId) {
         return DataManager.getCategoriesByTournament(tournamentId)
             .flatMap(category => DataManager.getMatchesByTournamentAndCategory(tournamentId, category.id));
     },
@@ -119,8 +112,8 @@ export const LogisticsService = {
         return DataManager.getDaySchedules(tournamentId).flatMap(day => this.generateTimeBlocks(tournamentId, day).map(hora => ({ fecha: day.fecha, hora })));
     },
 
-    getGeneralFixture(tournamentId, { includeDrafts = false, planningId = null } = {}) {
-        return this.getTournamentMatches(tournamentId, { planningId, includeDrafts })
+    getGeneralFixture(tournamentId, { includeDrafts = false } = {}) {
+        return this.getTournamentMatches(tournamentId)
             .filter(match => includeDrafts || logisticsIsOfficial(match))
             .sort(fixtureCompare);
     },
@@ -155,13 +148,13 @@ export const LogisticsService = {
         return reasons.length ? reasons.map(key => labels[key]) : ['no se encontró una combinación válida de cancha y horario'];
     },
 
-    programTournament(tournamentId, planningId = null) {
+    programTournament(tournamentId) {
         const courts = DataManager.getTournamentCourts(tournamentId);
         const days = DataManager.getDaySchedules(tournamentId);
         if (!days.length) throw new Error('Configurá al menos una jornada en Calendario antes de programar.');
         if (!courts.length) throw new Error('Configurá al menos una cancha para el torneo.');
         const settings = DataManager.getTournamentSchedulingSettings(tournamentId);
-        const all = this.getTournamentMatches(tournamentId, { planningId, includeDrafts: false }).filter(logisticsIsOfficial);
+        const all = this.getTournamentMatches(tournamentId).filter(logisticsIsOfficial);
         const occupied = all.filter(match => match.fecha && match.hora && match.cancha);
         const courtLoads = new Map(courts.map(court => [court.id, occupied.filter(match => logisticsCourtKey(match) === court.id || match.cancha === court.name).length]));
         const pending = all.filter(match => match.estado !== 'finalizado' && (!match.fecha || !match.hora || !match.cancha))
@@ -172,7 +165,7 @@ export const LogisticsService = {
         const failures = [];
 
         for (const match of pending) {
-            const dates = logisticsAllowedDates(tournamentId, match, planningId);
+            const dates = logisticsAllowedDates(tournamentId, match);
             const preferred = match.fecha && dates.includes(match.fecha) ? [match.fecha, ...dates.filter(date => date !== match.fecha)] : dates;
             let assignment = null;
             const candidates = [];
@@ -207,16 +200,16 @@ export const LogisticsService = {
                 reasons: this.explainFailure(tournamentId, match, dates, days, courts, [...occupied, ...updates], settings)
             });
         }
-        if (updates.length) DataManager.updateMatches(updates, { planningId });
+        if (updates.length) DataManager.updateMatches(updates);
         return { scheduled: updates.length, failures };
     },
 
     // Reasigna únicamente la propiedad cancha. Fecha, hora, equipos, fases,
     // resultados y partidos finalizados permanecen intactos.
-    reorganizeCourts(tournamentId, planningId = null) {
+    reorganizeCourts(tournamentId) {
         const courts = DataManager.getTournamentCourts(tournamentId);
         if (!courts.length) throw new Error('Configurá al menos una cancha para el torneo.');
-        const fixture = this.getGeneralFixture(tournamentId, { planningId }).filter(match => match.fecha && match.hora);
+        const fixture = this.getGeneralFixture(tournamentId).filter(match => match.fecha && match.hora);
         const movable = fixture.filter(match => match.estado !== 'finalizado');
         const fixed = fixture.filter(match => match.estado === 'finalizado');
         const loads = new Map(courts.map(court => [court.id, fixed.filter(match => logisticsCourtKey(match) === court.id || match.cancha === court.name).length]));
@@ -235,35 +228,35 @@ export const LogisticsService = {
             loads.set(court.id, loads.get(court.id) + 1);
             if (match.courtId !== court.id || match.cancha !== court.name) updates.push({ ...match, courtId: court.id, cancha: court.name });
         });
-        if (updates.length) DataManager.updateMatches(updates, { planningId });
-        const validation = this.validateSchedule(tournamentId, planningId);
-        return { updated: updates.length, validation, score: scheduleScore(this.getGeneralFixture(tournamentId, { planningId }), courts) };
+        if (updates.length) DataManager.updateMatches(updates);
+        const validation = this.validateSchedule(tournamentId);
+        return { updated: updates.length, validation, score: scheduleScore(this.getGeneralFixture(tournamentId), courts) };
     },
 
     // Regenera horas y canchas desde la fuente de partidos, sin reconstruir
     // enfrentamientos ni tocar resultados. Los partidos finalizados conservan
     // su asignación; los demás vuelven a ocupar los slots válidos.
-    reorganizeFixture(tournamentId, planningId = null) {
-        const data = this.getGeneralFixture(tournamentId, { includeDrafts: true, planningId });
+    reorganizeFixture(tournamentId) {
+        const data = this.getGeneralFixture(tournamentId, { includeDrafts: true });
         const reset = data.filter(match => logisticsIsOfficial(match) && match.estado !== 'finalizado')
             .map(match => ({ ...match, fecha: null, hora: null, courtId: null, cancha: null }));
-        if (reset.length) DataManager.updateMatches(reset, { planningId });
-        const scheduled = this.generateSchedule(tournamentId, planningId);
-        return { ...scheduled, score: scheduleScore(this.getGeneralFixture(tournamentId, { planningId }), DataManager.getTournamentCourts(tournamentId)) };
+        if (reset.length) DataManager.updateMatches(reset);
+        const scheduled = this.generateSchedule(tournamentId);
+        return { ...scheduled, score: scheduleScore(this.getGeneralFixture(tournamentId), DataManager.getTournamentCourts(tournamentId)) };
     },
 
-    scoreSchedule(tournamentId, planningId = null) {
+    scoreSchedule(tournamentId) {
         const courts = DataManager.getTournamentCourts(tournamentId);
-        return scheduleScore(this.getGeneralFixture(tournamentId, { planningId }), courts);
+        return scheduleScore(this.getGeneralFixture(tournamentId), courts);
     },
 
-    validateSchedule(tournamentId, planningId = null) {
+    validateSchedule(tournamentId) {
         const courts = DataManager.getTournamentCourts(tournamentId);
         const courtIds = new Set(courts.map(court => court.id));
         const courtNames = new Map(courts.map(court => [court.name, court.id]));
         const days = DataManager.getDaySchedules(tournamentId);
         const slots = new Set(this.generateTimeSlots(tournamentId).map(slot => `${slot.fecha}|${slot.hora}`));
-        const matches = this.getTournamentMatches(tournamentId, { planningId, includeDrafts: false }).filter(logisticsIsOfficial);
+        const matches = this.getTournamentMatches(tournamentId).filter(logisticsIsOfficial);
         const issues = [];
         const scheduled = [];
         matches.forEach(match => {
@@ -278,7 +271,7 @@ export const LogisticsService = {
             const courtId = courtIds.has(match.courtId) ? match.courtId : courtNames.get(match.cancha);
             if (!courtId) { issues.push(logisticsIssue(match, 'invalid-court', `${label}: la cancha no existe en la configuración logística global.`)); return; }
             if (!slots.has(`${match.fecha}|${match.hora}`)) issues.push(logisticsIssue(match, 'invalid-time', `${label}: ${match.fecha} ${match.hora} no es un slot válido del calendario.`));
-            if (!logisticsAllowedDates(tournamentId, match, planningId).includes(match.fecha)) issues.push(logisticsIssue(match, 'planning', `${label}: la fase no está habilitada para esa fecha.`));
+            if (!logisticsAllowedDates(tournamentId, match).includes(match.fecha)) issues.push(logisticsIssue(match, 'planning', `${label}: la fase no está habilitada para esa fecha.`));
             const local = match.equipoLocalId && DataManager.getTeamsByTournamentAndCategory(tournamentId, match.categoriaId).find(team => team.id === match.equipoLocalId);
             const visitante = match.equipoVisitanteId && DataManager.getTeamsByTournamentAndCategory(tournamentId, match.categoriaId).find(team => team.id === match.equipoVisitanteId);
             if (match.phase === 'ZONAS' && (!local || !visitante || !match.zonaId || local.zonaId !== match.zonaId || visitante.zonaId !== match.zonaId)
@@ -314,23 +307,23 @@ export const LogisticsService = {
     },
 
     // Punto único de entrada para generar y validar la agenda completa.
-    generateSchedule(tournamentId, planningId = null) {
-        const before = this.getTournamentMatches(tournamentId, { planningId, includeDrafts: true });
-        const result = this.programTournament(tournamentId, planningId);
+    generateSchedule(tournamentId) {
+        const before = this.getTournamentMatches(tournamentId);
+        const result = this.programTournament(tournamentId);
         if (result.failures.length) {
-            if (result.scheduled) DataManager.updateMatches(before, { planningId });
+            if (result.scheduled) DataManager.updateMatches(before);
             const detail = result.failures.map(item => `${item.label}: ${item.reasons.join(' / ')}`).join('\n');
             throw new Error(`No se pudo completar la programación automática.\n${detail}`);
         }
-        const validation = this.validateSchedule(tournamentId, planningId);
+        const validation = this.validateSchedule(tournamentId);
         if (!validation.valid) {
-            if (result.scheduled) DataManager.updateMatches(before, { planningId });
+            if (result.scheduled) DataManager.updateMatches(before);
             throw new Error(`El fixture quedó incompleto o tiene conflictos:\n${validation.issues.map(issue => issue.message).join('\n')}`);
         }
         return { ...result, validation };
     },
 
-    getConflicts(tournamentId, planningId = null) {
-        return this.validateSchedule(tournamentId, planningId).issues;
+    getConflicts(tournamentId) {
+        return this.validateSchedule(tournamentId).issues;
     }
 };
