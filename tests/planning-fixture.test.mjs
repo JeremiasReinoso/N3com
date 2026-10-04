@@ -115,5 +115,22 @@ test('la planificación acepta cualquier distribución de etapas por jornada', (
         { date: '2026-10-11', stages: [] }
     ]));
     assert.throws(() => save([{ date: '09/10/2026', stages: ['FINAL'] }]), /fecha.*válida/);
-    assert.throws(() => save([{ date: '2026-10-09', stages: ['ETAPA_INEXISTENTE'] }]), /etapa no válida/);
+    assert.throws(() => save([{ date: '2026-10-09', stages: ['ETAPA_INEXISTENTE'] }]), /etapa no reconocida/);
+});
+
+test('la interfaz usa identificadores canónicos para todas las etapas actuales', async () => {
+    const { PLANNING_STAGES } = await import('../js/data/dataManager.js');
+    const category = DataManager.createCategory('+68 Femenino', DataManager.createTournament('Etapas canónicas', 1).id);
+    const tournament = DataManager.getTournaments().at(-1);
+    DataManager.setTournamentCalendar(tournament.id, '2026-10-09', '2026-10-11', '09:00', '20:00', []);
+    assert.equal(PLANNING_STAGES.ROUND_OF_16, 'TOP_16');
+    assert.equal(PLANNING_STAGES.QUARTERFINALS, 'TOP_8');
+    assert.doesNotThrow(() => DataManager.setCategoryPlanning(tournament.id, category.id, [
+        { date: '2026-10-09', stages: ['semifinales', 'finales'] },
+        { date: '2026-10-10', stages: [{ id: 'TOP 16' }, { stage: 'CUARTOS' }] },
+        { date: '2026-10-11', stages: ['Zonas', 'Partidos garantizados'] }
+    ]));
+    assert.deepEqual(DataManager.getCategoryPlanning(tournament.id, category.id).days.map(day => day.stages), [
+        ['SEMIFINAL', 'FINAL'], ['TOP_16', 'TOP_8'], ['ZONAS', 'GARANTIZADOS']
+    ]);
 });
