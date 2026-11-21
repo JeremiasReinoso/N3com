@@ -1,70 +1,78 @@
-/* Layout principal de NEWCOM */
+/* ==========================================================================
+   N3com — Layout Base (Fase 1, compatible con shell actual y futuro Sidebar)
+   ========================================================================== */
+
 .app-header {
-    background-color: white;
-    padding: var(--spacing-md);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    background-color: var(--bg-sidebar);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 12px 24px;
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: var(--spacing-md);
+    gap: 20px;
 }
 
 .logo {
-    font-size: 1.5rem;
-    font-weight: bold;
-    color: var(--primary-color);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.02em;
 }
 
 .logo-home {
-    color: var(--primary-color);
+    color: var(--text-primary);
     background: transparent;
     border: 0;
     line-height: 1.2;
     text-decoration: none;
     cursor: pointer;
-    transition: opacity .18s ease, transform .18s ease;
+    transition: opacity var(--dur-fast) var(--ease-standard);
 }
 
-.logo-home:hover { opacity: .78; transform: scale(1.015); }
-.logo-home:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.logo-home:hover {
+    opacity: 0.85;
+}
 
-.app-header.tournament-open { padding-block: 16px; }
-.app-header.tournament-open #main-nav { flex: 1; }
+.app-header.tournament-open {
+    padding-block: 12px;
+}
 
-:root[data-theme="dark"] .logo-home:hover { color: var(--primary-color); }
+.app-header.tournament-open #main-nav {
+    flex: 1;
+}
 
 #main-nav {
     display: flex;
-    gap: var(--spacing-sm);
+    gap: 4px;
     flex-wrap: wrap;
-    justify-content: center;
-}
-
-@media (max-width: 768px) {
-    .app-header { align-items: flex-start; padding-top: 64px; }
-    .app-header.tournament-open { flex-direction: column; }
-    #main-nav { width: 100%; justify-content: flex-start; }
+    justify-content: flex-start;
 }
 
 .nav-btn {
     background-color: transparent;
-    color: var(--text-muted);
-    border: 2px solid transparent;
-    padding: 8px 16px;
+    color: var(--text-secondary);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    padding: 7px 12px;
+    font-size: var(--text-sm);
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
+    transition:
+        background-color var(--dur-fast) var(--ease-standard),
+        color var(--dur-fast) var(--ease-standard),
+        border-color var(--dur-fast) var(--ease-standard);
+}
+
+.nav-btn:hover:not(.active):not(:disabled) {
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
 }
 
 .nav-btn.active {
-    color: var(--primary-color);
-    border-bottom: 3px solid var(--primary-color);
-    border-radius: 0;
-}
-
-.nav-btn:hover:not(.active) {
-    color: var(--primary-color);
-    border-bottom: 3px solid var(--border-color);
+    background-color: var(--accent-soft);
+    border-color: var(--accent-border);
+    color: var(--accent-text);
+    font-weight: 600;
 }
 
 .admin-link {
@@ -73,9 +81,9 @@
 }
 
 .container {
-    max-width: 1200px;
+    max-width: var(--content-max-width);
     margin: 0 auto;
-    padding: var(--spacing-lg) var(--spacing-md);
+    padding: var(--space-6) var(--space-6) var(--space-10);
 }
 
 /* Vistas dinámicas */
@@ -85,49 +93,57 @@
 
 .view-section.active {
     display: block;
-    animation: fadeIn 0.3s ease-in;
+    animation: fadeIn var(--dur-normal) var(--ease-standard);
 }
 
-/* Tarjetas para torneos/equipos */
+/* Grilla de tarjetas */
 .grid-cards {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: var(--spacing-md);
+    gap: var(--space-4);
 }
 
 .card {
-    background: var(--bg-card);
-    padding: var(--spacing-md);
-    border-radius: var(--radius);
-    border: 1px solid var(--border-color);
-    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-    text-align: center;
-    transition: transform 0.2s, box-shadow 0.2s;
+    background: var(--bg-surface);
+    padding: var(--space-5);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-sm);
+    text-align: left;
+    transition:
+        border-color var(--dur-fast) var(--ease-standard),
+        transform var(--dur-fast) var(--ease-standard),
+        box-shadow var(--dur-fast) var(--ease-standard);
 }
 
 .card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    border-color: var(--border-default);
 }
 
-/* Animación */
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
+    from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* Responsive */
 @media (max-width: 768px) {
+    .app-header {
+        align-items: flex-start;
+        padding: 58px 16px 14px;
+    }
+
+    .app-header.tournament-open {
+        flex-direction: column;
+    }
+
+    #main-nav {
+        width: 100%;
+    }
+
+    .container {
+        padding: var(--space-4) var(--space-4) var(--space-8);
+    }
+
     .grid-cards {
         grid-template-columns: 1fr;
-    }
-    
-    .calendar-grid {
-        gap: 5px;
-    }
-    
-    .calendar-day {
-        padding: 12px;
-        font-size: 1rem;
     }
 }
