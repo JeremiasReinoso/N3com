@@ -22,19 +22,19 @@ const logisticsIsOfficial = match => match.confirmado || ['pendiente', 'programa
 const logisticsTeamsOverlap = (left, right) => [left.equipoLocalId, left.equipoVisitanteId].filter(Boolean)
     .some(id => [right.equipoLocalId, right.equipoVisitanteId].filter(Boolean).includes(id));
 const logisticsCourtKey = match => match.courtId || match.cancha;
-const phaseOrder = { ZONAS: 1, TOP_16: 2, TOP_8: 3, SEMIFINAL: 4, FINAL: 5 };
+const phaseOrder = { ZONAS: 1, TOP_16: 2, TOP_8: 3, TOP_4: 4, SEMIFINAL: 4, THIRD_PLACE: 5, FINAL: 6 };
 const logisticsIssue = (match, type, message) => ({ matchId: match.id, type, message });
 
 const logisticsAllowedDates = (tournamentId, match) => {
     const calendar = DataManager.getCalendarDates(tournamentId);
     const planning = DataManager.getCategoryPlanning(tournamentId, match.categoriaId);
+    const phase = logisticsPhaseFor(match);
     if (!planning) {
-        const phase = logisticsPhaseFor(match);
-        if (calendar.length > 1 && ['SEMIFINAL', 'FINAL'].includes(phase)) return [calendar.at(-1), ...calendar.slice(0, -1)];
+        if (calendar.length > 1 && ['SEMIFINAL', 'THIRD_PLACE', 'FINAL'].includes(phase)) return [calendar.at(-1), ...calendar.slice(0, -1)];
         return calendar;
     }
-    const phase = logisticsPhaseFor(match);
-    const planned = DataManager.getPlanningDatesForStage(tournamentId, match.categoriaId, phase);
+    const planningPhase = phase === 'THIRD_PLACE' ? 'FINAL' : phase;
+    const planned = DataManager.getPlanningDatesForStage(tournamentId, match.categoriaId, planningPhase);
     return calendar.filter(date => planned.includes(date));
 };
 
@@ -64,8 +64,8 @@ const logisticsSlotIssues = (candidate, scheduled, settings) => {
         if (overlaps && logisticsTeamsOverlap(candidate, other)) { issues.team = true; continue; }
         if (!logisticsTeamsOverlap(candidate, other)) continue;
         const rest = Math.max(DataManager.getCategoryRestBlocks(candidate.categoriaId), DataManager.getCategoryRestBlocks(other.categoriaId));
-        const slotInterval = settings.intervaloPartidos || settings.blockDuration;
-        if (Math.abs(start - otherStart) < slotInterval * (rest + 1)) issues.rest = true;
+        const slotInterval = settings.slotInterval || settings.blockDuration;
+        if (rest > 0 && Math.abs(start - otherStart) < slotInterval * (rest + 1)) issues.rest = true;
     }
     return issues;
 };
@@ -263,7 +263,7 @@ export const LogisticsService = {
                     for (const court of [...courts].sort((left, right) => courtLoads.get(left.id) - courtLoads.get(right.id) || left.name.localeCompare(right.name, 'es', { numeric: true }))) {
                         const candidate = { ...match, fecha: date, hora, courtId: court.id, cancha: court.name };
                         if (!logisticsSlotIsValid(candidate, [...occupied, ...updates], settings)) continue;
-                        const slotInterval = settings.intervaloPartidos || settings.blockDuration;
+                        const slotInterval = settings.slotInterval || settings.blockDuration;
                         const adjacent = [...occupied, ...updates].some(other => other.fecha === date
                             && logisticsTeamsOverlap(candidate, other)
                             && Math.abs(logisticsMinutesFromTime(other.hora) - logisticsMinutesFromTime(hora)) === slotInterval);
@@ -296,22 +296,34 @@ export const LogisticsService = {
     reorganizeCourts(tournamentId) {
         const courts = DataManager.getTournamentCourts(tournamentId);
         if (!courts.length) throw new Error('Configurá al menos una cancha para el torneo.');
+        const settings = DataManager.getTournamentSchedulingSettings(tournamentId);
         const fixture = this.getGeneralFixture(tournamentId).filter(match => match.fecha && match.hora);
         const movable = fixture.filter(match => match.estado !== 'finalizado');
         const fixed = fixture.filter(match => match.estado === 'finalizado');
-        const loads = new Map(courts.map(court => [court.id, fixed.filter(match => logisticsCourtKey(match) === court.id || match.cancha === court.name).length]));
-        const usedBySlot = new Map();
+        const resolveCourtId = match => courts.find(item => item.id === match.courtId || item.name === match.cancha)?.id || null;
+        const loads = new Map(courts.map(court => [court.id, 0]));
+        const occupiedIntervals = [];
+        fixed.forEach(match => {
+            const courtId = resolveCourtId(match);
+            if (!courtId) return;
+            loads.set(courtId, loads.get(courtId) + 1);
+            const start = logisticsMinutesFromTime(match.hora);
+            occupiedIntervals.push({ fecha: match.fecha, start, end: start + settings.blockDuration, courtId });
+        });
         const updates = [];
         movable.sort(fixtureCompare).forEach(match => {
-            const key = `${match.fecha}|${match.hora}`;
-            const used = usedBySlot.get(key) || new Set();
+            const start = logisticsMinutesFromTime(match.hora);
+            const end = start + settings.blockDuration;
+            const busyCourts = new Set(occupiedIntervals
+                .filter(item => item.fecha === match.fecha && start < item.end && item.start < end)
+                .map(item => item.courtId));
             const court = [...courts]
-                .filter(item => !used.has(item.id))
+                .filter(item => !busyCourts.has(item.id))
                 .sort((left, right) => loads.get(left.id) - loads.get(right.id)
-                    || (used.size ? Number(left.id === courts[(used.size) % courts.length]?.id) - Number(right.id === courts[(used.size) % courts.length]?.id) : 0)
+                    || (busyCourts.size ? Number(left.id === courts[(busyCourts.size) % courts.length]?.id) - Number(right.id === courts[(busyCourts.size) % courts.length]?.id) : 0)
                     || left.name.localeCompare(right.name, 'es', { numeric: true }))[0];
             if (!court) return;
-            used.add(court.id); usedBySlot.set(key, used);
+            occupiedIntervals.push({ fecha: match.fecha, start, end, courtId: court.id });
             loads.set(court.id, loads.get(court.id) + 1);
             if (match.courtId !== court.id || match.cancha !== court.name) updates.push({ ...match, courtId: court.id, cancha: court.name });
         });
@@ -324,12 +336,17 @@ export const LogisticsService = {
     // enfrentamientos ni tocar resultados. Los partidos finalizados conservan
     // su asignación; los demás vuelven a ocupar los slots válidos.
     reorganizeFixture(tournamentId) {
-        const data = this.getGeneralFixture(tournamentId, { includeDrafts: true });
-        const reset = data.filter(match => logisticsIsOfficial(match) && match.estado !== 'finalizado')
+        const before = this.getTournamentMatches(tournamentId);
+        const reset = before.filter(match => logisticsIsOfficial(match) && match.estado !== 'finalizado')
             .map(match => ({ ...match, fecha: null, hora: null, courtId: null, cancha: null }));
         if (reset.length) DataManager.updateMatches(reset);
-        const scheduled = this.generateSchedule(tournamentId);
-        return { ...scheduled, score: scheduleScore(this.getGeneralFixture(tournamentId), DataManager.getTournamentCourts(tournamentId)) };
+        try {
+            const scheduled = this.generateSchedule(tournamentId);
+            return { ...scheduled, score: scheduleScore(this.getGeneralFixture(tournamentId), DataManager.getTournamentCourts(tournamentId)) };
+        } catch (error) {
+            if (reset.length) DataManager.restoreMatches(before);
+            throw error;
+        }
     },
 
     scoreSchedule(tournamentId) {
@@ -376,7 +393,7 @@ export const LogisticsService = {
             } else if (logisticsTeamsOverlap(match, other)) {
                 const rest = Math.max(DataManager.getCategoryRestBlocks(match.categoriaId), DataManager.getCategoryRestBlocks(other.categoriaId));
                 const settings = DataManager.getTournamentSchedulingSettings(tournamentId);
-                const slotInterval = settings.intervaloPartidos || settings.blockDuration;
+                const slotInterval = settings.slotInterval || settings.blockDuration;
                 if (rest > 0 && distance < slotInterval * (rest + 1)) {
                     issues.push({ type: 'rest', matchId: match.id, otherId: other.id, message: `Descanso insuficiente: ${this.getMatchLabel(tournamentId, match)} necesita ${rest} bloque${rest === 1 ? '' : 's'} libre${rest === 1 ? '' : 's'}.` });
                 }
@@ -387,7 +404,15 @@ export const LogisticsService = {
         const values = [...loads.values()];
         const distribution = { byCourt: Object.fromEntries(courts.map(court => [court.id, loads.get(court.id)])), difference: values.length ? Math.max(...values) - Math.min(...values) : 0 };
         const totalCapacity = days.reduce((sum, day) => sum + this.generateTimeBlocks(tournamentId, day).length, 0) * courts.length;
-        if (scheduled.length === matches.length && totalCapacity >= matches.length && distribution.difference > 1) {
+        const fixedLoads = courts.map(court => scheduled.filter(match => match.estado === 'finalizado' && match.courtId === court.id).length);
+        const movableCount = scheduled.filter(match => match.estado !== 'finalizado').length;
+        const simulated = [...fixedLoads];
+        for (let step = 0; step < movableCount && simulated.length; step += 1) {
+            const minIndex = simulated.indexOf(Math.min(...simulated));
+            simulated[minIndex] += 1;
+        }
+        const allowedDiff = simulated.length ? Math.max(1, Math.max(...simulated) - Math.min(...simulated)) : 1;
+        if (scheduled.length === matches.length && totalCapacity >= matches.length && distribution.difference > allowedDiff) {
             issues.push({ type: 'distribution', message: `La distribución de partidos entre canchas no es equilibrada: ${JSON.stringify(distribution.byCourt)}.` });
         }
         return { valid: issues.length === 0 && scheduled.length === matches.length, issues, distribution, matches: scheduled };
@@ -398,13 +423,13 @@ export const LogisticsService = {
         const before = this.getTournamentMatches(tournamentId);
         const result = this.programTournament(tournamentId);
         if (result.failures.length) {
-            if (result.scheduled) DataManager.updateMatches(before);
+            if (result.scheduled) DataManager.restoreMatches(before);
             const detail = result.failures.map(item => `${item.label}: ${item.reasons.join(' / ')}`).join('\n');
             throw new Error(`No se pudo completar la programación automática.\n${detail}`);
         }
         const validation = this.validateSchedule(tournamentId);
         if (!validation.valid) {
-            if (result.scheduled) DataManager.updateMatches(before);
+            if (result.scheduled) DataManager.restoreMatches(before);
             throw new Error(`El fixture quedó incompleto o tiene conflictos:\n${validation.issues.map(issue => issue.message).join('\n')}`);
         }
         return { ...result, validation };

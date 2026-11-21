@@ -1,4 +1,5 @@
 import { AppState } from '../core/state.js';
+import { escapeHtml } from '../core/escapeHtml.js';
 import { DataManager } from '../data/dataManager.js';
 import { renderCategoryWorkspace } from '../core/categoryWorkspace.js';
 
@@ -10,7 +11,7 @@ const CATEGORY_GROUPS = {
 };
 const CATEGORY_OPTIONS = Object.values(CATEGORY_GROUPS).flat();
 const categoryTabs = (categories, activeId) => categories.map(category =>
-    `<button type="button" class="btn-tab categoria-tab ${category.id === activeId ? 'active' : ''}" data-id="${category.id}">${category.nombre}</button>`).join('');
+    `<button type="button" class="btn-tab categoria-tab ${category.id === activeId ? 'active' : ''}" data-id="${escapeHtml(category.id)}">${escapeHtml(category.nombre)}</button>`).join('');
 
 export const initEquiposView = () => {
     let tournamentId;
@@ -40,7 +41,7 @@ export const initEquiposView = () => {
     view.innerHTML = `
         <h2>Equipos</h2>
         <section class="form-card panel-control">
-            <div class="form-title"><div><h3>Nueva categoría</h3><p>Las categorías funcionan como subpáginas dentro de este torneo.</p></div><span class="calendar-chip">${tournament.nombre}</span></div>
+            <div class="form-title"><div><h3>Nueva categoría</h3><p>Las categorías funcionan como subpáginas dentro de este torneo.</p></div><span class="calendar-chip">${escapeHtml(tournament.nombre)}</span></div>
             <form id="form-nueva-categoria" class="category-picker-form">
                 <div class="category-picker" role="group" aria-label="Elegí una categoría">${categoryPicker}</div>
                 <div class="category-picker-footer"><p id="categoria-seleccionadas" class="helper-text">Podés elegir varias categorías para crearlas juntas.</p><button id="agregar-categoria" class="btn-primary" type="submit" disabled ${allCategoriesAdded ? 'disabled' : ''}>Agregar categorías</button></div>
@@ -51,7 +52,7 @@ export const initEquiposView = () => {
             <div class="tabs-container">${categories.length ? categoryTabs(categories, categoryId) : '<span class="helper-text">Aún no hay categorías.</span>'}</div>
         </section>
         ${category ? `<section class="form-card panel-control">
-            <div class="category-page-header"><div><h3>${category.nombre}</h3><p class="helper-text">${teams.length} equipo${teams.length === 1 ? '' : 's'} registrado${teams.length === 1 ? '' : 's'}.</p></div></div>
+            <div class="category-page-header"><div><h3>${escapeHtml(category.nombre)}</h3><p class="helper-text">${teams.length} equipo${teams.length === 1 ? '' : 's'} registrado${teams.length === 1 ? '' : 's'}.</p></div></div>
             <form id="form-nuevo-equipo" class="form-grid">
                 <label class="form-field">Nombre del equipo<input id="equipo-nombre" type="text" maxlength="70" required placeholder="Ej.: Los Cóndores"></label>
                 <div class="form-actions"><button class="btn-primary" type="submit">Agregar equipo</button></div>
@@ -59,7 +60,7 @@ export const initEquiposView = () => {
         </section>
         <div class="grid-cards">${teams.length ? teams.map(team => {
             const zone = zones.find(item => item.id === team.zonaId);
-            return `<article class="card"><span class="calendar-chip">${zone ? zone.nombre : 'SIN ZONA'}</span><h3>${team.nombre}</h3><p>${zone ? 'Listo para programar' : 'Asignalo a una zona para generar el fixture.'}</p></article>`;
+            return `<article class="card"><span class="calendar-chip">${zone ? escapeHtml(zone.nombre) : 'SIN ZONA'}</span><h3>${escapeHtml(team.nombre)}</h3><p>${zone ? 'Listo para programar' : 'Asignalo a una zona para generar el fixture.'}</p></article>`;
         }).join('') : '<div class="empty-state">Esta categoría todavía no tiene equipos.</div>'}</div>` : ''}`;
 
     view.querySelector('#form-nueva-categoria').addEventListener('submit', event => {

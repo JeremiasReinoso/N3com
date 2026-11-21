@@ -1,4 +1,5 @@
 import { AppState } from '../core/state.js';
+import { escapeHtml } from '../core/escapeHtml.js';
 import { DataManager } from '../data/dataManager.js';
 
 let disposePeriodPicker = () => {};
@@ -76,7 +77,7 @@ export function initCalendarView() {
     view.innerHTML = `
         <h2>Calendario del torneo</h2>
         <section class="form-card panel-control">
-            <div class="form-title"><div><h3>Disponibilidad general</h3><p>Definí el período; cada fecha tendrá su propio horario editable.</p></div><span class="calendar-chip">${tournament.nombre}</span></div>
+            <div class="form-title"><div><h3>Disponibilidad general</h3><p>Definí el período; cada fecha tendrá su propio horario editable.</p></div><span class="calendar-chip">${escapeHtml(tournament.nombre)}</span></div>
             <form id="form-calendario" class="calendar-settings-form">
                 <div class="form-grid calendar-settings-grid">
                 <div class="form-field tournament-period-field">
@@ -157,9 +158,13 @@ export function initCalendarView() {
         requestAnimationFrame(positionPicker);
     };
     const closeOnOutsideClick = event => {
+        if (!periodDialog.isConnected) { disposePeriodPicker(); return; }
         if (!periodDialog.hidden && !periodField.contains(event.target)) setPickerOpen(false);
     };
-    const repositionOnViewportChange = () => positionPicker();
+    const repositionOnViewportChange = () => {
+        if (!periodDialog.isConnected) { disposePeriodPicker(); return; }
+        positionPicker();
+    };
     document.addEventListener('pointerdown', closeOnOutsideClick);
     window.addEventListener('resize', repositionOnViewportChange);
     window.addEventListener('orientationchange', repositionOnViewportChange);

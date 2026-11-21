@@ -12,13 +12,14 @@ const clip = (value, max) => {
     const text = String(value ?? '');
     return text.length > max ? `${text.slice(0, Math.max(1, max - 3))}...` : text;
 };
-const makePage = (tournament, rows, pageNumber, totalPages, subtitle = '', courtName = '') => {
+const makePage = (tournament, rows, pageNumber, totalPages, subtitle = '', courtName = '', options = {}) => {
+    const onlyStartTime = Boolean(options?.onlyStartTime);
     const commands = [
         '0.08 0.12 0.2 rg', '40 543 762 32 re f', '1 1 1 rg', line(52, 554, 16, 'FIXTURE GENERAL DEL TORNEO', true),
         '0.08 0.12 0.2 rg', line(40, 523, 13, tournament.nombre, true),
         // Los títulos de columna se dibujan en la misma posición X que los datos
         // para que la impresión quede alineada aunque cambie el idioma.
-        line(42, 507, 8, 'HORA', true), line(86, 507, 8, 'CANCHA', true), line(170, 507, 8, 'CATEGORIA / MODALIDAD', true),
+        line(42, 507, 8, onlyStartTime ? 'INICIO' : 'HORA', true), line(86, 507, 8, 'CANCHA', true), line(170, 507, 8, 'CATEGORIA / MODALIDAD', true),
         line(322, 507, 8, 'ETAPA / ZONA', true), line(460, 507, 8, 'PARTIDO', true), line(718, 507, 8, 'ESTADO', true)
     ];
     const pageContext = [subtitle, courtName ? `CANCHA: ${courtName}` : ''].filter(Boolean).join(' · ');
@@ -26,7 +27,7 @@ const makePage = (tournament, rows, pageNumber, totalPages, subtitle = '', court
     commands.push('0.35 0.42 0.55 rg', line(560, 523, 9, clip(`Pagina ${pageNumber} de ${totalPages}`, 34), true));
     let y = 476;
     let currentDate = null;
-    rows.forEach(row => {
+    rows.forEach((row, rowIndex) => {
         if (row.fecha !== currentDate) {
             currentDate = row.fecha;
             commands.push('0.88 0.91 0.95 rg', `40 ${y - 4} 762 19 re f`, '0.08 0.12 0.2 rg', line(46, y + 1, 11, dayLabel(row.fecha), true));
@@ -36,7 +37,10 @@ const makePage = (tournament, rows, pageNumber, totalPages, subtitle = '', court
         const stage = `${row.phaseLabel}${row.zoneName ? ` · ${row.zoneName}` : ''}`;
         const match = `${row.teamA} vs ${row.teamB}`;
         const score = row.sets?.length ? `${row.sets.map((set, index) => `S${index + 1}: ${set.puntosLocal}-${set.puntosVisitante}`).join('  ')}  Resultado: ${row.score || ''}` : '';
-        commands.push(line(42, y, 9, row.horaInicio ? clip(row.horaInicio, 6) : '', true));
+        const timeValue = onlyStartTime
+            ? (row.horaInicio || (rowIndex === 0 ? row.hora : '') || '')
+            : (row.hora || row.horaInicio || '');
+        commands.push(line(42, y, 9, timeValue ? clip(timeValue, 6) : '', true));
         commands.push(line(86, y, 9, clip(row.cancha || 'Sin cancha', 15)));
         commands.push(line(170, y, 9, clip(category, 30)));
         commands.push(line(322, y, 9, clip(stage, 28)));
@@ -54,24 +58,31 @@ export const fixtureRows = ({ matches, categories, teams, zones, phaseLabels, fi
     const category = id => categories.find(item => item.id === id);
     const team = id => teams.find(item => item.id === id)?.nombre || 'Equipo no disponible';
     const zone = id => zones.find(item => item.id === id)?.nombre || '';
-    const sorted = matches.filter(match => (!filters.date || match.fecha === filters.date) && (!filters.courtId || match.courtId === filters.courtId || match.cancha === filters.courtName))
-        .sort(fixtureCompare);
-    const firstByDate = new Set();
+    const sorted = matches.filter(match => (
+        (!filters.date || match.fecha === filters.date)
+        && (!filters.categoryId || match.categoriaId === filters.categoryId)
+        && (!filters.phase || (match.phase || 'ZONAS') === filters.phase)
+        && (!filters.zoneId || match.zonaId === filters.zoneId)
+        && (!filters.status || match.estado === filters.status)
+        && (!filters.courtId || match.courtId === filters.courtId || match.cancha === filters.courtName)
+    )).sort(fixtureCompare);
+    const firstByDateAndCourt = new Set();
     return sorted.map(match => {
-            const item = category(match.categoriaId) || {};
-            const horaInicio = firstByDate.has(match.fecha) ? '' : match.hora || '';
-            firstByDate.add(match.fecha);
-            return {
-                id: match.id, fecha: match.fecha, hora: match.hora, horaInicio, cancha: match.cancha, orden: match.orden,
-                categoryName: item.nombre || 'Sin categoría', categoryAge: item.edad || '', modality: item.modalidad || '',
-                phaseLabel: phaseLabels[match.phase || 'ZONAS'] || match.phase || 'Fase de zonas', zoneName: zone(match.zonaId),
-                teamA: team(match.equipoLocalId), teamB: team(match.equipoVisitanteId), status: statusLabel(match.estado),
-                sets: Array.isArray(match.sets) ? match.sets : [], score: match.score || ''
-            };
-        });
+        const item = category(match.categoriaId) || {};
+        const dateCourtKey = `${match.fecha || ''}|${match.courtId || match.cancha || ''}`;
+        const horaInicio = firstByDateAndCourt.has(dateCourtKey) ? '' : match.hora || '';
+        firstByDateAndCourt.add(dateCourtKey);
+        return {
+            id: match.id, fecha: match.fecha, hora: match.hora, horaInicio, cancha: match.cancha, orden: match.orden,
+            categoryId: match.categoriaId, categoryName: item.nombre || 'Sin categoría', categoryAge: item.edad || '', modality: item.modalidad || '',
+            phase: match.phase || 'ZONAS', phaseLabel: phaseLabels[match.phase || 'ZONAS'] || match.phase || 'Fase de zonas', zoneName: zone(match.zonaId),
+            teamA: team(match.equipoLocalId), teamB: team(match.equipoVisitanteId), status: statusLabel(match.estado),
+            sets: Array.isArray(match.sets) ? match.sets : [], score: match.score || ''
+        };
+    });
 };
 
-export const buildFixturePdf = (tournament, rows, subtitle = '') => {
+export const buildFixturePdf = (tournament, rows, subtitle = '', options = {}) => {
     // Cada página representa una única cancha y una única jornada. Así la
     // exportación sigue siendo una proyección del fixture general, pero nunca
     // mezcla canchas en la misma hoja.
@@ -109,7 +120,7 @@ export const buildFixturePdf = (tournament, rows, subtitle = '') => {
     const boldId = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
     const pageIds = [];
     pages.forEach((page, index) => {
-        const stream = makePage(tournament, page.rows, index + 1, pages.length, subtitle, page.courtName);
+        const stream = makePage(tournament, page.rows, index + 1, pages.length, subtitle, page.courtName, options);
         const contentId = add(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
         pageIds.push(add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldId} 0 R >> >> /Contents ${contentId} 0 R >>`));
     });
@@ -124,8 +135,8 @@ export const buildFixturePdf = (tournament, rows, subtitle = '') => {
     return new Uint8Array([...pdf].map(character => character.charCodeAt(0) & 0xff));
 };
 
-export const downloadFixturePdf = (tournament, rows, suffix = 'completo', subtitle = '') => {
-    const bytes = buildFixturePdf(tournament, rows, subtitle);
+export const downloadFixturePdf = (tournament, rows, suffix = 'completo', subtitle = '', options = {}) => {
+    const bytes = buildFixturePdf(tournament, rows, subtitle, options);
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     const link = document.createElement('a');
     link.href = url;
@@ -143,10 +154,12 @@ export const downloadFixtureCsv = (tournament, rows, suffix = 'completo') => {
         row.sets?.[1] ? `${row.sets[1].puntosLocal}-${row.sets[1].puntosVisitante}` : '',
         row.sets?.[2] ? `${row.sets[2].puntosLocal}-${row.sets[2].puntosVisitante}` : '', row.score]);
     const csv = [header, ...body].map(row => row.map(escape).join(';')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }));
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }));
+    link.href = url;
     link.download = `fixture-${latin(tournament.nombre).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${suffix}.csv`;
     link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
 const spreadsheetEscape = value => String(value ?? '')
@@ -196,14 +209,19 @@ const xlsxCell = (value, rowNumber, columnNumber, style = 2) => {
     return `<c r="${reference}" t="inlineStr" s="${style}"><is><t xml:space="preserve">${xlsxXmlEscape(value)}</t></is></c>`;
 };
 
-const xlsxRows = (rows, includeCourt = true) => {
-    const header = ['Fecha', 'Hora inicio', ...(includeCourt ? ['Cancha'] : []), 'Categoría', 'Zona', 'Etapa', 'Partido', 'Equipo 1', 'Equipo 2', 'Estado', 'Resultado'];
+const xlsxRows = (rows, includeCourt = true, options = {}) => {
+    const onlyStartTime = Boolean(options?.onlyStartTime);
+    const header = ['Fecha', onlyStartTime ? 'Hora inicio' : 'Hora', ...(includeCourt ? ['Cancha'] : []), 'Categoría', 'Zona', 'Etapa', 'Partido', 'Equipo 1', 'Equipo 2', 'Estado', 'Resultado'];
     const sorted = [...rows].sort(fixtureCompare);
+    const seenStart = new Set();
     const body = sorted.map((row, index) => {
-        const firstOfDate = index === 0 || sorted[index - 1].fecha !== row.fecha;
+        const startKey = `${row.fecha || ''}|${row.cancha || ''}`;
+        const firstForCourtDay = !seenStart.has(startKey);
+        seenStart.add(startKey);
+        const horaCell = onlyStartTime ? (firstForCourtDay ? (row.hora || row.horaInicio || '') : '') : (row.hora || row.horaInicio || '');
         const values = [
             row.fecha,
-            firstOfDate ? (row.hora || row.horaInicio || '') : '',
+            horaCell,
             ...(includeCourt ? [row.cancha] : []),
             [row.categoryAge, row.modality].filter(Boolean).join(' · ') || row.categoryName,
             row.zoneName,
@@ -267,7 +285,7 @@ const xlsxZip = entries => {
     return output;
 };
 
-export const buildFixtureXlsx = ({ tournament, rows, courts }) => {
+export const buildFixtureXlsx = ({ tournament, rows, courts, options = {} }) => {
     const safeSheetName = (name, used) => {
         const base = String(name || 'Cancha').replace(/[\\/:?*\[\]]/g, ' ').slice(0, 31) || 'Cancha';
         let candidate = base; let suffix = 2;
@@ -276,7 +294,7 @@ export const buildFixtureXlsx = ({ tournament, rows, courts }) => {
     };
     const usedNames = new Set(['Fixture completo']);
     const sheetNames = ['Fixture completo', ...(courts || []).map(court => safeSheetName(court.name, usedNames))];
-    const sheets = [xlsxRows(rows, true), ...(courts || []).map(court => xlsxRows(rows.filter(row => row.cancha === court.name), false))];
+    const sheets = [xlsxRows(rows, true, options), ...(courts || []).map(court => xlsxRows(rows.filter(row => row.cancha === court.name), false, options))];
     const relationships = sheets.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join('');
     const workbookSheets = sheetNames.map((name, index) => `<sheet name="${xlsxXmlEscape(name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join('');
     const contentTypes = ['<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>', '<Default Extension="xml" ContentType="application/xml"/>', '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>', '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>', '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>', ...sheets.map((_, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`)].join('');
@@ -293,8 +311,8 @@ export const buildFixtureXlsx = ({ tournament, rows, courts }) => {
     ]);
 };
 
-export const downloadFixtureSpreadsheet = (tournament, rows, courts) => {
-    const xlsx = buildFixtureXlsx({ tournament, rows, courts });
+export const downloadFixtureSpreadsheet = (tournament, rows, courts, options = {}) => {
+    const xlsx = buildFixtureXlsx({ tournament, rows, courts, options });
     const safeName = latin(tournament.nombre).toLowerCase().replace(/[^a-z0-9]+/g, '-');
     const link = document.createElement('a');
     link.href = URL.createObjectURL(new Blob([xlsx], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));

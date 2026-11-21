@@ -28,6 +28,16 @@ const minutesFromTime = time => {
     const [hour, minute] = String(time).split(':').map(Number);
     return hour * 60 + minute;
 };
+// Unifica la semántica de intervalo entre partidos y duración de bloque:
+// si el intervalo es menor que el bloque se interpreta como pausa entre partidos
+// (bloque + pausa); si es mayor o igual, conserva la compatibilidad legacy como
+// paso directo entre horarios de inicio consecutivos.
+export const resolveSlotInterval = (blockDuration, intervaloPartidos) => {
+    const block = Number(blockDuration || 60);
+    const interval = Number(intervaloPartidos || 0);
+    if (interval <= 0) return block;
+    return interval < block ? block + interval : interval;
+};
 const defaultCourts = count => Array.from({ length: Number(count || 2) }, (_, index) => ({ id: `court_${index + 1}`, name: `Cancha ${index + 1}` }));
 const normalizeCourt = (court, index) => ({
     id: String(court?.id || `court_${index + 1}`),
@@ -146,6 +156,10 @@ const advanceBracketWinner = (data, source) => {
         .filter(match => Array.isArray(match.sourceMatchIds) && match.sourceMatchIds.includes(source.id))
         .forEach(target => {
             const slot = target.sourceMatchIds.indexOf(source.id);
+            const currentId = slot === 0 ? target.equipoLocalId : (slot === 1 ? target.equipoVisitanteId : null);
+            if (target.estado === 'finalizado' && currentId && currentId !== source.ganadorId) {
+                throw new Error('No se puede cambiar el ganador de este partido porque la instancia siguiente ya fue finalizada.');
+            }
             if (slot === 0) target.equipoLocalId = source.ganadorId;
             if (slot === 1) target.equipoVisitanteId = source.ganadorId;
         });
@@ -153,53 +167,69 @@ const advanceBracketWinner = (data, source) => {
 
 export const DataManager = {
     _getStorage() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return emptyData();
+        let parsed;
         try {
-            const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-            const data = { ...emptyData(), ...(parsed || {}) };
-            // Los torneos creados antes de esta opción conservan el formato
-            // histórico basado en sets ganados.
-            data.tournaments = data.tournaments.map(tournament => ({
-                ...tournament,
-                classificationMode: CLASSIFICATION_MODE.POINTS,
-                courts: Array.isArray(tournament.courts) && tournament.courts.length
-                    ? tournament.courts.map(normalizeCourt)
-                    : defaultCourts(tournament.cantidadCanchas || 2)
-            }));
-            data.categories = data.categories.map(category => ({
-                ...category,
-                minimumRestBlocks: Math.max(0, Number(category.minimumRestBlocks || 0))
-            }));
-            // Compatibilidad con las zonas locales creadas por la versión
-            // anterior, que guardaba sólo la categoría.
-            data.zones = data.zones.map(zone => ({
-                ...zone,
-                torneoId: zone.torneoId || data.categories.find(category => category.id === zone.categoriaId)?.torneoId || null
-            }));
-            // Los resultados de versiones anteriores no contienen los puntos
-            // de cada set y ya no sirven para la nueva clasificación. Quedan
-            // pendientes para que se vuelvan a cargar con el detalle real.
-            data.matches = data.matches.map(match => {
-                // Se descarta la puntuación fija de versiones anteriores. La
-                // clasificación sólo se deriva de los sets reales guardados.
-                const { puntosLocal, puntosVisitante, ...normalizedMatch } = match;
-                const hasDetailedSets = Array.isArray(normalizedMatch.sets) && normalizedMatch.sets.length >= 2;
-                if (normalizedMatch.estado !== 'finalizado') return normalizeMatch(normalizedMatch);
-                if (hasDetailedSets) {
-                    const restored = normalizeMatch(normalizedMatch);
-                    applyInternalResult(restored, restored.sets);
-                    return restored;
-                }
-                return normalizeMatch({ ...normalizedMatch, estado: 'pendiente', confirmado: true, sets: [], setsLocal: null, setsVisitante: null, ganadorId: null });
-            });
-            data.matches = data.matches.map(match => {
-                const tournament = data.tournaments.find(item => item.id === match.torneoId);
-                const court = tournament?.courts?.find(item => item.id === match.courtId || item.name === match.cancha);
-                return { ...match, courtId: court?.id || match.courtId || null, cancha: court?.name || match.cancha || null };
-            });
-            return data;
-        } catch {
+            parsed = JSON.parse(raw);
+        } catch (error) {
+            console.error('[DataManager] Error al leer almacenamiento local; se conserva respaldo de seguridad.', error);
+            try { localStorage.setItem(`${STORAGE_KEY}_corrupt_backup`, raw); } catch { /* sin cuota */ }
             return emptyData();
         }
+        const data = {
+            tournaments: Array.isArray(parsed?.tournaments) ? parsed.tournaments : [],
+            categories: Array.isArray(parsed?.categories) ? parsed.categories : [],
+            teams: Array.isArray(parsed?.teams) ? parsed.teams : [],
+            zones: Array.isArray(parsed?.zones) ? parsed.zones : [],
+            matches: Array.isArray(parsed?.matches) ? parsed.matches : [],
+            calendar: Array.isArray(parsed?.calendar) ? parsed.calendar : []
+        };
+        // Los torneos creados antes de esta opción conservan el formato
+        // histórico basado en sets ganados.
+        data.tournaments = data.tournaments.map(tournament => ({
+            ...tournament,
+            classificationMode: CLASSIFICATION_MODE.POINTS,
+            courts: Array.isArray(tournament.courts) && tournament.courts.length
+                ? tournament.courts.map(normalizeCourt)
+                : defaultCourts(tournament.cantidadCanchas || 2)
+        }));
+        data.categories = data.categories.map(category => ({
+            ...category,
+            minimumRestBlocks: Math.max(0, Number(category.minimumRestBlocks || 0))
+        }));
+        // Compatibilidad con las zonas locales creadas por la versión
+        // anterior, que guardaba sólo la categoría.
+        data.zones = data.zones.map(zone => ({
+            ...zone,
+            torneoId: zone.torneoId || data.categories.find(category => category.id === zone.categoriaId)?.torneoId || null
+        }));
+        // Los resultados de versiones anteriores no contienen los puntos
+        // de cada set y ya no sirven para la nueva clasificación. Quedan
+        // pendientes para que se vuelvan a cargar con el detalle real.
+        data.matches = data.matches.map(match => {
+            // Se descarta la puntuación fija de versiones anteriores. La
+            // clasificación sólo se deriva de los sets reales guardados.
+            const { puntosLocal, puntosVisitante, ...normalizedMatch } = match;
+            const hasDetailedSets = Array.isArray(normalizedMatch.sets) && normalizedMatch.sets.length >= 2;
+            if (normalizedMatch.estado !== 'finalizado') return normalizeMatch(normalizedMatch);
+            if (hasDetailedSets) {
+                const restored = normalizeMatch(normalizedMatch);
+                try {
+                    applyInternalResult(restored, restored.sets);
+                    return restored;
+                } catch (error) {
+                    console.warn(`[DataManager] Partido ${restored.id} con sets inválidos restaurado como pendiente.`, error?.message);
+                }
+            }
+            return normalizeMatch({ ...normalizedMatch, estado: 'pendiente', confirmado: true, sets: [], setsLocal: null, setsVisitante: null, ganadorId: null });
+        });
+        data.matches = data.matches.map(match => {
+            const tournament = data.tournaments.find(item => item.id === match.torneoId);
+            const court = tournament?.courts?.find(item => item.id === match.courtId || item.name === match.cancha);
+            return { ...match, courtId: court?.id || match.courtId || null, cancha: court?.name || match.cancha || null };
+        });
+        return data;
     },
     _setStorage(data) { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); },
 
@@ -418,7 +448,7 @@ export const DataManager = {
         assertUniqueGroupPairs([...data.matches, ...prepared]);
         const created = prepared.map(match => normalizeMatch({ id: makeId('partido'), ...match, sets: [], ganadorId: null }));
         data.matches.push(...created);
-        this._validateScheduleConflicts(data.matches);
+        this._validateScheduleConflicts(data.matches, data);
         this._setStorage(data);
         return created;
     },
@@ -433,8 +463,14 @@ export const DataManager = {
         });
         const updated = data.matches.map(match => byId.get(match.id) || match);
         assertUniqueGroupPairs(updated);
-        this._validateScheduleConflicts(updated);
+        this._validateScheduleConflicts(updated, data);
         data.matches = updated;
+        this._setStorage(data);
+    },
+    restoreMatches(snapshot) {
+        const data = this._getStorage();
+        const byId = new Map((snapshot || []).map(match => [match.id, match]));
+        data.matches = data.matches.map(match => byId.get(match.id) || match);
         this._setStorage(data);
     },
     createManualMatch(match) {
@@ -457,7 +493,7 @@ export const DataManager = {
         this._validateMatchPair(match); this._validateMatchDate(match);
         const category = data.categories.find(item => item.id === match.categoriaId && item.torneoId === match.torneoId);
         if (!category) throw new Error('La categoría del partido no existe en este torneo.');
-            const bracketPhase = ['TOP_16', 'TOP_8', 'SEMIFINAL', 'FINAL'].includes(phaseFor(match));
+        const bracketPhase = ['TOP_16', 'TOP_8', 'TOP_4', 'SEMIFINAL', 'THIRD_PLACE', 'FINAL'].includes(phaseFor(match));
         if ((!match.equipoLocalId || !match.equipoVisitanteId) && !bracketPhase) throw new Error('El partido debe tener dos equipos asignados.');
         if (match.orden !== undefined && match.orden !== null && (!Number.isInteger(Number(match.orden)) || Number(match.orden) < 1)) throw new Error('El orden del partido debe ser un número entero mayor que cero.');
         if (match.hora && (!/^\d{2}:\d{2}$/.test(match.hora) || minutesFromTime(match.hora) >= 1440)) throw new Error('El horario del partido no es válido.');
@@ -465,7 +501,7 @@ export const DataManager = {
             const day = this.getDaySchedules(match.torneoId).find(item => item.fecha === match.fecha);
             const settings = this.getTournamentSchedulingSettings(match.torneoId);
             const block = settings.blockDuration;
-            const slotInterval = settings.intervaloPartidos || block;
+            const slotInterval = settings.slotInterval;
             const start = minutesFromTime(match.hora);
             if (!day || start < minutesFromTime(day.inicio) || start + block > minutesFromTime(day.fin) || (start - minutesFromTime(day.inicio)) % slotInterval !== 0) {
                 throw new Error('El horario debe coincidir con un bloque válido dentro de la jornada.');
@@ -490,38 +526,51 @@ export const DataManager = {
             if (!day?.stages?.some(stage => accepted.includes(stage))) throw new Error('La etapa de este partido no está permitida en la jornada elegida para su categoría.');
         }
     },
-    _validateScheduleConflicts(matches) {
+    _validateScheduleConflicts(matches, storageData = null) {
+        const data = storageData || this._getStorage();
+        const tournamentsById = new Map(data.tournaments.map(item => [item.id, item]));
+        const categoriesById = new Map(data.categories.map(item => [item.id, item]));
+        const teamsById = new Map(data.teams.map(item => [item.id, item]));
+        const settingsFor = torneoId => {
+            const tournament = tournamentsById.get(torneoId);
+            const duration = Number(tournament?.duracionPartido || 60);
+            const interval = Number(tournament?.intervaloPartidos || 0);
+            const block = Number(tournament?.blockDuration || duration);
+            return { blockDuration: block, slotInterval: resolveSlotInterval(block, interval) };
+        };
+        const restBlocksFor = categoriaId => Math.max(0, Number(categoriesById.get(categoriaId)?.minimumRestBlocks || 0));
+        const teamIdsOf = match => [match.equipoLocalId, match.equipoVisitanteId].filter(Boolean);
+
         const scheduledMatches = matches.filter(match => match.fecha && match.hora);
         scheduledMatches.forEach((match, index, scheduled) => {
+            const matchTeams = teamIdsOf(match);
+            const matchSettings = settingsFor(match.torneoId);
+            const matchStart = minutesFromTime(match.hora);
+            const matchEnd = matchStart + matchSettings.blockDuration;
             scheduled.slice(index + 1).forEach(other => {
-                if (match.torneoId !== other.torneoId) return;
-                if (match.fecha !== other.fecha || match.hora !== other.hora) return;
-                if (match.cancha && other.cancha && (match.courtId && other.courtId ? match.courtId === other.courtId : match.cancha === other.cancha)) throw new Error(`${match.cancha} ya está ocupada a las ${match.hora} (conflicto de cancha y horario).`);
-                const busyTeamId = [match.equipoLocalId, match.equipoVisitanteId].find(id => [other.equipoLocalId, other.equipoVisitanteId].includes(id));
-                if (busyTeamId) {
-                    const name = this._getStorage().teams.find(team => team.id === busyTeamId)?.nombre || 'El equipo';
-                    throw new Error(`${name} ya tiene un partido programado a las ${match.hora}.`);
+                if (match.torneoId !== other.torneoId || match.fecha !== other.fecha) return;
+                const otherTeams = teamIdsOf(other);
+                const sameCourt = Boolean(match.cancha && other.cancha && (match.courtId && other.courtId ? match.courtId === other.courtId : match.cancha === other.cancha));
+                const sharedTeamId = matchTeams.find(id => otherTeams.includes(id));
+
+                if (match.hora === other.hora) {
+                    if (sameCourt) throw new Error(`${match.cancha} ya está ocupada a las ${match.hora} (conflicto de cancha y horario).`);
+                    if (sharedTeamId) {
+                        const name = teamsById.get(sharedTeamId)?.nombre || 'El equipo';
+                        throw new Error(`${name} ya tiene un partido programado a las ${match.hora}.`);
+                    }
+                    return;
                 }
-            });
-        });
-        // No alcanza con comparar horas iguales: cada partido ocupa toda su
-        // duración configurada. Se bloquean superposiciones de cancha y equipo.
-        matches.filter(match => match.fecha && match.hora).forEach((match, index, scheduled) => {
-            scheduled.slice(index + 1).forEach(other => {
-                if (match.torneoId !== other.torneoId) return;
-                if (match.fecha !== other.fecha || !other.hora) return;
-                const matchStart = minutesFromTime(match.hora);
                 const otherStart = minutesFromTime(other.hora);
-                const matchEnd = matchStart + this.getTournamentSchedulingSettings(match.torneoId).blockDuration;
-                const otherEnd = otherStart + this.getTournamentSchedulingSettings(other.torneoId).blockDuration;
+                const otherEnd = otherStart + matchSettings.blockDuration;
                 if (matchStart >= otherEnd || otherStart >= matchEnd) return;
-                if (match.cancha && other.cancha && (match.courtId && other.courtId ? match.courtId === other.courtId : match.cancha === other.cancha)) throw new Error(`${match.cancha} ya está ocupada durante ese bloque (conflicto de cancha y horario).`);
-                if ([match.equipoLocalId, match.equipoVisitanteId].some(id => [other.equipoLocalId, other.equipoVisitanteId].includes(id))) throw new Error('Un equipo no puede tener partidos con horarios superpuestos.');
+                if (sameCourt) throw new Error(`${match.cancha} ya está ocupada durante ese bloque (conflicto de cancha y horario).`);
+                if (sharedTeamId) throw new Error('Un equipo no puede tener partidos con horarios superpuestos.');
             });
         });
-        const data = this._getStorage();
+
         const byTeam = new Map();
-        scheduledMatches.forEach(match => [match.equipoLocalId, match.equipoVisitanteId].forEach(teamId => {
+        scheduledMatches.forEach(match => teamIdsOf(match).forEach(teamId => {
             const list = byTeam.get(teamId) || [];
             list.push(match);
             byTeam.set(teamId, list);
@@ -531,11 +580,11 @@ export const DataManager = {
             teamMatches.forEach((match, index) => {
                 const other = teamMatches[index + 1];
                 if (!other || match.torneoId !== other.torneoId || match.fecha !== other.fecha) return;
-                const restBlocks = Math.max(this.getCategoryRestBlocks(match.categoriaId), this.getCategoryRestBlocks(other.categoriaId));
-                const settings = this.getTournamentSchedulingSettings(match.torneoId);
-                const slotInterval = settings.intervaloPartidos || settings.blockDuration;
+                const restBlocks = Math.max(restBlocksFor(match.categoriaId), restBlocksFor(other.categoriaId));
+                if (restBlocks <= 0) return;
+                const { slotInterval } = settingsFor(match.torneoId);
                 if (minutesFromTime(other.hora) - minutesFromTime(match.hora) < slotInterval * (restBlocks + 1)) {
-                    const teamName = data.teams.find(team => team.id === teamId)?.nombre || 'El equipo';
+                    const teamName = teamsById.get(teamId)?.nombre || 'El equipo';
                     throw new Error(`${teamName} no cumple el descanso mínimo de ${restBlocks} bloque${restBlocks === 1 ? '' : 's'}.`);
                 }
             });
@@ -600,7 +649,8 @@ export const DataManager = {
         const tournament = this.getTournament(torneoId);
         const duration = Number(tournament?.duracionPartido || 60);
         const interval = Number(tournament?.intervaloPartidos || 0);
-        return { duracionPartido: duration, intervaloPartidos: interval, blockDuration: Number(tournament?.blockDuration || duration), slotInterval: interval || Number(tournament?.blockDuration || duration) };
+        const block = Number(tournament?.blockDuration || duration);
+        return { duracionPartido: duration, intervaloPartidos: interval, blockDuration: block, slotInterval: resolveSlotInterval(block, interval) };
     },
     setTournamentSchedulingSettings(torneoId, duracionPartido, intervaloPartidos, blockDuration = null) {
         const duration = Number(duracionPartido); const interval = Number(intervaloPartidos);

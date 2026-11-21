@@ -25,7 +25,14 @@ const addStage = (tournamentId, categoryId, phase, pairs, label, sourceMatchIds 
         equipoLocalId: local || null, equipoVisitanteId: visitante || null, seedLocal: seeds[index]?.[0] || null, seedVisitante: seeds[index]?.[1] || null,
         sourceMatchIds: sourceMatchIds[index] || [], fecha: null, hora: null, cancha: null, orden: index + 1, estado: 'pendiente', confirmado: true
     })));
-    SchedulerService.programarFase(tournamentId, categoryId, phase);
+    try {
+        SchedulerService.programarFase(tournamentId, categoryId, phase);
+    } catch (error) {
+        created.forEach(match => {
+            try { DataManager.removeMatch(match.id); } catch { /* ya removido */ }
+        });
+        throw error;
+    }
     const ids = new Set(created.map(match => match.id));
     return DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId).filter(match => ids.has(match.id));
 };
@@ -91,6 +98,7 @@ export const PlayoffsService = {
         if (existing.length) return existing;
         const semifinales = stageMatches(tournamentId, categoryId, 'SEMIFINAL');
         completed(semifinales, 2, 'Semifinales');
+        assertUniqueTeams(semifinales, 'Semifinales');
         const finalists = semifinales.map(match => ({ id: match.ganadorId, seed: match.ganadorId === match.equipoLocalId ? match.seedLocal : match.seedVisitante, source: match })).sort((a, b) => a.seed - b.seed);
         return addStage(tournamentId, categoryId, 'FINAL', [[finalists[0].id, finalists[1].id]], 'Final', [[finalists[0].source.id, finalists[1].source.id]], [[finalists[0].seed, finalists[1].seed]]);
     },

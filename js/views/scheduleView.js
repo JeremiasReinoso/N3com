@@ -1,4 +1,5 @@
 import { AppState } from '../core/state.js';
+import { escapeHtml } from '../core/escapeHtml.js';
 import { DataManager } from '../data/dataManager.js';
 import { SchedulerService } from '../services/scheduler.js';
 import { LogisticsService, fixtureCompare } from '../services/logistics.js';
@@ -6,7 +7,7 @@ import { downloadFixturePdf, downloadFixtureSpreadsheet, fixtureRows } from '../
 import { SpecialCrossService } from '../services/specialCrosses.js';
 
 const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'confirmado', 'en_juego', 'finalizado'].includes(match.estado);
-export const PHASE_LABELS = { ZONAS: 'Partidos asegurados', TOP_16: 'Top 16', TOP_8: 'Top 8', SEMIFINAL: 'Semifinales · Top 4', FINAL: 'Final' };
+export const PHASE_LABELS = { ZONAS: 'Partidos asegurados', TOP_16: 'Top 16', TOP_8: 'Top 8', TOP_4: 'Top 4', SEMIFINAL: 'Semifinales · Top 4', THIRD_PLACE: 'Tercer puesto', FINAL: 'Final' };
 const STATUS_LABELS = { borrador: 'Sin programar', pendiente: 'Confirmado', programado: 'Programado', confirmado: 'Confirmado', en_juego: 'En juego', finalizado: 'Finalizado' };
 export const CONFLICT_LABELS = {
     court: 'Conflictos de cancha',
@@ -24,7 +25,6 @@ export const CONFLICT_LABELS = {
     'sports-integrity': 'Integridad deportiva',
     distribution: 'Distribución de canchas'
 };
-const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
 const formatDay = date => date ? new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: '2-digit', month: 'long' }).format(new Date(`${date}T12:00:00`)) : 'Sin fecha asignada';
 const matchPhase = match => match.phase || 'ZONAS';
 const categoryParts = category => {
@@ -63,7 +63,9 @@ export const initScheduleView = () => {
     const allMatches = LogisticsService.getTournamentMatches(tournamentId);
     const activeMatches = allMatches.filter(match => match.categoriaId === activeCategoryId);
     const drafts = activeMatches.filter(match => !isOfficialMatch(match));
-    const official = LogisticsService.getGeneralFixture(tournamentId).filter(isOfficialMatch);
+    let official;
+    try { official = LogisticsService.getGeneralFixture(tournamentId).filter(isOfficialMatch); }
+    catch { official = allMatches.filter(isOfficialMatch).sort(fixtureCompare); }
     const activeTeams = allTeams.filter(team => team.categoriaId === activeCategoryId);
     const calendarDates = DataManager.getCalendarDates(tournamentId);
     const planning = DataManager.getCategoryPlanning(tournamentId, activeCategoryId);
@@ -105,7 +107,7 @@ export const initScheduleView = () => {
         ${specialCrossMarkup}
         <section class="fixture-preview"><div class="schedule-board-head"><div><h3>Previsualización antes de confirmar</h3><p>Estos cruces todavía no aparecen en Resultados.</p></div><span class="calendar-chip">${drafts.length} BORRADORES</span></div><div class="draft-fixture-list">${drafts.length ? drafts.map(match => `<div class="draft-fixture-row"><span>${escapeHtml(formatDay(match.fecha))} · ${escapeHtml(zoneName(match.zonaId))}</span><strong>${escapeHtml(teamName(match.equipoLocalId))} <b>vs</b> ${escapeHtml(teamName(match.equipoVisitanteId))}</strong><button type="button" class="eliminar-borrador btn-secondary" data-id="${match.id}">Quitar</button></div>`).join('') : '<div class="empty-state compact">No hay emparejamientos pendientes de confirmación.</div>'}</div></section>
         <section class="fixture-board" aria-label="Fixture general del torneo">
-            <div class="schedule-board-head"><div><h3>Fixture General</h3><p>Una hora de inicio por jornada; las canchas son recursos globales compartidos.</p></div><div class="fixture-view-toggle"><button class="btn-secondary active" data-view-mode="day" type="button">Por día</button><button class="btn-secondary" data-view-mode="court" type="button">Por cancha</button></div></div>
+            <div class="schedule-board-head"><div><h3>Fixture General</h3><p>Agenda cronológica unificada; las canchas son recursos globales compartidos.</p></div><div class="fixture-view-toggle"><label class="license-toggle"><input id="fixture-only-start-time" type="checkbox"> Solo hora de inicio por cancha</label><button class="btn-secondary active" data-view-mode="day" type="button">Por día</button><button class="btn-secondary" data-view-mode="court" type="button">Por cancha</button></div></div>
             <div class="fixture-filters"><label>Día<select id="fixture-filter-date"><option value="">Todos los días</option>${calendarDates.map(date => option(date, formatDay(date))).join('')}<option value="__none">Sin fecha</option></select></label><label>Categoría<select id="fixture-filter-category"><option value="">Todas</option>${categories.map(item => option(item.id, item.nombre)).join('')}</select></label><label>Modalidad<select id="fixture-filter-modality"><option value="">Todas</option>${modalities.map(value => option(value, value)).join('')}</select></label><label>Etapa<select id="fixture-filter-phase"><option value="">Todas</option>${Object.entries(PHASE_LABELS).map(([value, label]) => option(value, label)).join('')}</select></label><label>Zona<select id="fixture-filter-zone"><option value="">Todas</option>${allZones.map(zone => option(zone.id, `${category(zone.categoriaId)?.nombre} · ${zone.nombre}`)).join('')}</select></label><label>Cancha<select id="fixture-filter-court"><option value="">Todas</option>${courts.map(court => option(court.id, court.name)).join('')}</select></label><label>Estado<select id="fixture-filter-status"><option value="">Todos</option>${[...new Set(official.map(match => match.estado))].map(value => option(value, STATUS_LABELS[value] || value)).join('')}</select></label><button id="clear-fixture-filters" class="btn-secondary" type="button">Limpiar filtros</button></div>
             <div class="fixture-export-actions"><button id="export-fixture-day" class="btn-secondary" type="button">PDF del día filtrado</button><button id="export-fixture-court" class="btn-secondary" type="button">PDF de la cancha filtrada</button></div>
             <div id="fixture-list" class="fixture-list" aria-live="polite"></div>
@@ -137,19 +139,22 @@ export const initScheduleView = () => {
         view.querySelectorAll('.schedule-match-form').forEach(form => form.addEventListener('submit', event => { event.preventDefault(); try { const current = allMatches.find(match => match.id === form.dataset.id); const values = new FormData(form); const court = courts.find(item => item.id === values.get('courtId')); DataManager.updateMatches([{ ...current, fecha: values.get('fecha'), hora: values.get('hora'), courtId: court.id, cancha: court.name, orden: values.get('orden') ? Number(values.get('orden')) : null }]); initScheduleView(); } catch (error) { alert(error.message); } }));
         view.querySelectorAll('.eliminar-partido').forEach(button => button.addEventListener('click', () => { if (confirm('¿Eliminar este partido pendiente?')) { try { DataManager.removeMatch(button.dataset.id); initScheduleView(); } catch (error) { alert(error.message); } } }));
     };
+    const onlyStartTime = () => Boolean(view.querySelector('#fixture-only-start-time')?.checked);
     const renderFixture = () => {
         const rawDate = view.querySelector('#fixture-filter-date').value; let visible = filterFixtureMatches(official, currentFilters());
         if (rawDate === '__none') visible = visible.filter(match => !match.fecha);
+        const startOnly = onlyStartTime();
         const groups = viewMode === 'court' ? Map.groupBy(visible, match => match.courtId || match.cancha || '') : Map.groupBy(visible, match => match.fecha || '');
         view.querySelector('#fixture-list').innerHTML = visible.length ? [...groups.entries()].map(([key, matches]) => {
             const ordered = matches.sort(fixtureCompare);
-            const firstDate = new Set();
+            const firstCourtDate = new Set();
             const rows = ordered.map(match => {
-                const visibleHora = firstDate.has(match.fecha) ? '' : match.hora;
-                firstDate.add(match.fecha);
+                const courtDateKey = `${match.fecha || ''}|${match.courtId || match.cancha || ''}`;
+                const visibleHora = startOnly ? (firstCourtDate.has(courtDateKey) ? '' : (match.hora || '')) : (match.hora || '');
+                firstCourtDate.add(courtDateKey);
                 return card(match, visibleHora);
             }).join('');
-            return `<section class="fixture-day"><header class="fixture-day-header"><div><span>${viewMode === 'court' ? 'CANCHA' : 'JORNADA'}</span><h4>${escapeHtml(viewMode === 'court' ? (courts.find(item => item.id === key)?.name || key || 'Sin cancha') : formatDay(key))}</h4></div><strong>${matches.length} partido${matches.length === 1 ? '' : 's'}</strong></header><div class="fixture-table" role="table"><div class="fixture-table-head" role="row"><span>Inicio</span><span>Cancha</span><span>Categoría · modalidad</span><span>Etapa · zona</span><span>Partido</span><span>Estado</span></div>${rows}</div></section>`;
+            return `<section class="fixture-day"><header class="fixture-day-header"><div><span>${viewMode === 'court' ? 'CANCHA' : 'JORNADA'}</span><h4>${escapeHtml(viewMode === 'court' ? (courts.find(item => item.id === key)?.name || key || 'Sin cancha') : formatDay(key))}</h4></div><strong>${matches.length} partido${matches.length === 1 ? '' : 's'}</strong></header><div class="fixture-table" role="table"><div class="fixture-table-head" role="row"><span>${startOnly ? 'Inicio' : 'Hora'}</span><span>Cancha</span><span>Categoría · modalidad</span><span>Etapa · zona</span><span>Partido</span><span>Estado</span></div>${rows}</div></section>`;
         }).join('') : '<div class="empty-state">No hay partidos que coincidan con estos filtros.</div>';
         bindEditors();
     };
@@ -169,12 +174,13 @@ export const initScheduleView = () => {
     view.querySelector('#btn-reorganizar-fixture').addEventListener('click', () => { if (!window.confirm('Se regenerarán horarios y canchas de los partidos no finalizados. ¿Continuar?')) return; try { const result = LogisticsService.reorganizeFixture(tournamentId); alert(`${result.scheduled} partido(s) reprogramado(s) y validados.`); initScheduleView(); } catch (error) { alert(error.message); } });
     view.querySelector('#manual-group-match-form').addEventListener('submit', event => { event.preventDefault(); try { const values = new FormData(event.currentTarget); const local = activeTeams.find(team => team.id === values.get('local')); const court = courts.find(item => item.id === values.get('courtId')); DataManager.createManualMatch({ torneoId: tournamentId, categoriaId: activeCategoryId, zonaId: local?.zonaId, tipo: 'fase_zonas', phase: 'ZONAS', equipoLocalId: values.get('local'), equipoVisitanteId: values.get('visitante'), fecha: values.get('fecha'), hora: values.get('hora'), courtId: court.id, cancha: court.name, orden: values.get('orden') ? Number(values.get('orden')) : null, estado: 'programado' }); initScheduleView(); } catch (error) { alert(error.message); } });
     view.querySelectorAll('.fixture-filters select').forEach(select => select.addEventListener('change', renderFixture));
+    view.querySelector('#fixture-only-start-time')?.addEventListener('change', renderFixture);
     view.querySelector('#clear-fixture-filters').addEventListener('click', () => { view.querySelectorAll('.fixture-filters select').forEach(select => { select.value = ''; }); renderFixture(); });
     view.querySelectorAll('[data-view-mode]').forEach(button => button.addEventListener('click', () => { viewMode = button.dataset.viewMode; view.querySelectorAll('[data-view-mode]').forEach(item => item.classList.toggle('active', item === button)); renderFixture(); }));
-    view.querySelector('#export-fixture-full').addEventListener('click', () => downloadFixturePdf(tournament, exportRows({}), 'completo', 'TODAS LAS JORNADAS DEL TORNEO'));
-    view.querySelector('#export-fixture-spreadsheet').addEventListener('click', () => downloadFixtureSpreadsheet(tournament, exportRows({}), courts));
-    view.querySelector('#export-fixture-day').addEventListener('click', () => { const date = view.querySelector('#fixture-filter-date').value; if (!date || date === '__none') return alert('Seleccioná un día en los filtros para exportarlo.'); downloadFixturePdf(tournament, exportRows({ date }), date, `JORNADA: ${formatDay(date).toUpperCase()}`); });
-    view.querySelector('#export-fixture-court').addEventListener('click', () => { const courtId = view.querySelector('#fixture-filter-court').value; const court = courts.find(item => item.id === courtId); if (!court) return alert('Seleccioná una cancha en los filtros para exportarla.'); downloadFixturePdf(tournament, exportRows({ courtId, courtName: court.name }), court.name.toLowerCase().replace(/\s+/g, '-'), `CANCHA: ${court.name.toUpperCase()}`); });
+    view.querySelector('#export-fixture-full').addEventListener('click', () => downloadFixturePdf(tournament, exportRows({}), 'completo', 'TODAS LAS JORNADAS DEL TORNEO', { onlyStartTime: onlyStartTime() }));
+    view.querySelector('#export-fixture-spreadsheet').addEventListener('click', () => downloadFixtureSpreadsheet(tournament, exportRows({}), courts, { onlyStartTime: onlyStartTime() }));
+    view.querySelector('#export-fixture-day').addEventListener('click', () => { const date = view.querySelector('#fixture-filter-date').value; if (!date || date === '__none') return alert('Seleccioná un día en los filtros para exportarlo.'); downloadFixturePdf(tournament, exportRows({ date }), date, `JORNADA: ${formatDay(date).toUpperCase()}`, { onlyStartTime: onlyStartTime() }); });
+    view.querySelector('#export-fixture-court').addEventListener('click', () => { const courtId = view.querySelector('#fixture-filter-court').value; const court = courts.find(item => item.id === courtId); if (!court) return alert('Seleccioná una cancha en los filtros para exportarla.'); downloadFixturePdf(tournament, exportRows({ courtId, courtName: court.name }), court.name.toLowerCase().replace(/\s+/g, '-'), `CANCHA: ${court.name.toUpperCase()}`, { onlyStartTime: onlyStartTime() }); });
     view.querySelector('#print-fixture').addEventListener('click', () => window.print());
     renderFixture();
 };

@@ -1,4 +1,5 @@
 import { AppState } from '../core/state.js';
+import { escapeHtml } from '../core/escapeHtml.js';
 import { DataManager } from '../data/dataManager.js';
 import { LicenciaRepo } from '../data/licenseRepo.js';
 import { goToTournament } from '../core/tournamentRoute.js';
@@ -22,9 +23,9 @@ export const initTorneosVer = async () => {
         </div>
         <div id="torneos-list" class="grid-cards">${tournaments.length ? tournaments.map(tournament => `
             <article class="card torneo-card">
-                <span class="calendar-chip">TORNEO</span><h3>${tournament.nombre}</h3>
+                <span class="calendar-chip">TORNEO</span><h3>${escapeHtml(tournament.nombre)}</h3>
                 <p>Formato único · ${tournament.partidos_asegurados} partidos por equipo · ${formatLabel()}</p>
-                <div class="card-actions"><button class="btn-primary seleccionar-torneo" data-id="${tournament.id}">Abrir torneo</button><button class="btn-danger eliminar-torneo" data-id="${tournament.id}">Eliminar</button></div>
+                <div class="card-actions"><button class="btn-primary seleccionar-torneo" data-id="${escapeHtml(tournament.id)}">Abrir torneo</button><button class="btn-danger eliminar-torneo" data-id="${escapeHtml(tournament.id)}">Eliminar</button></div>
             </article>`).join('') : '<div class="empty-state">Todavía no hay torneos. Completá el formulario para crear el primero.</div>'}</div>`;
 
     view.querySelector('#form-nuevo-torneo').addEventListener('submit', async event => {

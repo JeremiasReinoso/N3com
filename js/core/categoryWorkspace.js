@@ -1,4 +1,5 @@
 import { AppState } from './state.js';
+import { escapeHtml } from './escapeHtml.js';
 import { DataManager } from '../data/dataManager.js';
 
 const categorySummary = (tournamentId, category) => {
@@ -29,7 +30,7 @@ export const renderCategoryWorkspace = () => {
     host.hidden = false;
     host.innerHTML = `<section class="category-shell" aria-labelledby="active-categories-title">
         <div class="category-shell-head"><div><h2 id="active-categories-title">Categorías Activas</h2><p>Seleccioná una categoría para ver los equipos y partidos.</p></div></div>
-        <div class="category-page-list" role="list">${categories.map(category => `<button type="button" class="category-page ${category.id === activeId ? 'active' : ''}" data-category-id="${category.id}" aria-pressed="${category.id === activeId}"><strong>${category.nombre}</strong><small>${categorySummary(tournamentId, category)}</small></button>`).join('')}</div>
+        <div class="category-page-list" role="list">${categories.map(category => `<button type="button" class="category-page ${category.id === activeId ? 'active' : ''}" data-category-id="${escapeHtml(category.id)}" aria-pressed="${category.id === activeId}"><strong>${escapeHtml(category.nombre)}</strong><small>${escapeHtml(categorySummary(tournamentId, category))}</small></button>`).join('')}</div>
         <div class="tournament-home-summary" aria-label="Resumen del torneo"><div><span>Categorías</span><strong>${categories.length}</strong></div><div><span>Equipos</span><strong>${teams}</strong></div><div><span>Partidos</span><strong>${matches}</strong></div></div>
     </section>`;
 

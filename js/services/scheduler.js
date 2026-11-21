@@ -6,7 +6,7 @@ const pairKey = (teamAId, teamBId) => {
     if (!teamAId || !teamBId || teamAId === teamBId) throw new Error('Un equipo no puede jugar contra sí mismo.');
     return [String(teamAId), String(teamBId)].sort().join(':');
 };
-const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'finalizado'].includes(match.estado);
+const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'confirmado', 'en_juego', 'finalizado'].includes(match.estado);
 const isGroupMatch = match => match.phase === 'ZONAS' || !match.tipo || match.tipo === 'fase_zonas' || match.tipo === SPECIAL_CROSS_TYPE;
 const schedulerMinutesFromTime = time => {
     const [hour, minute] = time.split(':').map(Number);
@@ -15,7 +15,7 @@ const schedulerMinutesFromTime = time => {
 const schedulerTimeFromMinutes = minutes => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 const dayCapacity = (day, settings, courtCount) => {
     const duration = Number(settings.blockDuration || settings.duracionPartido);
-    const slotInterval = Number(settings.intervaloPartidos || duration);
+    const slotInterval = Number(settings.slotInterval || duration);
     const available = schedulerMinutesFromTime(day.fin) - schedulerMinutesFromTime(day.inicio);
     return slotInterval > 0 ? Math.max(0, Math.floor((available - duration) / slotInterval + 1) * courtCount) : 0;
 };
@@ -173,14 +173,17 @@ export const SchedulerService = {
             if (zoneTeams.length < 2) throw new Error(`${zone.nombre} necesita al menos dos equipos.`);
             if (assured > zoneTeams.length - 1 && (zoneTeams.length * assured) % 2 !== 0) throw new Error(`${zone.nombre} no puede repartir exactamente ${assured} partidos por equipo con ${zoneTeams.length} equipos.`);
             const existing = existingFixture.filter(match => match.zonaId === zone.id && match.tipo !== SPECIAL_CROSS_TYPE);
+            const zoneTeamIds = new Set(zoneTeams.map(team => team.id));
             const counts = new Map(zoneTeams.map(team => [team.id, 0]));
             const pairsSeen = new Set();
-            existingFixture.filter(match => [match.equipoLocalId, match.equipoVisitanteId].some(teamId => zoneTeams.some(team => team.id === teamId))).forEach(match => {
+            existingFixture.filter(match => zoneTeamIds.has(match.equipoLocalId) || zoneTeamIds.has(match.equipoVisitanteId)).forEach(match => {
                 const key = pairKey(match.equipoLocalId, match.equipoVisitanteId);
-                if (pairsSeen.has(key)) throw new Error(`${zone.nombre} contiene un enfrentamiento duplicado.`);
-                pairsSeen.add(key);
-                counts.set(match.equipoLocalId, (counts.get(match.equipoLocalId) || 0) + 1);
-                counts.set(match.equipoVisitanteId, (counts.get(match.equipoVisitanteId) || 0) + 1);
+                if (zoneTeamIds.has(match.equipoLocalId) && zoneTeamIds.has(match.equipoVisitanteId)) {
+                    if (pairsSeen.has(key) && !match.revancha) throw new Error(`${zone.nombre} contiene un enfrentamiento duplicado.`);
+                    pairsSeen.add(key);
+                }
+                if (zoneTeamIds.has(match.equipoLocalId)) counts.set(match.equipoLocalId, (counts.get(match.equipoLocalId) || 0) + 1);
+                if (zoneTeamIds.has(match.equipoVisitanteId)) counts.set(match.equipoVisitanteId, (counts.get(match.equipoVisitanteId) || 0) + 1);
             });
 
             if ([...counts.values()].every(count => count >= assured)) continue;
@@ -350,10 +353,16 @@ export const SchedulerService = {
         const incompleteTeams = teamsStatus.filter(team => !team.complete);
         const impossibleZones = zones.filter(zone => required > teams.filter(team => team.zonaId === zone.id).length - 1 && (teams.filter(team => team.zonaId === zone.id).length * required) % 2 !== 0);
         const scheduled = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId).filter(match => match.fecha && match.hora && match.cancha);
+        const settings = DataManager.getTournamentSchedulingSettings(torneoId);
         const scheduleConflicts = [];
         scheduled.forEach((match, index) => scheduled.slice(index + 1).forEach(other => {
-            if (match.fecha !== other.fecha || match.hora !== other.hora) return;
-            if (match.cancha === other.cancha || [match.equipoLocalId, match.equipoVisitanteId].some(id => [other.equipoLocalId, other.equipoVisitanteId].includes(id))) scheduleConflicts.push([match, other]);
+            if (match.fecha !== other.fecha) return;
+            const distance = Math.abs(schedulerMinutesFromTime(match.hora) - schedulerMinutesFromTime(other.hora));
+            if (distance >= settings.blockDuration) return;
+            const sameCourt = match.courtId && other.courtId ? match.courtId === other.courtId : match.cancha === other.cancha;
+            const sharedTeam = [match.equipoLocalId, match.equipoVisitanteId].filter(Boolean)
+                .some(id => [other.equipoLocalId, other.equipoVisitanteId].filter(Boolean).includes(id));
+            if (sameCourt || sharedTeam) scheduleConflicts.push([match, other]);
         }));
         const problems = [];
         if (impossibleZones.length) problems.push(`No se pueden cumplir los partidos asegurados sin repetir cruces en: ${impossibleZones.map(zone => zone.nombre).join(', ')}.`);
