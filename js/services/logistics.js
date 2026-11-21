@@ -22,7 +22,7 @@ const logisticsIsOfficial = match => match.confirmado || ['pendiente', 'programa
 const logisticsTeamsOverlap = (left, right) => [left.equipoLocalId, left.equipoVisitanteId].filter(Boolean)
     .some(id => [right.equipoLocalId, right.equipoVisitanteId].filter(Boolean).includes(id));
 const logisticsCourtKey = match => match.courtId || match.cancha;
-const phaseOrder = { ZONAS: 1, TOP_16: 2, TOP_8: 3, TOP_4: 4, SEMIFINAL: 4, THIRD_PLACE: 5, FINAL: 6 };
+const phaseOrder = { ZONAS: 1, LIGA: 1, ZONA_FINAL: 2, TOP_32: 2, TOP_16: 3, TOP_8: 4, TOP_4: 5, SEMIFINAL: 5, THIRD_PLACE: 6, FINAL: 7 };
 const logisticsIssue = (match, type, message) => ({ matchId: match.id, type, message });
 
 const logisticsAllowedDates = (tournamentId, match) => {
@@ -30,11 +30,10 @@ const logisticsAllowedDates = (tournamentId, match) => {
     const planning = DataManager.getCategoryPlanning(tournamentId, match.categoriaId);
     const phase = logisticsPhaseFor(match);
     if (!planning) {
-        if (calendar.length > 1 && ['SEMIFINAL', 'THIRD_PLACE', 'FINAL'].includes(phase)) return [calendar.at(-1), ...calendar.slice(0, -1)];
+        if (calendar.length > 1 && ['SEMIFINAL', 'THIRD_PLACE', 'FINAL', 'ZONA_FINAL'].includes(phase)) return [calendar.at(-1), ...calendar.slice(0, -1)];
         return calendar;
     }
-    const planningPhase = phase === 'THIRD_PLACE' ? 'FINAL' : phase;
-    const planned = DataManager.getPlanningDatesForStage(tournamentId, match.categoriaId, planningPhase);
+    const planned = DataManager.getPlanningDatesForStage(tournamentId, match.categoriaId, phase);
     return calendar.filter(date => planned.includes(date));
 };
 

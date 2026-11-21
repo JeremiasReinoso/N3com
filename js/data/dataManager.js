@@ -1,6 +1,7 @@
 // Persistencia local del flujo principal del torneo. Esta pantalla funciona de
 // forma autónoma y no depende de la gestión de licencias.
 import { PLANNING_STAGES, isValidPlanningStage, normalizeTournamentStage } from '../domain/tournamentStages.js';
+import { applyMatchSets } from '../engine/resultsEngine.js';
 
 export { PLANNING_STAGES };
 
@@ -49,12 +50,46 @@ const validPlanningDate = date => {
     const parsed = new Date(`${date}T00:00:00Z`);
     return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
 };
-const PHASE_BY_TYPE = { fase_zonas: 'ZONAS', cruces: 'TOP_16', cuarto_final: 'TOP_8', top_16: 'TOP_16', top_8: 'TOP_8', top_4: 'TOP_4', semifinal: 'SEMIFINAL', tercer_puesto: 'THIRD_PLACE', final: 'FINAL' };
+const PHASE_BY_TYPE = {
+    fase_zonas: 'ZONAS',
+    liga: 'LIGA',
+    todos_contra_todos: 'LIGA',
+    zona_final: 'ZONA_FINAL',
+    cruces: 'TOP_16',
+    top_32: 'TOP_32',
+    cuarto_final: 'TOP_8',
+    top_16: 'TOP_16',
+    top_8: 'TOP_8',
+    top_4: 'TOP_4',
+    semifinal: 'SEMIFINAL',
+    tercer_puesto: 'THIRD_PLACE',
+    final: 'FINAL'
+};
 const LEGACY_PHASES = {};
-const TYPE_BY_PHASE = { ZONAS: 'fase_zonas', TOP_16: 'top_16', TOP_8: 'top_8', TOP_4: 'top_4', SEMIFINAL: 'semifinal', THIRD_PLACE: 'tercer_puesto', FINAL: 'final' };
+const TYPE_BY_PHASE = {
+    ZONAS: 'fase_zonas',
+    LIGA: 'liga',
+    ZONA_FINAL: 'zona_final',
+    TOP_32: 'top_32',
+    TOP_16: 'top_16',
+    TOP_8: 'top_8',
+    TOP_4: 'top_4',
+    SEMIFINAL: 'semifinal',
+    THIRD_PLACE: 'tercer_puesto',
+    FINAL: 'final'
+};
 const phaseFor = match => LEGACY_PHASES[match.phase] ?? (match.phase || PHASE_BY_TYPE[match.tipo] || 'ZONAS');
 const normalizePlanningStage = stage => normalizeTournamentStage(LEGACY_PHASES[stage] ?? stage);
+const acceptedPlanningStagesForPhase = phase => {
+    const normalized = normalizePlanningStage(phase);
+    if (normalized === 'ZONAS' || normalized === 'LIGA') return ['ZONAS', 'GARANTIZADOS'];
+    if (normalized === 'ZONA_FINAL') return ['FINAL', 'SEMIFINAL', 'ZONAS', 'GARANTIZADOS'];
+    if (normalized === 'TOP_32') return ['TOP_16', 'ZONAS'];
+    if (normalized === 'THIRD_PLACE') return ['FINAL'];
+    return [normalized];
+};
 const isZonePhaseMatch = match => phaseFor(match) === 'ZONAS';
+const isTablePhaseMatch = match => ['ZONAS', 'LIGA', 'ZONA_FINAL'].includes(phaseFor(match));
 const isAllowedSpecialCross = (match, category, local, visitante, zones) => {
     if (match.tipo !== 'cruce_especial' || category?.nombre !== '+50 Mixto' || !local || !visitante) return false;
     const localZone = zones.find(zone => zone.id === local.zonaId)?.nombre?.trim().toLocaleUpperCase('es');
@@ -64,15 +99,16 @@ const isAllowedSpecialCross = (match, category, local, visitante, zones) => {
 const groupPairKey = match => [
     match.torneoId,
     match.categoriaId,
-    match.zonaId,
+    phaseFor(match),
+    match.zonaId || '',
     ...[String(match.equipoLocalId), String(match.equipoVisitanteId)].sort()
 ].join(':');
 const assertUniqueGroupPairs = matches => {
     const seen = new Set();
-    matches.filter(match => isZonePhaseMatch(match) && match.equipoLocalId && match.equipoVisitanteId).forEach(match => {
+    matches.filter(match => isTablePhaseMatch(match) && match.equipoLocalId && match.equipoVisitanteId).forEach(match => {
         const key = groupPairKey(match);
         if (seen.has(key) && !match.revancha) {
-            const previous = matches.find(item => isZonePhaseMatch(item) && groupPairKey(item) === key);
+            const previous = matches.find(item => isTablePhaseMatch(item) && groupPairKey(item) === key);
             if (!previous?.revancha) throw new Error('No se puede repetir un enfrentamiento dentro de la misma zona salvo cuando sea necesario para cumplir los partidos garantizados.');
         }
         seen.add(key);
@@ -116,53 +152,28 @@ const normalizeMatch = match => {
         ganadorId: match.ganadorId || null
     };
 };
-const normalizeSets = sets => {
-    if (!Array.isArray(sets) || sets.length < 2 || sets.length > 3) throw new Error('Ingrese los puntos de 2 o 3 sets.');
-    return sets.map((set, index) => {
-        const puntosLocal = Number(set?.puntosLocal);
-        const puntosVisitante = Number(set?.puntosVisitante);
-        if (!Number.isInteger(puntosLocal) || !Number.isInteger(puntosVisitante) || puntosLocal < 0 || puntosVisitante < 0) throw new Error(`El set ${index + 1} debe tener puntos enteros iguales o mayores a cero.`);
-        if (puntosLocal === puntosVisitante) throw new Error(`El set ${index + 1} no puede terminar empatado.`);
-        return { puntosLocal, puntosVisitante };
-    });
-};
-// La única fuente del resultado son los puntos de cada set. El marcador 2-0 o
-// 2-1 se calcula aquí y nunca se recibe manualmente desde la interfaz.
-const applyInternalResult = (match, rawSets) => {
-    const sets = normalizeSets(rawSets);
-    const setsLocal = sets.filter(set => set.puntosLocal > set.puntosVisitante).length;
-    const setsVisitante = sets.length - setsLocal;
-    const firstTwoAreSplit = sets.length === 3
-        && (sets[0].puntosLocal > sets[0].puntosVisitante) !== (sets[1].puntosLocal > sets[1].puntosVisitante);
-    const isTwoSetFinish = sets.length === 2 && (setsLocal === 2 || setsVisitante === 2);
-    const isThreeSetFinish = sets.length === 3 && firstTwoAreSplit && (setsLocal === 2 || setsVisitante === 2);
-    if (!isTwoSetFinish && !isThreeSetFinish) {
-        throw new Error('El resultado debe finalizar 2-0 o 2-1. Si los primeros dos sets quedan 1-1, cargue el tercer set.');
-    }
-    match.estado = 'finalizado';
-    match.status = 'FINALIZADO';
-    match.sets = sets;
-    match.setsLocal = setsLocal;
-    match.setsVisitante = setsVisitante;
-    match.puntosFavor = sets.reduce((total, set) => total + set.puntosLocal, 0);
-    match.puntosContra = sets.reduce((total, set) => total + set.puntosVisitante, 0);
-    match.diferenciaPuntos = match.puntosFavor - match.puntosContra;
-    match.ganadorId = setsLocal === 2 ? match.equipoLocalId : match.equipoVisitanteId;
-    match.score = `${setsLocal}-${setsVisitante}`;
-};
+// La única fuente del resultado son los puntos reales de cada set.
+// Delega en ResultsEngine para mantener una única regla en escritorio y web.
+const applyInternalResult = (match, rawSets) => applyMatchSets(match, rawSets);
 
 const advanceBracketWinner = (data, source) => {
+    const loserId = source.ganadorId === source.equipoLocalId ? source.equipoVisitanteId : source.equipoLocalId;
+    const propagate = (target, slot, teamId) => {
+        const currentId = slot === 0 ? target.equipoLocalId : (slot === 1 ? target.equipoVisitanteId : null);
+        if (target.estado === 'finalizado' && currentId && currentId !== teamId) {
+            throw new Error('No se puede cambiar el ganador de este partido porque la instancia siguiente ya fue finalizada.');
+        }
+        if (slot === 0) target.equipoLocalId = teamId;
+        if (slot === 1) target.equipoVisitanteId = teamId;
+    };
+
     data.matches
         .filter(match => Array.isArray(match.sourceMatchIds) && match.sourceMatchIds.includes(source.id))
-        .forEach(target => {
-            const slot = target.sourceMatchIds.indexOf(source.id);
-            const currentId = slot === 0 ? target.equipoLocalId : (slot === 1 ? target.equipoVisitanteId : null);
-            if (target.estado === 'finalizado' && currentId && currentId !== source.ganadorId) {
-                throw new Error('No se puede cambiar el ganador de este partido porque la instancia siguiente ya fue finalizada.');
-            }
-            if (slot === 0) target.equipoLocalId = source.ganadorId;
-            if (slot === 1) target.equipoVisitanteId = source.ganadorId;
-        });
+        .forEach(target => propagate(target, target.sourceMatchIds.indexOf(source.id), source.ganadorId));
+
+    data.matches
+        .filter(match => Array.isArray(match.sourceLoserMatchIds) && match.sourceLoserMatchIds.includes(source.id))
+        .forEach(target => propagate(target, target.sourceLoserMatchIds.indexOf(source.id), loserId));
 };
 
 export const DataManager = {
@@ -282,6 +293,29 @@ export const DataManager = {
         category.playoffConfig = { zones, qualifiersPerZone, totalTeams: zones * qualifiersPerZone, format: config.format || 'single_elimination' };
         this._setStorage(data); return category.playoffConfig;
     },
+    getCategoryFormatConfig(torneoId, categoriaId) {
+        const data = this._getStorage();
+        const category = data.categories.find(item => item.id === categoriaId && item.torneoId === torneoId);
+        const tournament = data.tournaments.find(item => item.id === torneoId);
+        return category?.formatConfig || tournament?.defaultFormatConfig || null;
+    },
+    setCategoryFormatConfig(torneoId, categoriaId, formatConfig) {
+        const data = this._getStorage();
+        const category = data.categories.find(item => item.id === categoriaId && item.torneoId === torneoId);
+        if (!category) throw new Error('La categoría no pertenece al torneo seleccionado.');
+        category.formatConfig = formatConfig ? structuredClone(formatConfig) : null;
+        if (formatConfig?.standingsMode) category.standingsMode = formatConfig.standingsMode;
+        this._setStorage(data);
+        return category.formatConfig;
+    },
+    setTournamentDefaultFormat(torneoId, formatConfig) {
+        const data = this._getStorage();
+        const tournament = data.tournaments.find(item => item.id === torneoId);
+        if (!tournament) throw new Error('No se encontró el torneo.');
+        tournament.defaultFormatConfig = formatConfig ? structuredClone(formatConfig) : null;
+        this._setStorage(data);
+        return tournament.defaultFormatConfig;
+    },
     getCategoryPlanning(torneoId, categoriaId) {
         const category = this._getStorage().categories.find(item => item.id === categoriaId && item.torneoId === torneoId);
         if (!category?.planning || !Array.isArray(category.planning.days)) return null;
@@ -321,8 +355,7 @@ export const DataManager = {
     getPlanningDatesForStage(torneoId, categoriaId, phase) {
         const planning = this.getCategoryPlanning(torneoId, categoriaId);
         if (!planning) return [];
-        phase = normalizePlanningStage(phase);
-        const accepted = phase === 'ZONAS' ? new Set(['ZONAS', 'GARANTIZADOS']) : new Set([phase]);
+        const accepted = new Set(acceptedPlanningStagesForPhase(phase));
         return planning.days.filter(day => day.stages.some(stage => accepted.has(stage))).map(day => day.date);
     },
     createCategory(nombre, torneoId) {
@@ -493,7 +526,7 @@ export const DataManager = {
         this._validateMatchPair(match); this._validateMatchDate(match);
         const category = data.categories.find(item => item.id === match.categoriaId && item.torneoId === match.torneoId);
         if (!category) throw new Error('La categoría del partido no existe en este torneo.');
-        const bracketPhase = ['TOP_16', 'TOP_8', 'TOP_4', 'SEMIFINAL', 'THIRD_PLACE', 'FINAL'].includes(phaseFor(match));
+        const bracketPhase = ['TOP_32', 'TOP_16', 'TOP_8', 'TOP_4', 'SEMIFINAL', 'THIRD_PLACE', 'FINAL'].includes(phaseFor(match));
         if ((!match.equipoLocalId || !match.equipoVisitanteId) && !bracketPhase) throw new Error('El partido debe tener dos equipos asignados.');
         if (match.orden !== undefined && match.orden !== null && (!Number.isInteger(Number(match.orden)) || Number(match.orden) < 1)) throw new Error('El orden del partido debe ser un número entero mayor que cero.');
         if (match.hora && (!/^\d{2}:\d{2}$/.test(match.hora) || minutesFromTime(match.hora) >= 1440)) throw new Error('El horario del partido no es válido.');
@@ -520,9 +553,8 @@ export const DataManager = {
         if (phaseFor(match) === 'ZONAS' && (!local || !visitante || local.zonaId !== visitante.zonaId || !local.zonaId || match.zonaId !== local.zonaId)
             && !isAllowedSpecialCross(match, category, local, visitante, data.zones.filter(zone => zone.categoriaId === match.categoriaId))) throw new Error('No se pueden enfrentar equipos de zonas diferentes durante esta fase.');
         if (match.fecha && category.planning?.days) {
-            const planningPhase = phaseFor(match) === 'THIRD_PLACE' ? 'FINAL' : phaseFor(match);
             const day = category.planning.days.find(item => item.date === match.fecha);
-            const accepted = planningPhase === 'ZONAS' ? ['ZONAS', 'GARANTIZADOS'] : [planningPhase];
+            const accepted = acceptedPlanningStagesForPhase(phaseFor(match));
             if (!day?.stages?.some(stage => accepted.includes(stage))) throw new Error('La etapa de este partido no está permitida en la jornada elegida para su categoría.');
         }
     },

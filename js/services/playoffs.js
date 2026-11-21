@@ -1,6 +1,8 @@
 import { DataManager } from '../data/dataManager.js';
 import { PosicionesService } from './standings.js';
 import { SchedulerService } from './scheduler.js';
+import { KnockoutEngine } from '../engine/knockoutEngine.js';
+import { QualificationEngine } from '../engine/qualificationEngine.js';
 
 // El ranking se congela al crear el cuadro. Las rondas posteriores sólo
 // utilizan el seed original y los ganadores persistidos en los partidos.
@@ -101,6 +103,40 @@ export const PlayoffsService = {
         assertUniqueTeams(semifinales, 'Semifinales');
         const finalists = semifinales.map(match => ({ id: match.ganadorId, seed: match.ganadorId === match.equipoLocalId ? match.seedLocal : match.seedVisitante, source: match })).sort((a, b) => a.seed - b.seed);
         return addStage(tournamentId, categoryId, 'FINAL', [[finalists[0].id, finalists[1].id]], 'Final', [[finalists[0].source.id, finalists[1].source.id]], [[finalists[0].seed, finalists[1].seed]]);
+    },
+
+    generarTercerPuesto(tournamentId, categoryId) {
+        const existing = stageMatches(tournamentId, categoryId, 'THIRD_PLACE');
+        if (existing.length) return existing;
+        const semifinales = stageMatches(tournamentId, categoryId, 'SEMIFINAL');
+        completed(semifinales, 2, 'Semifinales');
+        assertUniqueTeams(semifinales, 'Semifinales');
+        const losers = semifinales.map(match => {
+            const id = match.ganadorId === match.equipoLocalId ? match.equipoVisitanteId : match.equipoLocalId;
+            const seed = id === match.equipoLocalId ? match.seedLocal : match.seedVisitante;
+            return { id, seed, source: match };
+        });
+        return addStage(tournamentId, categoryId, 'THIRD_PLACE', [[losers[0].id, losers[1].id]], 'Tercer puesto', [], [[losers[0].seed, losers[1].seed]]);
+    },
+
+    generarCuadroFlexible(tournamentId, categoryId, options = {}) {
+        const seeded = Array.isArray(options.seededTeams) && options.seededTeams.length
+            ? options.seededTeams
+            : QualificationEngine.qualifyTeams(tournamentId, categoryId, options);
+        const result = KnockoutEngine.generateBracket(tournamentId, categoryId, seeded, {
+            thirdPlace: Boolean(options.thirdPlace)
+        });
+        if (options.schedule !== false && result.created.length) {
+            try {
+                const phases = [...new Set(result.created.map(match => match.phase))];
+                phases.forEach(phase => SchedulerService.programarFase(tournamentId, categoryId, phase));
+            } catch (error) {
+                result.created.forEach(match => { try { DataManager.removeMatch(match.id); } catch { /* noop */ } });
+                throw error;
+            }
+        }
+        return DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId)
+            .filter(match => KnockoutEngine.ALL_KNOCKOUT_PHASES.includes(match.phase));
     },
 
     generarCuadroCompleto(tournamentId, categoryId) { return this.generarTop16(tournamentId, categoryId); },
