@@ -1,6 +1,8 @@
 import { AppState } from '../core/state.js';
 import { escapeHtml } from '../core/escapeHtml.js';
 import { DataManager } from '../data/dataManager.js';
+import { CompetitionEngine } from '../engine/index.js';
+import { formatLabelFor } from './formatConfigurator.js';
 
 export const initZonasView = () => {
     let tournamentId;
@@ -17,6 +19,8 @@ export const initZonasView = () => {
     const category = DataManager.getCategory(categoryId);
     const zones = DataManager.getZonesByTournamentAndCategory(tournamentId, categoryId);
     const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId);
+    const formatInfo = CompetitionEngine.getCategoryFormat(tournamentId, categoryId);
+    const needsZones = formatInfo.definition.requiresZones || formatInfo.config.stages?.[0]?.type === 'ZONAS';
     const teamName = id => teams.find(team => team.id === id)?.nombre || null;
     const freeTeams = teams.filter(team => !team.zonaId);
     const zoneSelectOptions = (currentZoneId, placeholder) => `<option value="" ${currentZoneId ? '' : 'selected'}>${escapeHtml(placeholder)}</option>${zones.map(zone => `<option value="${escapeHtml(zone.id)}" ${zone.id === currentZoneId ? 'selected' : ''}>${escapeHtml(zone.nombre)}</option>`).join('')}`;
@@ -24,7 +28,8 @@ export const initZonasView = () => {
     alertBox.style.display = 'none';
     panel.style.display = 'block';
     panel.innerHTML = `
-        <div class="zones-page-head"><div><h2>Distribución de zonas</h2><p>Categoría activa: <strong>${escapeHtml(category.nombre)}</strong>. Cada categoría conserva sus propias zonas.</p></div><span class="calendar-chip">${teams.length} EQUIPOS</span></div>
+        <div class="zones-page-head"><div><h2>Distribución de zonas</h2><p>Categoría activa: <strong>${escapeHtml(category.nombre)}</strong> · ${escapeHtml(formatLabelFor(formatInfo.config))}.</p></div><span class="calendar-chip">${teams.length} EQUIPOS</span></div>
+        ${!needsZones ? `<div class="planning-notice"><strong>Nota del formato:</strong> La modalidad configurada (<strong>${escapeHtml(formatInfo.definition.name)}</strong>) no requiere zonas. Podés ir directamente a <strong>Programación</strong> para generar el fixture, o cambiar el formato desde la pestaña <strong>Equipos</strong>.</div>` : ''}
         <section class="form-card panel-control">
             <div class="form-title"><div><h3>Crear y sortear</h3><p>Primero cree las zonas. Las cabezas de serie quedan fijas; el sorteo sólo asigna los equipos que todavía no tienen zona.</p></div></div>
             <form id="form-nueva-zona" class="form-grid"><label class="form-field">Nombre de la zona<input id="zona-nombre" type="text" maxlength="40" required placeholder="Ej.: Zona A"></label><div class="form-actions"><button class="btn-primary" type="submit">Crear zona</button></div></form>
@@ -41,7 +46,7 @@ export const initZonasView = () => {
         <section class="zones-workspace"><div class="zones-section-head"><div><h3>Zonas creadas</h3><p>Revise la distribución y mueva equipos si es necesario.</p></div><span>${zones.length}</span></div><div class="zones-grid">${zones.length ? zones.map(zone => {
             const zoneTeams = teams.filter(team => team.zonaId === zone.id);
             const leader = teamName(zone.liderEquipoId);
-            return `<article class="zone-card"><header><div><span class="calendar-chip">${zoneTeams.length} EQUIPOS</span><h3>${escapeHtml(zone.nombre)}</h3></div>${leader ? `<span class="leader-badge">★ ${escapeHtml(leader)}</span>` : '<span class="leader-badge empty">Sin líder</span>'}</header><div class="zone-team-list">${zoneTeams.length ? zoneTeams.map(team => `<div class="zone-team ${team.id === zone.liderEquipoId ? 'leader' : ''}"><strong>${escapeHtml(team.nombre)}${team.id === zone.liderEquipoId ? ' <small>cabeza de serie fija</small>' : ''}</strong>${team.id === zone.liderEquipoId ? '<small>Zona bloqueada</small>' : `<select class="asignar-zona" data-team="${escapeHtml(team.id)}">${zoneSelectOptions(zone.id, 'Mover a zona')}</select>`}</div>`).join('') : '<p class="helper-text">Aún no hay equipos asignados.</p>'}</div></article>`;
+            return `<article class="zone-card"><header><div><span class="calendar-chip">${zoneTeams.length} EQUIPOS</span><h3>${escapeHtml(zone.nombre)}</h3></div><div class="zone-card-controls">${leader ? `<span class="leader-badge">★ ${escapeHtml(leader)}</span><button type="button" class="btn-secondary liberar-lider" data-zone="${escapeHtml(zone.id)}" title="Quitar cabeza de serie fija">Soltar líder</button>` : '<span class="leader-badge empty">Sin líder</span>'}<button type="button" class="btn-secondary renombrar-zona" data-zone="${escapeHtml(zone.id)}" data-name="${escapeHtml(zone.nombre)}">Renombrar</button><button type="button" class="btn-danger eliminar-zona" data-zone="${escapeHtml(zone.id)}" data-name="${escapeHtml(zone.nombre)}">Eliminar</button></div></header><div class="zone-team-list">${zoneTeams.length ? zoneTeams.map(team => `<div class="zone-team ${team.id === zone.liderEquipoId ? 'leader' : ''}"><strong>${escapeHtml(team.nombre)}${team.id === zone.liderEquipoId ? ' <small>cabeza de serie fija</small>' : ''}</strong>${team.id === zone.liderEquipoId ? '<small>Zona bloqueada</small>' : `<div class="zone-team-actions"><select class="asignar-zona" data-team="${escapeHtml(team.id)}">${zoneSelectOptions(zone.id, 'Mover a zona')}</select><button type="button" class="btn-secondary quitar-de-zona" data-team="${escapeHtml(team.id)}" title="Quitar de la zona">✕</button></div>`}</div>`).join('') : '<p class="helper-text">Aún no hay equipos asignados.</p>'}</div></article>`;
         }).join('') : '<div class="empty-state">Aún no hay zonas.</div>'}</div></section>`;
 
     panel.querySelector('#form-nueva-zona').addEventListener('submit', event => {
@@ -53,6 +58,21 @@ export const initZonasView = () => {
     panel.querySelectorAll('.asignar-zona').forEach(select => select.addEventListener('change', () => {
         if (!select.value) return;
         try { DataManager.assignTeamToZone(select.dataset.team, select.value); initZonasView(); } catch (error) { alert(error.message); }
+    }));
+    panel.querySelectorAll('.quitar-de-zona').forEach(button => button.addEventListener('click', () => {
+        try { DataManager.unassignTeamFromZone(button.dataset.team); initZonasView(); } catch (error) { alert(error.message); }
+    }));
+    panel.querySelectorAll('.liberar-lider').forEach(button => button.addEventListener('click', () => {
+        try { DataManager.clearZoneLeader(button.dataset.zone); initZonasView(); } catch (error) { alert(error.message); }
+    }));
+    panel.querySelectorAll('.renombrar-zona').forEach(button => button.addEventListener('click', () => {
+        const nextName = prompt('Nuevo nombre de la zona:', button.dataset.name);
+        if (nextName === null || !nextName.trim()) return;
+        try { DataManager.updateZone(button.dataset.zone, { nombre: nextName }); initZonasView(); } catch (error) { alert(error.message); }
+    }));
+    panel.querySelectorAll('.eliminar-zona').forEach(button => button.addEventListener('click', () => {
+        if (!confirm(`¿Eliminar "${button.dataset.name}"? Los equipos asignados quedarán sin zona.`)) return;
+        try { DataManager.removeZone(button.dataset.zone); initZonasView(); } catch (error) { alert(error.message); }
     }));
 
     const drawButton = panel.querySelector('#btn-sortear-zonas');

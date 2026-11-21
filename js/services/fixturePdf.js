@@ -14,9 +14,12 @@ const clip = (value, max) => {
 };
 const makePage = (tournament, rows, pageNumber, totalPages, subtitle = '', courtName = '', options = {}) => {
     const onlyStartTime = Boolean(options?.onlyStartTime);
+    const orgLabel = tournament?.branding?.brandName || tournament?.organizacion || '';
+    const periodLabel = tournament?.startDate && tournament?.endDate ? `${tournament.startDate} al ${tournament.endDate}` : '';
+    const titleBanner = orgLabel ? `FIXTURE GENERAL · ${orgLabel.toUpperCase()}` : 'FIXTURE GENERAL DEL TORNEO';
     const commands = [
-        '0.08 0.12 0.2 rg', '40 543 762 32 re f', '1 1 1 rg', line(52, 554, 16, 'FIXTURE GENERAL DEL TORNEO', true),
-        '0.08 0.12 0.2 rg', line(40, 523, 13, tournament.nombre, true),
+        '0.08 0.12 0.2 rg', '40 543 762 32 re f', '1 1 1 rg', line(52, 554, 15, clip(titleBanner, 66), true),
+        '0.08 0.12 0.2 rg', line(40, 523, 13, clip(`${tournament.nombre}${periodLabel ? ` (${periodLabel})` : ''}`, 64), true),
         // Los títulos de columna se dibujan en la misma posición X que los datos
         // para que la impresión quede alineada aunque cambie el idioma.
         line(42, 507, 8, onlyStartTime ? 'INICIO' : 'HORA', true), line(86, 507, 8, 'CANCHA', true), line(170, 507, 8, 'CATEGORIA / MODALIDAD', true),
@@ -58,14 +61,16 @@ export const fixtureRows = ({ matches, categories, teams, zones, phaseLabels, fi
     const category = id => categories.find(item => item.id === id);
     const team = id => teams.find(item => item.id === id)?.nombre || 'Equipo no disponible';
     const zone = id => zones.find(item => item.id === id)?.nombre || '';
-    const sorted = matches.filter(match => (
-        (!filters.date || match.fecha === filters.date)
-        && (!filters.categoryId || match.categoriaId === filters.categoryId)
-        && (!filters.phase || (match.phase || 'ZONAS') === filters.phase)
-        && (!filters.zoneId || match.zonaId === filters.zoneId)
-        && (!filters.status || match.estado === filters.status)
-        && (!filters.courtId || match.courtId === filters.courtId || match.cancha === filters.courtName)
-    )).sort(fixtureCompare);
+    const sorted = matches.filter(match => {
+        const cat = category(match.categoriaId);
+        return (!filters.date || match.fecha === filters.date)
+            && (!filters.categoryId || match.categoriaId === filters.categoryId)
+            && (!filters.modality || (cat?.modalidad || cat?.modality) === filters.modality)
+            && (!filters.phase || (match.phase || 'ZONAS') === filters.phase)
+            && (!filters.zoneId || match.zonaId === filters.zoneId)
+            && (!filters.status || match.estado === filters.status)
+            && (!filters.courtId || match.courtId === filters.courtId || match.cancha === filters.courtName);
+    }).sort(fixtureCompare);
     const firstByDateAndCourt = new Set();
     return sorted.map(match => {
         const item = category(match.categoriaId) || {};

@@ -247,10 +247,77 @@ export const DataManager = {
     getTournaments() { return this._getStorage().tournaments; },
     getTournament(id) { return this.getTournaments().find(tournament => tournament.id === id) || null; },
     getTournamentClassificationMode() { return CLASSIFICATION_MODE.POINTS; },
-    createTournament(nombre, partidosAsegurados) {
+    createTournament(nombre, partidosAsegurados, options = {}) {
+        const cleanName = String(nombre || '').trim();
+        const assured = Number(partidosAsegurados);
+        if (!cleanName) throw new Error('Ingrese un nombre de torneo válido.');
+        if (!Number.isInteger(assured) || assured < 1) throw new Error('Ingrese una cantidad válida de partidos asegurados.');
         const data = this._getStorage();
-        const tournament = { id: makeId('torneo'), nombre: nombre.trim(), partidos_asegurados: Number(partidosAsegurados), classificationMode: CLASSIFICATION_MODE.POINTS, courts: defaultCourts(2), cantidadCanchas: 2, blockDuration: 30, duracionPartido: 30, intervaloPartidos: 0, creado: new Date().toISOString() };
+        const courtCount = Number.isInteger(Number(options.cantidadCanchas)) && Number(options.cantidadCanchas) >= 1
+            ? Number(options.cantidadCanchas)
+            : 2;
+        const tournament = {
+            id: makeId('torneo'),
+            nombre: cleanName,
+            organizacion: String(options.organizacion || '').trim(),
+            partidos_asegurados: assured,
+            classificationMode: CLASSIFICATION_MODE.POINTS,
+            defaultFormatConfig: options.defaultFormatConfig ? structuredClone(options.defaultFormatConfig) : null,
+            edition: String(options.edition || 'club').trim(),
+            branding: options.branding ? {
+                brandName: String(options.branding.brandName || '').trim(),
+                accentColor: String(options.branding.accentColor || '').trim()
+            } : null,
+            courts: defaultCourts(courtCount),
+            cantidadCanchas: courtCount,
+            blockDuration: Number(options.blockDuration || 30),
+            duracionPartido: Number(options.duracionPartido || 30),
+            intervaloPartidos: Number(options.intervaloPartidos || 0),
+            creado: new Date().toISOString()
+        };
+        if (options.startDate && options.endDate && validPlanningDate(options.startDate) && validPlanningDate(options.endDate) && options.startDate <= options.endDate) {
+            const defaultStart = options.horaInicio && /^\d{2}:\d{2}$/.test(options.horaInicio) ? options.horaInicio : '09:00';
+            const defaultEnd = options.horaFin && /^\d{2}:\d{2}$/.test(options.horaFin) ? options.horaFin : '21:00';
+            if (validHours(defaultStart, defaultEnd)) {
+                tournament.startDate = options.startDate;
+                tournament.endDate = options.endDate;
+                tournament.horaInicio = defaultStart;
+                tournament.horaFin = defaultEnd;
+                tournament.horariosPorDia = Object.fromEntries(
+                    datesBetween(options.startDate, options.endDate).map(date => [date, { inicio: defaultStart, fin: defaultEnd }])
+                );
+            }
+        }
         data.tournaments.push(tournament);
+        this._setStorage(data);
+        return tournament;
+    },
+    updateTournament(torneoId, patch = {}) {
+        const data = this._getStorage();
+        const tournament = data.tournaments.find(item => item.id === torneoId);
+        if (!tournament) throw new Error('No se encontró el torneo seleccionado.');
+        if (patch.nombre !== undefined) {
+            const cleanName = String(patch.nombre || '').trim();
+            if (!cleanName) throw new Error('Ingrese un nombre de torneo válido.');
+            tournament.nombre = cleanName;
+        }
+        if (patch.organizacion !== undefined) tournament.organizacion = String(patch.organizacion || '').trim();
+        if (patch.partidos_asegurados !== undefined) {
+            const assured = Number(patch.partidos_asegurados);
+            if (!Number.isInteger(assured) || assured < 1) throw new Error('Ingrese una cantidad válida de partidos asegurados.');
+            tournament.partidos_asegurados = assured;
+        }
+        if (patch.edition !== undefined) tournament.edition = String(patch.edition || 'club').trim();
+        if (patch.branding !== undefined) {
+            tournament.branding = patch.branding ? {
+                brandName: String(patch.branding.brandName || '').trim(),
+                accentColor: String(patch.branding.accentColor || '').trim()
+            } : null;
+        }
+        if (patch.defaultFormatConfig !== undefined) {
+            tournament.defaultFormatConfig = patch.defaultFormatConfig ? structuredClone(patch.defaultFormatConfig) : null;
+        }
+        tournament.updatedAt = new Date().toISOString();
         this._setStorage(data);
         return tournament;
     },
@@ -372,6 +439,19 @@ export const DataManager = {
         this._setStorage(data);
         return categories;
     },
+    removeCategory(torneoId, categoriaId, { force = false } = {}) {
+        const data = this._getStorage();
+        const category = data.categories.find(item => item.id === categoriaId && item.torneoId === torneoId);
+        if (!category) throw new Error('No se encontró la categoría seleccionada.');
+        const hasFinished = data.matches.some(match => match.categoriaId === categoriaId && match.estado === 'finalizado');
+        if (hasFinished && !force) throw new Error('No se puede eliminar una categoría que ya tiene partidos finalizados.');
+        data.categories = data.categories.filter(item => item.id !== categoriaId);
+        data.teams = data.teams.filter(team => team.categoriaId !== categoriaId);
+        data.zones = data.zones.filter(zone => zone.categoriaId !== categoriaId);
+        data.matches = data.matches.filter(match => match.categoriaId !== categoriaId);
+        this._setStorage(data);
+        return category;
+    },
 
     getTeamsByCategory(categoriaId) { return this._getStorage().teams.filter(team => team.categoriaId === categoriaId); },
     getTeamsByTournamentAndCategory(torneoId, categoriaId) { return this._getStorage().teams.filter(team => team.torneoId === torneoId && team.categoriaId === categoriaId); },
@@ -387,6 +467,31 @@ export const DataManager = {
         this._setStorage(data);
         return team;
     },
+    updateTeam(equipoId, { nombre } = {}) {
+        const data = this._getStorage();
+        const team = data.teams.find(item => item.id === equipoId);
+        if (!team) throw new Error('No se encontró el equipo seleccionado.');
+        const name = String(nombre || '').trim();
+        if (!name) throw new Error('Ingrese un nombre de equipo válido.');
+        if (data.teams.some(item => item.id !== equipoId && item.torneoId === team.torneoId && item.categoriaId === team.categoriaId && item.nombre.trim().toLocaleLowerCase('es') === name.toLocaleLowerCase('es'))) {
+            throw new Error('Ya existe otro equipo con ese nombre en esta categoría.');
+        }
+        team.nombre = name;
+        this._setStorage(data);
+        return team;
+    },
+    removeTeam(equipoId) {
+        const data = this._getStorage();
+        const team = data.teams.find(item => item.id === equipoId);
+        if (!team) throw new Error('No se encontró el equipo seleccionado.');
+        const hasFinished = data.matches.some(match => match.estado === 'finalizado' && (match.equipoLocalId === equipoId || match.equipoVisitanteId === equipoId));
+        if (hasFinished) throw new Error('No se puede eliminar un equipo que ya disputó partidos finalizados.');
+        data.teams = data.teams.filter(item => item.id !== equipoId);
+        data.zones.forEach(zone => { if (zone.liderEquipoId === equipoId) zone.liderEquipoId = null; });
+        data.matches = data.matches.filter(match => match.equipoLocalId !== equipoId && match.equipoVisitanteId !== equipoId);
+        this._setStorage(data);
+        return team;
+    },
     assignTeamToZone(equipoId, zonaId) {
         const data = this._getStorage();
         const team = data.teams.find(item => item.id === equipoId);
@@ -397,13 +502,63 @@ export const DataManager = {
         team.zonaId = zonaId;
         this._setStorage(data);
     },
+    unassignTeamFromZone(equipoId) {
+        const data = this._getStorage();
+        const team = data.teams.find(item => item.id === equipoId);
+        if (!team) throw new Error('No se encontró el equipo seleccionado.');
+        const leaderZone = data.zones.find(item => item.liderEquipoId === team.id);
+        if (leaderZone) throw new Error('Liberá primero la cabeza de serie antes de quitar al equipo de su zona.');
+        const hasMatches = data.matches.some(match => isZonePhaseMatch(match) && (match.equipoLocalId === equipoId || match.equipoVisitanteId === equipoId));
+        if (hasMatches) throw new Error('No se puede quitar de la zona a un equipo que ya tiene partidos generados en ella.');
+        team.zonaId = null;
+        this._setStorage(data);
+        return team;
+    },
 
     getZonesByTournamentAndCategory(torneoId, categoriaId) { return this._getStorage().zones.filter(zone => zone.torneoId === torneoId && zone.categoriaId === categoriaId); },
     getZonesByCategory(categoriaId) { return this._getStorage().zones.filter(zone => zone.categoriaId === categoriaId); },
     createZone(nombre, categoriaId, torneoId) {
+        const cleanName = String(nombre || '').trim();
+        if (!cleanName) throw new Error('Ingrese un nombre de zona válido.');
         const data = this._getStorage();
-        const zone = { id: makeId('zona'), nombre: nombre.trim(), categoriaId, torneoId, liderEquipoId: null };
+        if (data.zones.some(zone => zone.torneoId === torneoId && zone.categoriaId === categoriaId && zone.nombre.trim().toLocaleLowerCase('es') === cleanName.toLocaleLowerCase('es'))) {
+            throw new Error('Ya existe una zona con ese nombre en esta categoría.');
+        }
+        const zone = { id: makeId('zona'), nombre: cleanName, categoriaId, torneoId, liderEquipoId: null };
         data.zones.push(zone);
+        this._setStorage(data);
+        return zone;
+    },
+    updateZone(zonaId, { nombre } = {}) {
+        const cleanName = String(nombre || '').trim();
+        if (!cleanName) throw new Error('Ingrese un nombre de zona válido.');
+        const data = this._getStorage();
+        const zone = data.zones.find(item => item.id === zonaId);
+        if (!zone) throw new Error('No se encontró la zona seleccionada.');
+        if (data.zones.some(item => item.id !== zonaId && item.torneoId === zone.torneoId && item.categoriaId === zone.categoriaId && item.nombre.trim().toLocaleLowerCase('es') === cleanName.toLocaleLowerCase('es'))) {
+            throw new Error('Ya existe otra zona con ese nombre en esta categoría.');
+        }
+        zone.nombre = cleanName;
+        this._setStorage(data);
+        return zone;
+    },
+    clearZoneLeader(zonaId) {
+        const data = this._getStorage();
+        const zone = data.zones.find(item => item.id === zonaId);
+        if (!zone) throw new Error('No se encontró la zona seleccionada.');
+        zone.liderEquipoId = null;
+        this._setStorage(data);
+        return zone;
+    },
+    removeZone(zonaId) {
+        const data = this._getStorage();
+        const zone = data.zones.find(item => item.id === zonaId);
+        if (!zone) throw new Error('No se encontró la zona seleccionada.');
+        const hasFinished = data.matches.some(match => match.zonaId === zonaId && match.estado === 'finalizado');
+        if (hasFinished) throw new Error('No se puede eliminar una zona que tiene partidos finalizados.');
+        data.zones = data.zones.filter(item => item.id !== zonaId);
+        data.teams.forEach(team => { if (team.zonaId === zonaId) team.zonaId = null; });
+        data.matches = data.matches.filter(match => match.zonaId !== zonaId);
         this._setStorage(data);
         return zone;
     },
@@ -797,5 +952,83 @@ export const DataManager = {
         data.calendar = data.calendar.filter(item => item.torneoId !== torneoId);
         data.calendar.push(...fechas.map(fecha => ({ torneoId, fecha })));
         this._setStorage(data);
+    },
+
+    exportBackupSnapshot(torneoId = null) {
+        const data = this._getStorage();
+        const exportedAt = new Date().toISOString();
+        if (!torneoId) {
+            return {
+                schema: 'n3com-backup',
+                version: '2.0',
+                scope: 'full',
+                exportedAt,
+                data
+            };
+        }
+        const tournament = data.tournaments.find(item => item.id === torneoId);
+        if (!tournament) throw new Error('No se encontró el torneo para exportar.');
+        const categoryIds = new Set(data.categories.filter(category => category.torneoId === torneoId).map(category => category.id));
+        const belongs = item => item.torneoId === torneoId || categoryIds.has(item.categoriaId);
+        return {
+            schema: 'n3com-backup',
+            version: '2.0',
+            scope: 'tournament',
+            tournamentId: torneoId,
+            exportedAt,
+            data: {
+                tournaments: [tournament],
+                categories: data.categories.filter(category => category.torneoId === torneoId),
+                teams: data.teams.filter(belongs),
+                zones: data.zones.filter(belongs),
+                matches: data.matches.filter(belongs),
+                calendar: data.calendar.filter(entry => entry.torneoId === torneoId)
+            }
+        };
+    },
+
+    importBackupSnapshot(rawSnapshot, { mode = 'merge' } = {}) {
+        const snapshot = typeof rawSnapshot === 'string' ? JSON.parse(rawSnapshot) : rawSnapshot;
+        const incoming = snapshot?.data && Array.isArray(snapshot.data.tournaments) ? snapshot.data : snapshot;
+        if (!incoming || !Array.isArray(incoming.tournaments) || !Array.isArray(incoming.categories) || !Array.isArray(incoming.teams) || !Array.isArray(incoming.zones) || !Array.isArray(incoming.matches)) {
+            throw new Error('El archivo de copia de seguridad no tiene una estructura N3com válida.');
+        }
+        const cleanIncoming = {
+            tournaments: incoming.tournaments,
+            categories: incoming.categories,
+            teams: incoming.teams,
+            zones: incoming.zones,
+            matches: incoming.matches,
+            calendar: Array.isArray(incoming.calendar) ? incoming.calendar : []
+        };
+
+        if (mode === 'replace') {
+            this._setStorage(cleanIncoming);
+            return { importedTournaments: cleanIncoming.tournaments.length, mode: 'replace' };
+        }
+
+        const current = this._getStorage();
+        const mergeById = (existingList, incomingList) => {
+            const existingIds = new Set(existingList.map(item => item.id));
+            return [...existingList, ...incomingList.filter(item => item?.id && !existingIds.has(item.id))];
+        };
+        const existingTournamentIds = new Set(current.tournaments.map(item => item.id));
+        const newTournaments = cleanIncoming.tournaments.filter(item => item?.id && !existingTournamentIds.has(item.id));
+        const newTournamentIds = new Set(newTournaments.map(item => item.id));
+
+        const merged = {
+            tournaments: [...current.tournaments, ...newTournaments],
+            categories: mergeById(current.categories, cleanIncoming.categories.filter(item => newTournamentIds.has(item.torneoId))),
+            teams: mergeById(current.teams, cleanIncoming.teams.filter(item => newTournamentIds.has(item.torneoId))),
+            zones: mergeById(current.zones, cleanIncoming.zones.filter(item => newTournamentIds.has(item.torneoId))),
+            matches: mergeById(current.matches, cleanIncoming.matches.filter(item => newTournamentIds.has(item.torneoId))),
+            calendar: [...current.calendar, ...cleanIncoming.calendar.filter(entry => newTournamentIds.has(entry.torneoId))]
+        };
+        this._setStorage(merged);
+        return {
+            importedTournaments: newTournaments.length,
+            skippedTournaments: cleanIncoming.tournaments.length - newTournaments.length,
+            mode: 'merge'
+        };
     }
 };

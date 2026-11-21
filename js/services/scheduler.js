@@ -1,6 +1,8 @@
 import { DataManager } from '../data/dataManager.js';
 import { LogisticsService } from './logistics.js';
 import { SPECIAL_CROSS_TYPE, isAllowedSpecialCross } from './specialCrosses.js';
+import { RoundRobinEngine } from '../engine/roundRobinEngine.js';
+import { CompetitionEngine } from '../engine/competitionEngine.js';
 
 const pairKey = (teamAId, teamBId) => {
     if (!teamAId || !teamBId || teamAId === teamBId) throw new Error('Un equipo no puede jugar contra sí mismo.');
@@ -189,13 +191,19 @@ export const SchedulerService = {
             if ([...counts.values()].every(count => count >= assured)) continue;
             let generated;
             try {
-                generated = assured > zoneTeams.length - 1
-                    ? buildPairsWithNecessaryReplays(zoneTeams, counts, pairsSeen, assured)
-                    : buildBalancedPairs(zoneTeams, counts, pairsSeen, assured);
+                if (!existing.length && assured <= zoneTeams.length - 1 && (assured === zoneTeams.length - 1 || zoneTeams.length % 2 === 0)) {
+                    const rr = RoundRobinEngine.generateGuaranteedRoundRobin(zoneTeams, assured, { existingMatches: existing, allowReplays: false });
+                    generated = rr.matches;
+                } else {
+                    generated = assured > zoneTeams.length - 1
+                        ? buildPairsWithNecessaryReplays(zoneTeams, counts, pairsSeen, assured)
+                        : buildBalancedPairs(zoneTeams, counts, pairsSeen, assured);
+                }
             } catch (error) {
                 throw new Error(`No se pudo completar ${zone.nombre} sin repetir enfrentamientos: ${error.message}`);
             }
-            assignRounds(existing, generated).forEach(({ local, visitante, ronda, revancha }) => {
+            const withRounds = generated.every(item => Number.isInteger(item.ronda)) ? generated : assignRounds(existing, generated);
+            withRounds.forEach(({ local, visitante, ronda, revancha }) => {
                 pending.push({ torneoId, categoriaId, zonaId: zone.id, tipo: 'fase_zonas', phase: 'ZONAS', ronda, revancha: Boolean(revancha), equipoLocalId: local.id, equipoVisitanteId: visitante.id, fecha: null, hora: null, cancha: null, estado: 'borrador', confirmado: false, setsLocal: null, setsVisitante: null });
             });
         }
@@ -231,7 +239,7 @@ export const SchedulerService = {
             // La regeneración completa sólo debe ubicar partidos nuevos. Una
             // fecha/hora/cancha ya guardada puede ser una edición manual y no
             // se toca al volver a ejecutar el generador.
-            .filter(match => isGroupMatch(match) && match.estado !== 'finalizado' && !match.fecha);
+            .filter(match => (isGroupMatch(match) || match.phase === 'LIGA' || match.phase === 'ZONA_FINAL') && match.estado !== 'finalizado' && !match.fecha);
         if (!matches.length) return 0;
         const dailyTargets = dates.map((fecha, index) => ({
             fecha,
@@ -287,14 +295,34 @@ export const SchedulerService = {
         return reassigned.length;
     },
 
+    generarFixtureFormato(torneoId, categoriaId, options = {}) {
+        const { config } = CompetitionEngine.getCategoryFormat(torneoId, categoriaId);
+        // Preserva el comportamiento exacto histórico para torneos de Zonas garantizados.
+        if (config.formatId === 'ZONAS_ELIMINATORIAS' && (config.groupMode || 'guaranteed') === 'guaranteed' && !options.useEngine) {
+            const count = this.generarEmparejamientos(torneoId, categoriaId, options);
+            return { createdCount: count, warnings: [], formatId: config.formatId };
+        }
+        const calendarDates = DataManager.getCalendarDates(torneoId);
+        if (!calendarDates.length) throw new Error('Configurá al menos una fecha y su jornada horaria antes de generar partidos.');
+        const result = CompetitionEngine.generateInitialFixture(torneoId, categoriaId, {
+            confirmImmediately: config.formatId === 'ELIMINACION_DIRECTA'
+        });
+        if (result.createdCount > 0 && config.formatId !== 'ELIMINACION_DIRECTA') {
+            this.redistribuirFechas(torneoId, categoriaId, options.date ? [options.date] : null);
+        }
+        return { ...result, formatId: config.formatId };
+    },
+
     confirmarEmparejamientos(torneoId, categoriaId) {
-        const validation = this.validateGuaranteedMatches(torneoId, categoriaId);
-        if (!validation.valid) throw new Error(validation.mensaje);
-        const drafts = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId)
-            .filter(match => isGroupMatch(match) && (match.estado === 'borrador' || match.estado === 'emparejado'));
-        if (!drafts.length) return 0;
-        DataManager.updateMatches(drafts.map(match => ({ ...match, estado: 'pendiente', confirmado: true })));
-        return drafts.length;
+        const { config } = CompetitionEngine.getCategoryFormat(torneoId, categoriaId);
+        const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
+        const isZoneGuaranteed = config.formatId === 'ZONAS_ELIMINATORIAS' && (config.groupMode || 'guaranteed') === 'guaranteed'
+            && matches.some(match => isGroupMatch(match));
+        if (isZoneGuaranteed) {
+            const validation = this.validateGuaranteedMatches(torneoId, categoriaId);
+            if (!validation.valid) throw new Error(validation.mensaje);
+        }
+        return CompetitionEngine.confirmFixture(torneoId, categoriaId);
     },
 
     getMatchesCountForTeam(torneoId, categoriaId, teamId, { onlyOfficial = false, onlyFinished = false } = {}) {

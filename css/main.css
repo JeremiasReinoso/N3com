@@ -1007,7 +1007,26 @@ h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); }
     .court-config-row { grid-template-columns: 1fr; }
     .fixture-export-actions, .fixture-export-actions button { width: 100%; }
     .rest-rules-list { grid-template-columns: 1fr; }
+    .bracket-board { grid-template-columns: 1fr; }
 }
+
+/* Extensiones de formatos A-F, cuadros eliminatorios, respaldos y tablas múltiples */
+.format-config-form { display: grid; gap: 14px; }
+.custom-stages-builder { display: grid; gap: 12px; }
+.custom-stage-row { padding: 14px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--surface-soft, rgba(15, 23, 42, .03)); display: grid; gap: 10px; }
+.custom-stage-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tournaments-overview-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+.backup-import-label { display: inline-flex; align-items: center; cursor: pointer; }
+.rounds-bye-summary { margin: 10px 0 14px; padding: 10px 14px; border-radius: 10px; background: var(--surface-soft, #eef4fb); border: 1px solid var(--border-color); font-size: .88rem; }
+.standings-stack { display: grid; gap: 20px; }
+.standings-table tr.standing-qualified td:first-child { border-left: 4px solid var(--success, #28a745); }
+.bracket-board { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; align-items: start; }
+.bracket-column { display: grid; gap: 10px; }
+.zone-card-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.zone-team-actions { display: flex; align-items: center; gap: 6px; }
+.category-dashboard-card { text-align: left; display: grid; gap: 8px; }
+:root[data-theme="dark"] .custom-stage-row,
+:root[data-theme="dark"] .rounds-bye-summary { background: #141f2f; border-color: #2f4562; }
 
 @media print {
     .schedule-global-config, .schedule-conflicts, .fixture-export-actions { display: none !important; }

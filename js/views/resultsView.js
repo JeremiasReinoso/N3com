@@ -2,8 +2,12 @@ import { AppState } from '../core/state.js';
 import { escapeHtml } from '../core/escapeHtml.js';
 import { renderCategoryWorkspace } from '../core/categoryWorkspace.js';
 import { DataManager } from '../data/dataManager.js';
+import { CompetitionEngine } from '../engine/index.js';
+import { downloadResultsPdf, downloadResultsCsv } from '../services/reportsExport.js';
+import { formatLabelFor } from './formatConfigurator.js';
 
 const isOfficialMatch = match => match.confirmado || ['pendiente', 'programado', 'confirmado', 'en_juego', 'finalizado'].includes(match.estado);
+const RESULT_PHASE_LABELS = { ZONAS: 'Fase de zonas', LIGA: 'Todos contra todos / Liga', ZONA_FINAL: 'Zona Final', TOP_32: 'Top 32', TOP_16: 'Top 16', TOP_8: 'Top 8 / Cuartos', SEMIFINAL: 'Semifinales', THIRD_PLACE: 'Tercer puesto', FINAL: 'Final' };
 
 export const normalizeTeamSearch = value => String(value || '')
     .normalize('NFD')
@@ -64,12 +68,15 @@ export function initResultadosView(options = {}) {
         view.innerHTML = '<h2>Resultados</h2><div class="empty-state">Seleccione un torneo y una categoría desde Equipos.</div>';
         return;
     }
+    const tournament = DataManager.getTournament(tournamentId);
+    const activeFormat = CompetitionEngine.getCategoryFormat(tournamentId, categoryId);
     const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId);
     const zones = DataManager.getZonesByTournamentAndCategory(tournamentId, categoryId);
     const matches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId).filter(isOfficialMatch);
+    const finishedCount = matches.filter(match => match.estado === 'finalizado').length;
     const team = id => teams.find(item => item.id === id)?.nombre || 'Equipo';
-    const zone = id => zones.find(item => item.id === id)?.nombre || 'Eliminatorias';
-    const stage = match => match.nombreEtapa || (match.tipo === 'final' ? 'Final' : (match.tipo === 'semifinal' ? 'Semifinal' : (match.tipo === 'tercer_puesto' ? 'Tercer puesto' : `Ronda ${match.ronda || 1}`)));
+    const zone = id => zones.find(item => item.id === id)?.nombre || (RESULT_PHASE_LABELS[id] || 'Eliminatorias');
+    const stage = match => match.nombreEtapa || RESULT_PHASE_LABELS[match.phase] || (match.tipo === 'final' ? 'Final' : (match.tipo === 'semifinal' ? 'Semifinal' : (match.tipo === 'tercer_puesto' ? 'Tercer puesto' : `Ronda ${match.ronda || 1}`)));
     const schedule = match => {
         const place = [match.hora, match.cancha].filter(Boolean).join(' · ');
         return match.fecha ? `${match.fecha}${place ? ` · ${place}` : ''}` : 'Fecha y sede por definir';
@@ -80,16 +87,17 @@ export function initResultadosView(options = {}) {
         const disabled = index === 2 && !thirdEnabled ? ' disabled' : '';
         return `<div class="set-points ${index === 2 ? 'third-set' : ''}"><span>Set ${index + 1}${index === 2 ? ' (desempate)' : ''}</span><input data-side="local" type="number" min="0" inputmode="numeric" aria-label="Puntos de ${escapeHtml(team(match.equipoLocalId))} en set ${index + 1}" value="${saved?.puntosLocal ?? ''}"${disabled}><b>–</b><input data-side="visitante" type="number" min="0" inputmode="numeric" aria-label="Puntos de ${escapeHtml(team(match.equipoVisitanteId))} en set ${index + 1}" value="${saved?.puntosVisitante ?? ''}"${disabled}></div>`;
     }).join('');
-    const savedSets = match => `<div class="saved-sets">${match.sets.map((set, index) => `<span><strong>S${index + 1}</strong> ${set.puntosLocal}–${set.puntosVisitante}</span>`).join('')}</div>`;
+    const savedSets = match => `<div class="saved-sets">${match.sets.map((set, index) => `<span><strong>S${index + 1}</strong> ${set.puntosLocal}–${set.puntosVisitante}</span>`).join('')}<span><strong>PF/PC</strong> ${match.puntosFavor ?? 0}–${match.puntosContra ?? 0}</span></div>`;
     const matchCard = match => {
         const finished = match.estado === 'finalizado';
         const unresolved = !match.equipoLocalId || !match.equipoVisitanteId;
-        if (unresolved) return `<article class="card set-result-card"><div class="set-result-head"><div><span class="match-status pending">PENDIENTE</span><strong>${escapeHtml(stage(match))} · ${escapeHtml(zone(match.zonaId))}</strong></div><small>${escapeHtml(schedule(match))}</small></div><div class="set-result-teams"><strong>${escapeHtml(team(match.equipoLocalId))}</strong><span>vs</span><strong>${escapeHtml(team(match.equipoVisitanteId))}</strong></div><p class="helper-text">Se habilita cuando finalicen los partidos anteriores.</p></article>`;
+        const contextLabel = match.zonaId ? `${stage(match)} · ${zone(match.zonaId)}` : stage(match);
+        if (unresolved) return `<article class="card set-result-card"><div class="set-result-head"><div><span class="match-status pending">PENDIENTE</span><strong>${escapeHtml(contextLabel)}</strong></div><small>${escapeHtml(schedule(match))}</small></div><div class="set-result-teams"><strong>${escapeHtml(team(match.equipoLocalId))}</strong><span>vs</span><strong>${escapeHtml(team(match.equipoVisitanteId))}</strong></div><p class="helper-text">Se habilita cuando finalicen los partidos anteriores.</p></article>`;
         const expanded = options.expandedMatchId === match.id;
         const detailedEditor = `<details class="score-details" open><summary>${finished ? 'Corregir puntos por set' : 'Cargar puntos por set'}</summary><div class="sets-editor">${setsForm(match)}</div><div class="set-result-footer"><p class="set-preview ${finished ? 'valid' : ''}">${finished ? 'Podés corregir el detalle y guardar nuevamente.' : 'Completá los puntos reales de cada set.'}</p><button type="button" class="guardar-sets btn-primary" data-id="${escapeHtml(match.id)}">${finished ? 'Guardar cambios' : 'Guardar resultado'}</button></div></details>`;
         const editor = detailedEditor;
         return `<article class="card set-result-card ${finished ? 'is-finished' : ''}" data-id="${escapeHtml(match.id)}">
-            <div class="set-result-head"><div><span class="match-status ${finished ? 'finished' : 'pending'}">${finished ? 'JUGADO' : 'PENDIENTE'}</span><strong>${escapeHtml(stage(match))} · ${escapeHtml(zone(match.zonaId))}</strong></div><small>${escapeHtml(schedule(match))}</small></div>
+            <div class="set-result-head"><div><span class="match-status ${finished ? 'finished' : 'pending'}">${finished ? 'JUGADO' : 'PENDIENTE'}</span><strong>${escapeHtml(contextLabel)}</strong></div><small>${escapeHtml(schedule(match))}</small></div>
             <div class="set-result-teams"><strong>${escapeHtml(team(match.equipoLocalId))}</strong><span>${finished ? escapeHtml(match.score || `${match.setsLocal}-${match.setsVisitante}`) : 'vs'}</span><strong>${escapeHtml(team(match.equipoVisitanteId))}</strong></div>
             ${finished ? savedSets(match) : ''}
             <div class="result-entry-action"><button type="button" class="btn-primary toggle-result-editor" data-id="${escapeHtml(match.id)}" aria-expanded="${expanded}">${finished ? 'Editar resultado' : 'Cargar resultado'}</button></div>
@@ -97,19 +105,24 @@ export function initResultadosView(options = {}) {
         </article>`;
     };
 
+    const availablePhases = [...new Set(matches.map(match => match.phase || 'ZONAS'))];
     view.innerHTML = `
-        <h2>Resultados</h2>
+        <div class="fixture-heading"><div><h2>Resultados</h2><p>${escapeHtml(category.nombre)} · ${escapeHtml(formatLabelFor(activeFormat.config))}</p></div><div class="fixture-export-actions"><button id="export-results-pdf" class="btn-secondary" type="button">Exportar resultados (PDF)</button><button id="export-results-csv" class="btn-secondary" type="button">Exportar CSV</button></div></div>
         <section class="form-card panel-control results-search-panel" aria-label="Buscar partidos por equipo">
             <div class="results-search-fields">
                 <label class="form-field" for="result-category">Categoría<select id="result-category">${categories.map(item => `<option value="${escapeHtml(item.id)}" ${item.id === categoryId ? 'selected' : ''}>${escapeHtml(item.nombre)}</option>`).join('')}</select></label>
                 <label class="form-field" for="result-team-search">Buscar equipo<input id="result-team-search" type="search" autocomplete="off" placeholder="Buscar equipo..." value="${escapeHtml(options.initialQuery || '')}"></label>
+                <label class="form-field" for="result-phase-filter">Etapa<select id="result-phase-filter"><option value="">Todas</option>${availablePhases.map(phase => `<option value="${escapeHtml(phase)}" ${options.initialPhase === phase ? 'selected' : ''}>${escapeHtml(RESULT_PHASE_LABELS[phase] || phase)}</option>`).join('')}</select></label>
+                <label class="form-field" for="result-status-filter">Estado<select id="result-status-filter"><option value="">Todos</option><option value="pending" ${options.initialStatus === 'pending' ? 'selected' : ''}>Pendientes</option><option value="finished" ${options.initialStatus === 'finished' ? 'selected' : ''}>Jugados</option></select></label>
             </div>
         </section>
-        <div class="resultados-toolbar"><p><strong>${escapeHtml(category.nombre)}</strong> · La búsqueda incluye partidos pendientes y jugados de esta categoría.</p><span id="result-match-count" class="calendar-chip">${matches.length} PARTIDOS</span></div>
+        <div class="resultados-toolbar"><p><strong>${escapeHtml(category.nombre)}</strong> · ${finishedCount} de ${matches.length} partidos finalizados.</p><span id="result-match-count" class="calendar-chip">${matches.length} PARTIDOS</span></div>
         <div id="resultados-list" class="set-results-list" aria-live="polite"></div>`;
 
     const list = view.querySelector('#resultados-list');
     const searchInput = view.querySelector('#result-team-search');
+    const phaseFilter = view.querySelector('#result-phase-filter');
+    const statusFilter = view.querySelector('#result-status-filter');
     const count = view.querySelector('#result-match-count');
 
     const refreshPreview = card => {
@@ -119,7 +132,12 @@ export function initResultadosView(options = {}) {
         target.classList.toggle('valid', preview.valid);
         target.classList.toggle('invalid', !preview.valid && card.querySelector('[data-side="local"]').value !== '');
     };
-    const refreshKeepingSearch = matchId => initResultadosView({ initialQuery: searchInput.value, expandedMatchId: matchId });
+    const refreshKeepingSearch = matchId => initResultadosView({
+        initialQuery: searchInput.value,
+        initialPhase: phaseFilter.value,
+        initialStatus: statusFilter.value,
+        expandedMatchId: matchId
+    });
     const bindMatchActions = () => {
         list.querySelectorAll('.toggle-result-editor').forEach(button => button.addEventListener('click', () => {
             const editor = button.closest('.set-result-card').querySelector('.result-entry-editor');
@@ -155,14 +173,22 @@ export function initResultadosView(options = {}) {
             try { DataManager.updateMatchResult(button.dataset.id, sets); refreshKeepingSearch(button.dataset.id); } catch (error) { alert(error.message); }
         }));
     };
-    const renderSearch = () => {
+    const filteredMatches = () => {
         const query = searchInput.value;
-        const hasQuery = Boolean(normalizeTeamSearch(query));
-        const visibleMatches = getVisibleMatches({ matches, teams, tournamentId, categoryId, query });
-        count.textContent = hasQuery ? `${visibleMatches.length} PARTIDOS ENCONTRADOS` : `${matches.length} PARTIDOS`;
+        const selectedPhase = phaseFilter.value;
+        const selectedStatus = statusFilter.value;
+        return getVisibleMatches({ matches, teams, tournamentId, categoryId, query }).filter(match => (
+            (!selectedPhase || (match.phase || 'ZONAS') === selectedPhase)
+            && (!selectedStatus || (selectedStatus === 'finished' ? match.estado === 'finalizado' : match.estado !== 'finalizado'))
+        ));
+    };
+    const renderSearch = () => {
+        const hasFilter = Boolean(normalizeTeamSearch(searchInput.value) || phaseFilter.value || statusFilter.value);
+        const visibleMatches = filteredMatches();
+        count.textContent = hasFilter ? `${visibleMatches.length} PARTIDOS ENCONTRADOS` : `${matches.length} PARTIDOS`;
         list.innerHTML = visibleMatches.length
             ? visibleMatches.map(matchCard).join('')
-            : `<div class="empty-state">${hasQuery ? 'No se encontraron partidos para este equipo.' : 'No hay partidos confirmados en esta categoría. Confirmalos desde Programación para poder cargar resultados.'}</div>`;
+            : `<div class="empty-state">${hasFilter ? 'No se encontraron partidos con estos filtros.' : 'No hay partidos confirmados en esta categoría. Confirmalos desde Programación para poder cargar resultados.'}</div>`;
         bindMatchActions();
     };
 
@@ -171,6 +197,25 @@ export function initResultadosView(options = {}) {
         renderCategoryWorkspace();
         initResultadosView();
     });
+    view.querySelector('#export-results-pdf')?.addEventListener('click', () => downloadResultsPdf({
+        tournament,
+        category,
+        formatLabel: formatLabelFor(activeFormat.config),
+        matches: filteredMatches(),
+        teams,
+        zones,
+        phaseLabels: RESULT_PHASE_LABELS
+    }));
+    view.querySelector('#export-results-csv')?.addEventListener('click', () => downloadResultsCsv({
+        tournament,
+        category,
+        matches: filteredMatches(),
+        teams,
+        zones,
+        phaseLabels: RESULT_PHASE_LABELS
+    }));
     searchInput.addEventListener('input', renderSearch);
+    phaseFilter.addEventListener('change', renderSearch);
+    statusFilter.addEventListener('change', renderSearch);
     renderSearch();
 }
