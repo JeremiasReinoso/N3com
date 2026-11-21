@@ -1,22 +1,77 @@
 /* ==========================================================================
-   N3com — Layout Base (Fase 1, compatible con shell actual y futuro Sidebar)
+   N3com — App Shell, Sidebar Plegable y Topbar Contextual (Fase 2)
    ========================================================================== */
 
-.app-header {
-    background-color: var(--bg-sidebar);
-    border-bottom: 1px solid var(--border-subtle);
-    padding: 12px 24px;
+.app-shell {
+    display: flex;
+    min-height: 100vh;
+    background-color: var(--bg-canvas);
+}
+
+/* En Mis Torneos (sin torneo abierto), la barra funciona como header superior limpio */
+.app-shell:not(.has-sidebar) {
+    flex-direction: column;
+}
+
+.app-shell:not(.has-sidebar) .app-header {
+    width: 100%;
+    height: var(--topbar-height);
+    padding: 0 var(--space-6);
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 20px;
+    justify-content: space-between;
+    background-color: var(--bg-sidebar);
+    border-bottom: 1px solid var(--border-subtle);
 }
 
-.logo {
-    font-size: 1.05rem;
-    font-weight: 700;
-    color: var(--text-primary);
-    letter-spacing: -0.02em;
+.app-shell:not(.has-sidebar) .sidebar-toggle-btn,
+.app-shell:not(.has-sidebar) .mobile-topbar {
+    display: none;
+}
+
+.app-shell:not(.has-sidebar) .sidebar-footer {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+    flex-direction: row;
+    align-items: center;
+}
+
+/* ==========================================================================
+   Sidebar Plegable (cuando hay un torneo abierto: .app-shell.has-sidebar)
+   ========================================================================== */
+.app-shell.has-sidebar {
+    flex-direction: row;
+}
+
+.app-shell.has-sidebar .app-sidebar {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sidebar);
+    width: var(--sidebar-width);
+    height: 100vh;
+    flex: 0 0 var(--sidebar-width);
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-4) var(--space-3);
+    background-color: var(--bg-sidebar);
+    border-right: 1px solid var(--border-subtle);
+    transition:
+        width var(--dur-normal) var(--ease-standard),
+        flex-basis var(--dur-normal) var(--ease-standard),
+        padding var(--dur-normal) var(--ease-standard);
+    overflow-x: visible;
+    overflow-y: auto;
+}
+
+.sidebar-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    min-height: 38px;
+    padding: 0 4px;
 }
 
 .logo-home {
@@ -26,41 +81,111 @@
     line-height: 1.2;
     text-decoration: none;
     cursor: pointer;
-    transition: opacity var(--dur-fast) var(--ease-standard);
+    min-width: 0;
 }
 
 .logo-home:hover {
-    opacity: 0.85;
+    opacity: 0.9;
 }
 
-.app-header.tournament-open {
-    padding-block: 12px;
+.sidebar-tournament-context {
+    display: grid;
+    gap: 2px;
+    margin: var(--space-4) 2px var(--space-2);
+    padding: 9px 11px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    min-width: 0;
 }
 
-.app-header.tournament-open #main-nav {
-    flex: 1;
+.sidebar-tournament-context[hidden] {
+    display: none;
 }
 
-#main-nav {
+.sidebar-context-eyebrow {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent-text);
+}
+
+.sidebar-tournament-name {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#main-nav.sidebar-nav {
     display: flex;
-    gap: 4px;
-    flex-wrap: wrap;
-    justify-content: flex-start;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: var(--space-2);
+    flex: 1 1 auto;
+}
+
+#main-nav.sidebar-nav[hidden] {
+    display: none;
 }
 
 .nav-btn {
+    position: relative;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 11px;
+    padding: 9px 11px;
     background-color: transparent;
     color: var(--text-secondary);
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
-    padding: 7px 12px;
     font-size: var(--text-sm);
     font-weight: 500;
+    text-align: left;
     cursor: pointer;
     transition:
         background-color var(--dur-fast) var(--ease-standard),
         color var(--dur-fast) var(--ease-standard),
         border-color var(--dur-fast) var(--ease-standard);
+}
+
+.nav-btn-icon {
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    color: currentColor;
+}
+
+.nav-btn-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.25;
+}
+
+/* Sub-item en barra lateral (Planificación junto a Programación) */
+.nav-btn-sub {
+    padding-left: 26px;
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+}
+
+.nav-btn-sub::before {
+    content: "";
+    position: absolute;
+    left: 16px;
+    top: 6px;
+    bottom: 6px;
+    width: 1.5px;
+    background: var(--border-default);
+    border-radius: 1px;
 }
 
 .nav-btn:hover:not(.active):not(:disabled) {
@@ -75,18 +200,209 @@
     font-weight: 600;
 }
 
-.admin-link {
-    text-decoration: none;
-    display: inline-block;
+.nav-btn.active.nav-btn-sub::before {
+    background: var(--accent-text);
+}
+
+.sidebar-footer {
+    margin-top: auto;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sidebar-footer-group[hidden] {
+    display: none;
+}
+
+.sidebar-theme-btn {
+    color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   Estado Plegado de la Sidebar + Etiquetas Emergentes (Tooltips)
+   ========================================================================== */
+:root[data-sidebar="collapsed"] .app-shell.has-sidebar .app-sidebar,
+.app-shell.has-sidebar .app-sidebar.is-collapsed {
+    width: var(--sidebar-collapsed-width);
+    flex-basis: var(--sidebar-collapsed-width);
+    padding-inline: 10px;
+}
+
+:root[data-sidebar="collapsed"] .app-shell.has-sidebar .sidebar-top,
+.app-shell.has-sidebar .app-sidebar.is-collapsed .sidebar-top {
+    flex-direction: column;
+    gap: 8px;
+    padding: 0;
+}
+
+:root[data-sidebar="collapsed"] .app-shell.has-sidebar .n3-brand-text,
+:root[data-sidebar="collapsed"] .app-shell.has-sidebar .sidebar-tournament-context,
+:root[data-sidebar="collapsed"] .app-shell.has-sidebar .nav-btn-label,
+.app-shell.has-sidebar .app-sidebar.is-collapsed .n3-brand-text,
+.app-shell.has-sidebar .app-sidebar.is-collapsed .sidebar-tournament-context,
+.app-shell.has-sidebar .app-sidebar.is-collapsed .nav-btn-label {
+    display: none;
+}
+
+:root[data-sidebar="collapsed"] .app-shell.has-sidebar .nav-btn,
+.app-shell.has-sidebar .app-sidebar.is-collapsed .nav-btn {
+    justify-content: center;
+    padding: 10px 0;
+}
+
+:root[data-sidebar="collapsed"] .app-shell.has-sidebar .nav-btn-sub::before,
+.app-shell.has-sidebar .app-sidebar.is-collapsed .nav-btn-sub::before {
+    display: none;
+}
+
+/* Etiquetas emergentes (tooltips) cuando la sidebar está plegada */
+:root[data-sidebar="collapsed"] .app-shell.has-sidebar [data-tooltip],
+.app-shell.has-sidebar .app-sidebar.is-collapsed [data-tooltip] {
+    position: relative;
+}
+
+:root[data-sidebar="collapsed"] .app-shell.has-sidebar [data-tooltip]:hover::after,
+:root[data-sidebar="collapsed"] .app-shell.has-sidebar [data-tooltip]:focus-visible::after,
+.app-shell.has-sidebar .app-sidebar.is-collapsed [data-tooltip]:hover::after,
+.app-shell.has-sidebar .app-sidebar.is-collapsed [data-tooltip]:focus-visible::after {
+    content: attr(data-tooltip);
+    position: fixed;
+    left: calc(var(--sidebar-collapsed-width) + 8px);
+    z-index: var(--z-popover);
+    padding: 5px 10px;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-md);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* ==========================================================================
+   Área Principal y Barra Contextual de Categoría Activa
+   ========================================================================== */
+.app-main-area {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.mobile-topbar {
+    display: none;
+    height: 52px;
+    padding: 0 var(--space-4);
+    align-items: center;
+    gap: var(--space-3);
+    background: var(--bg-sidebar);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.mobile-topbar-brand {
+    font-weight: 700;
+    color: var(--text-primary);
 }
 
 .container {
+    width: 100%;
     max-width: var(--content-max-width);
     margin: 0 auto;
     padding: var(--space-6) var(--space-6) var(--space-10);
 }
 
-/* Vistas dinámicas */
+.category-context-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-5);
+    padding: 8px 12px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+}
+
+.category-context-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.category-context-pills {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    flex: 1 1 auto;
+}
+
+.category-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 11px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-full);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    font-weight: 500;
+}
+
+.category-pill strong {
+    font-weight: 600;
+    color: inherit;
+}
+
+.category-pill small {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+}
+
+.category-pill:hover:not(.active) {
+    background: var(--bg-hover);
+    border-color: var(--border-default);
+    color: var(--text-primary);
+}
+
+.category-pill.active {
+    background: var(--accent-soft);
+    border-color: var(--accent-border);
+    color: var(--accent-text);
+}
+
+.category-pill.active small {
+    color: var(--accent-text);
+    opacity: 0.85;
+}
+
+.category-context-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    white-space: nowrap;
+}
+
+.category-context-meta strong {
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
+/* Vistas dinámicas y grillas */
 .view-section {
     display: none;
 }
@@ -96,7 +412,6 @@
     animation: fadeIn var(--dur-normal) var(--ease-standard);
 }
 
-/* Grilla de tarjetas */
 .grid-cards {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -112,7 +427,6 @@
     text-align: left;
     transition:
         border-color var(--dur-fast) var(--ease-standard),
-        transform var(--dur-fast) var(--ease-standard),
         box-shadow var(--dur-fast) var(--ease-standard);
 }
 
@@ -120,30 +434,82 @@
     border-color: var(--border-default);
 }
 
+.admin-link {
+    text-decoration: none;
+    display: inline-block;
+}
+
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(6px); }
+    from { opacity: 0; transform: translateY(4px); }
     to { opacity: 1; transform: translateY(0); }
 }
 
-@media (max-width: 768px) {
-    .app-header {
-        align-items: flex-start;
-        padding: 58px 16px 14px;
-    }
+/* ==========================================================================
+   Adaptabilidad móvil y tablet (< 960px)
+   ========================================================================== */
+.sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--z-sidebar) - 1);
+    background: rgba(5, 8, 15, 0.65);
+}
 
-    .app-header.tournament-open {
+.sidebar-backdrop[hidden] {
+    display: none;
+}
+
+@media (max-width: 960px) {
+    .app-shell.has-sidebar {
         flex-direction: column;
     }
 
-    #main-nav {
-        width: 100%;
+    .app-shell.has-sidebar .mobile-topbar {
+        display: flex;
+    }
+
+    .app-shell.has-sidebar .app-sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: var(--sidebar-width) !important;
+        flex-basis: var(--sidebar-width) !important;
+        transform: translateX(-100%);
+        transition: transform var(--dur-normal) var(--ease-standard);
+        box-shadow: var(--shadow-lg);
+    }
+
+    .app-shell.has-sidebar .app-sidebar.is-mobile-open {
+        transform: translateX(0);
+    }
+
+    .app-shell.has-sidebar .sidebar-toggle-btn {
+        display: none;
+    }
+
+    .app-shell.has-sidebar .n3-brand-text,
+    .app-shell.has-sidebar .sidebar-tournament-context,
+    .app-shell.has-sidebar .nav-btn-label {
+        display: block !important;
+    }
+
+    .app-shell.has-sidebar .nav-btn {
+        justify-content: flex-start !important;
+        padding: 9px 11px !important;
     }
 
     .container {
         padding: var(--space-4) var(--space-4) var(--space-8);
     }
+}
 
+@media (max-width: 640px) {
     .grid-cards {
         grid-template-columns: 1fr;
+    }
+
+    .category-context-bar {
+        align-items: flex-start;
+        flex-direction: column;
     }
 }

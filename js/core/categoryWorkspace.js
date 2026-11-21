@@ -1,16 +1,25 @@
 import { AppState } from './state.js';
 import { escapeHtml } from './escapeHtml.js';
 import { DataManager } from '../data/dataManager.js';
+import { icon } from '../ui/icons.js';
 
-const categorySummary = (tournamentId, category) => {
-    const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, category.id).length;
-    const matches = DataManager.getMatchesByTournamentAndCategory(tournamentId, category.id).length;
-    return `${teams} equipo${teams === 1 ? '' : 's'} · ${matches} partido${matches === 1 ? '' : 's'}`;
+// Vistas globales del torneo donde no se requiere mostrar el selector de categoría.
+// NOTA: 'planificacion' SÍ se incluye entre las vistas con selector para preservar
+// intacto el cambio de categoría en Planificación sin modificar planningView.js.
+const TOURNAMENT_GLOBAL_SECTIONS = new Set(['inicio', 'configuracion', 'calendario']);
+
+let categoryChangeHandler = null;
+
+export const setCategoryChangeHandler = callback => {
+    categoryChangeHandler = typeof callback === 'function' ? callback : null;
 };
 
-// Las categorías se comportan como espacios independientes dentro del mismo
-// torneo, sin obligar al usuario a abandonar la aplicación principal.
-export const renderCategoryWorkspace = () => {
+const categoryCountBadge = (tournamentId, category) => {
+    const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, category.id).length;
+    return `${teams} eq.`;
+};
+
+export const renderCategoryWorkspace = (options = {}) => {
     const host = globalThis.document?.getElementById?.('category-workspace-nav');
     if (!host) return;
 
@@ -18,25 +27,56 @@ export const renderCategoryWorkspace = () => {
     try { tournamentId = AppState.getTournament(); } catch { tournamentId = null; }
     const categories = tournamentId ? DataManager.getCategoriesByTournament(tournamentId) : [];
     const activeId = AppState.getCategory();
+    const activeSection = options.section
+        || globalThis.document?.querySelector?.('#main-nav .nav-btn.active')?.dataset?.section
+        || '';
 
-    if (!tournamentId || !categories.length) {
+    if (!tournamentId || !categories.length || TOURNAMENT_GLOBAL_SECTIONS.has(activeSection)) {
         host.hidden = true;
         host.innerHTML = '';
         return;
     }
 
-    const teams = categories.reduce((total, category) => total + DataManager.getTeamsByTournamentAndCategory(tournamentId, category.id).length, 0);
-    const matches = categories.reduce((total, category) => total + DataManager.getMatchesByTournamentAndCategory(tournamentId, category.id).length, 0);
+    const activeCategory = categories.find(item => item.id === activeId) || categories[0];
+    const activeTeams = activeCategory
+        ? DataManager.getTeamsByTournamentAndCategory(tournamentId, activeCategory.id).length
+        : 0;
+    const activeMatches = activeCategory
+        ? DataManager.getMatchesByTournamentAndCategory(tournamentId, activeCategory.id).length
+        : 0;
+
     host.hidden = false;
-    host.innerHTML = `<section class="category-shell" aria-labelledby="active-categories-title">
-        <div class="category-shell-head"><div><h2 id="active-categories-title">Categorías Activas</h2><p>Seleccioná una categoría para ver los equipos y partidos.</p></div></div>
-        <div class="category-page-list" role="list">${categories.map(category => `<button type="button" class="category-page ${category.id === activeId ? 'active' : ''}" data-category-id="${escapeHtml(category.id)}" aria-pressed="${category.id === activeId}"><strong>${escapeHtml(category.nombre)}</strong><small>${escapeHtml(categorySummary(tournamentId, category))}</small></button>`).join('')}</div>
-        <div class="tournament-home-summary" aria-label="Resumen del torneo"><div><span>Categorías</span><strong>${categories.length}</strong></div><div><span>Equipos</span><strong>${teams}</strong></div><div><span>Partidos</span><strong>${matches}</strong></div></div>
-    </section>`;
+    host.innerHTML = `
+        <section class="category-context-bar" aria-label="Selector de categoría activa">
+            <div class="category-context-label">
+                ${icon('layers', { size: 15 })}
+                <span>Categoría</span>
+            </div>
+            <div class="category-context-pills" role="tablist" aria-label="Categorías del torneo">
+                ${categories.map(category => {
+                    const isActive = category.id === activeCategory?.id;
+                    return `<button type="button" role="tab" class="category-pill ${isActive ? 'active' : ''}" data-category-id="${escapeHtml(category.id)}" aria-selected="${isActive}" aria-pressed="${isActive}">
+                        <strong>${escapeHtml(category.nombre)}</strong>
+                        <small>${escapeHtml(categoryCountBadge(tournamentId, category))}</small>
+                    </button>`;
+                }).join('')}
+            </div>
+            <div class="category-context-meta" aria-live="polite">
+                <span><strong>${activeTeams}</strong> equipo${activeTeams === 1 ? '' : 's'}</span>
+                <span aria-hidden="true">·</span>
+                <span><strong>${activeMatches}</strong> partido${activeMatches === 1 ? '' : 's'}</span>
+            </div>
+        </section>`;
 
     host.querySelectorAll('[data-category-id]').forEach(button => button.addEventListener('click', () => {
-        AppState.setCategory(button.dataset.categoryId);
-        const currentView = document.querySelector('.nav-btn.active[id^="btn-nav-"]');
-        currentView?.click();
+        const nextCategoryId = button.dataset.categoryId;
+        if (!nextCategoryId || nextCategoryId === AppState.getCategory()) return;
+        AppState.setCategory(nextCategoryId);
+        if (categoryChangeHandler) {
+            categoryChangeHandler(nextCategoryId);
+            return;
+        }
+        const currentView = globalThis.document?.querySelector?.('.nav-btn.active[id^="btn-nav-"]');
+        currentView?.click?.();
     }));
 };

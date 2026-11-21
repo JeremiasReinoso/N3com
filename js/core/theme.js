@@ -1,3 +1,5 @@
+import { icon } from '../ui/icons.js';
+
 const THEME_STORAGE_KEY = 'newcom_theme';
 const DARK_THEME = 'dark';
 const LIGHT_THEME = 'light';
@@ -16,26 +18,27 @@ export const applyTheme = theme => {
     if (!root) return selectedTheme;
 
     root.dataset.theme = selectedTheme;
-    try { localStorage.setItem(THEME_STORAGE_KEY, selectedTheme); } catch { /* El tema sigue funcionando aunque el navegador bloquee el almacenamiento. */ }
+    try { localStorage.setItem(THEME_STORAGE_KEY, selectedTheme); } catch { /* Continúa aunque el almacenamiento esté bloqueado */ }
 
-    const toggle = document.getElementById('theme-toggle');
-    if (toggle) {
-        const isDark = selectedTheme === DARK_THEME;
-        toggle.textContent = isDark ? '☀ Tema claro' : '◐ Tema oscuro';
+    const isDark = selectedTheme === DARK_THEME;
+    globalThis.document?.querySelectorAll?.('#theme-toggle, [data-theme-toggle]')?.forEach(toggle => {
+        const label = isDark ? 'Tema claro' : 'Tema oscuro';
+        toggle.innerHTML = `<span class="nav-btn-icon">${icon(isDark ? 'sun' : 'moon', { size: 16 })}</span><span class="nav-btn-label">${label}</span>`;
         toggle.setAttribute('aria-pressed', String(isDark));
         toggle.setAttribute('aria-label', isDark ? 'Activar tema claro' : 'Activar tema oscuro');
-    }
+        toggle.setAttribute('data-tooltip', isDark ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro');
+    });
     return selectedTheme;
 };
 
 export const initThemeToggle = () => {
-    const toggle = globalThis.document?.getElementById?.('theme-toggle');
     applyTheme(getPreferredTheme());
-    if (!toggle || toggle.dataset.boundTheme === 'true') return;
-
-    toggle.dataset.boundTheme = 'true';
-    toggle.addEventListener('click', () => {
-        const activeTheme = document.documentElement.dataset.theme;
-        applyTheme(activeTheme === DARK_THEME ? LIGHT_THEME : DARK_THEME);
+    globalThis.document?.querySelectorAll?.('#theme-toggle, [data-theme-toggle]')?.forEach(toggle => {
+        if (toggle.dataset.boundTheme === 'true') return;
+        toggle.dataset.boundTheme = 'true';
+        toggle.addEventListener('click', () => {
+            const activeTheme = document.documentElement.dataset.theme;
+            applyTheme(activeTheme === DARK_THEME ? LIGHT_THEME : DARK_THEME);
+        });
     });
 };
