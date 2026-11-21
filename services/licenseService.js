@@ -1,7 +1,9 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { createPortableLicenseCode, parsePortableLicenseCode } from '../js/core/portableLicense.js';
+import { SignedLicenseService, verifySignedLicenseToken } from './signedLicenseService.js';
 
 const initialStore = () => ({ version: '1.0', lastUpdated: null, licenses: [] });
 const clean = value => String(value || '').trim();
@@ -11,7 +13,14 @@ const credits = value => {
     return amount;
 };
 const normalizeCode = code => clean(code).toUpperCase();
+const isSignedV2 = value => clean(value).startsWith('NWC2-');
 const clone = value => JSON.parse(JSON.stringify(value));
+const atomicWriteJson = async (filePath, payload) => {
+    const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}.${randomBytes(4).toString('hex')}`;
+    await writeFile(tmpPath, `${JSON.stringify(payload, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    await rename(tmpPath, filePath);
+    try { await chmod(filePath, 0o600); } catch { /* sin POSIX chmod */ }
+};
 
 // Única capa que conoce el formato de private/licenses.json. El servidor local
 // sólo traduce HTTP; una API futura puede reemplazar este servicio por otro
@@ -21,61 +30,88 @@ export class LocalLicenseService {
         this.privateDirectory = resolve(privateDirectory);
         this.licensesPath = resolve(this.privateDirectory, 'licenses.json');
         this.adminPath = resolve(this.privateDirectory, 'admin.json');
+        this.signingService = new SignedLicenseService(this.privateDirectory);
         this.queue = Promise.resolve();
     }
 
     async initialize() {
         await mkdir(this.privateDirectory, { recursive: true });
-        if (!existsSync(this.licensesPath)) await writeFile(this.licensesPath, `${JSON.stringify(initialStore(), null, 2)}\n`, 'utf8');
+        await this.signingService.initialize();
+        if (!existsSync(this.licensesPath)) await atomicWriteJson(this.licensesPath, initialStore());
         else {
             const data = await this.#read();
-            await writeFile(this.licensesPath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+            await atomicWriteJson(this.licensesPath, data);
         }
-        if (!existsSync(this.adminPath)) await writeFile(this.adminPath, `${JSON.stringify({ version: '1.0', lastUpdated: null, admin: {} }, null, 2)}\n`, 'utf8');
+        if (!existsSync(this.adminPath)) await atomicWriteJson(this.adminPath, { version: '1.0', lastUpdated: null, admin: {} });
+    }
+
+    getPublicKeyPem() {
+        return this.signingService.getPublicKeyPem();
     }
 
     async list() { return clone((await this.#read()).licenses); }
 
     async getByCode(code) {
+        const raw = clean(code);
         const requested = normalizeCode(code);
         if (!requested) return null;
-        const license = (await this.#read()).licenses.find(item => item.code === requested);
+        const license = (await this.#read()).licenses.find(item => item.code === requested || (item.signedToken && item.signedToken === raw));
         return license ? clone(license) : null;
     }
 
-    async create({ clientName, organization = '', phone = '', tournamentsPurchased }) {
+    async create({ clientName, organization = '', phone = '', tournamentsPurchased, edition = 'club' }) {
         const name = clean(clientName); const purchased = credits(tournamentsPurchased);
         if (!name) throw new Error('INVALID_CLIENT');
+        const safeEdition = ['club', 'asociacion', 'federacion'].includes(clean(edition).toLowerCase()) ? clean(edition).toLowerCase() : 'club';
         return this.#mutate(data => {
             const now = new Date().toISOString();
+            const id = this.#nextId(data.licenses);
+            const signedToken = this.signingService.issueToken({
+                id,
+                tournamentsPurchased: purchased,
+                organization: clean(organization),
+                edition: safeEdition
+            });
             const license = {
-                id: this.#nextId(data.licenses),
+                id,
                 code: this.#nextCode(data.licenses, purchased),
+                signedToken,
                 clientName: name,
                 organization: clean(organization),
                 phone: clean(phone),
+                edition: safeEdition,
                 tournamentsPurchased: purchased,
                 tournamentsUsed: 0,
                 tournamentsRemaining: purchased,
                 active: true,
                 createdAt: now,
                 activatedAt: null,
-                history: [{ at: now, type: 'LICENSE_CREATED', tournaments: purchased }]
+                history: [{ at: now, type: 'LICENSE_CREATED', tournaments: purchased, edition: safeEdition }]
             };
             data.licenses.push(license);
             return license;
         });
     }
 
-    async activate(code) {
+    async activate(code, externalPublicKeyPem = null) {
+        const raw = clean(code);
         const requested = normalizeCode(code);
         return this.#mutate(data => {
-            let license = data.licenses.find(item => item.code === requested);
+            let license = data.licenses.find(item => item.code === requested || (item.signedToken && item.signedToken === raw));
             if (!license) {
-                const portable = parsePortableLicenseCode(requested);
-                if (!portable) throw new Error('LICENSE_INVALID');
-                license = this.#portableLicense(portable);
-                data.licenses.push(license);
+                if (isSignedV2(raw)) {
+                    const verified = externalPublicKeyPem
+                        ? verifySignedLicenseToken(raw, externalPublicKeyPem)
+                        : this.signingService.verifyToken(raw);
+                    if (!verified) throw new Error('LICENSE_INVALID');
+                    license = this.#signedLicenseV2(verified);
+                    data.licenses.push(license);
+                } else {
+                    const portable = parsePortableLicenseCode(requested);
+                    if (!portable) throw new Error('LICENSE_INVALID');
+                    license = this.#portableLicense(portable);
+                    data.licenses.push(license);
+                }
             }
             if (!license.active) throw new Error('LICENSE_INVALID');
             if (!license.activatedAt) {
@@ -87,9 +123,10 @@ export class LocalLicenseService {
     }
 
     async consumeTournament(code) {
+        const raw = clean(code);
         const requested = normalizeCode(code);
         return this.#mutate(data => {
-            const license = data.licenses.find(item => item.code === requested);
+            const license = data.licenses.find(item => item.code === requested || (item.signedToken && item.signedToken === raw));
             if (!license || !license.active || license.tournamentsRemaining < 1) throw new Error('NO_CREDITS');
             license.tournamentsUsed += 1;
             license.tournamentsRemaining -= 1;
@@ -157,9 +194,11 @@ export class LocalLicenseService {
         return {
             id: item.id,
             code: normalizeCode(item.code),
+            signedToken: item.signedToken || null,
             clientName: clean(modern ? source.clientName : item.client?.name),
             organization: clean(modern ? source.organization : item.client?.organization),
             phone: clean(modern ? source.phone : item.client?.phone),
+            edition: clean(item.edition || 'club') || 'club',
             tournamentsPurchased: Number(source.tournamentsPurchased || 0),
             tournamentsUsed: Number(source.tournamentsUsed || 0),
             tournamentsRemaining: Math.max(0, Number(source.tournamentsRemaining || 0)),
@@ -175,7 +214,7 @@ export class LocalLicenseService {
             const data = await this.#read();
             const result = operation(data);
             data.lastUpdated = new Date().toISOString();
-            await writeFile(this.licensesPath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+            await atomicWriteJson(this.licensesPath, data);
             return clone(result);
         });
         this.queue = next.catch(() => {});
@@ -191,14 +230,36 @@ export class LocalLicenseService {
         return createPortableLicenseCode(this.#nextId(licenses), tournamentsPurchased);
     }
 
+    #signedLicenseV2({ id, token, tournamentsPurchased, organization, edition }) {
+        const now = new Date().toISOString();
+        return {
+            id,
+            code: token,
+            signedToken: token,
+            clientName: organization || 'Licencia firmada Ed25519',
+            organization: organization || '',
+            phone: '',
+            edition: edition || 'club',
+            tournamentsPurchased,
+            tournamentsUsed: 0,
+            tournamentsRemaining: tournamentsPurchased,
+            active: true,
+            createdAt: now,
+            activatedAt: null,
+            history: [{ at: now, type: 'SIGNED_V2_LICENSE_IMPORTED', edition: edition || 'club' }]
+        };
+    }
+
     #portableLicense({ id, code, tournamentsPurchased }) {
         const now = new Date().toISOString();
         return {
             id,
             code,
+            signedToken: null,
             clientName: 'Licencia portátil',
             organization: '',
             phone: '',
+            edition: 'club',
             tournamentsPurchased,
             tournamentsUsed: 0,
             tournamentsRemaining: tournamentsPurchased,

@@ -50,10 +50,12 @@ const logisticsCandidateCapacity = (tournamentId, match, days, courts) => {
 
 // Devuelve qué regla impide ocupar ese bloque. Se usa tanto para aceptar una
 // asignación como para explicarle al organizador por qué no se pudo programar.
-const logisticsSlotIssues = (candidate, scheduled, settings) => {
+const logisticsSlotIssues = (candidate, scheduled, settings, restByCategory = null) => {
     const issues = { court: false, team: false, rest: false };
     const start = logisticsMinutesFromTime(candidate.hora);
     const end = start + settings.blockDuration;
+    const candidateRest = restByCategory ? (restByCategory.get(candidate.categoriaId) || 0) : DataManager.getCategoryRestBlocks(candidate.categoriaId);
+    const slotInterval = settings.slotInterval || settings.blockDuration;
     for (const other of scheduled) {
         if (candidate.fecha !== other.fecha || !other.hora) continue;
         const otherStart = logisticsMinutesFromTime(other.hora);
@@ -62,14 +64,14 @@ const logisticsSlotIssues = (candidate, scheduled, settings) => {
         if (overlaps && logisticsCourtKey(candidate) === logisticsCourtKey(other)) { issues.court = true; continue; }
         if (overlaps && logisticsTeamsOverlap(candidate, other)) { issues.team = true; continue; }
         if (!logisticsTeamsOverlap(candidate, other)) continue;
-        const rest = Math.max(DataManager.getCategoryRestBlocks(candidate.categoriaId), DataManager.getCategoryRestBlocks(other.categoriaId));
-        const slotInterval = settings.slotInterval || settings.blockDuration;
+        const otherRest = restByCategory ? (restByCategory.get(other.categoriaId) || 0) : DataManager.getCategoryRestBlocks(other.categoriaId);
+        const rest = Math.max(candidateRest, otherRest);
         if (rest > 0 && Math.abs(start - otherStart) < slotInterval * (rest + 1)) issues.rest = true;
     }
     return issues;
 };
 
-const logisticsSlotIsValid = (candidate, scheduled, settings) => !Object.values(logisticsSlotIssues(candidate, scheduled, settings)).some(Boolean);
+const logisticsSlotIsValid = (candidate, scheduled, settings, restByCategory = null) => !Object.values(logisticsSlotIssues(candidate, scheduled, settings, restByCategory)).some(Boolean);
 
 const distributionDifference = loads => {
     const values = [...loads.values()];
@@ -236,8 +238,11 @@ export const LogisticsService = {
         if (!days.length) throw new Error('Configurá al menos una jornada en Calendario antes de programar.');
         if (!courts.length) throw new Error('Configurá al menos una cancha para el torneo.');
         const settings = DataManager.getTournamentSchedulingSettings(tournamentId);
+        const restByCategory = new Map(DataManager.getCategoriesByTournament(tournamentId).map(cat => [cat.id, Math.max(0, Number(cat.minimumRestBlocks || 0))]));
+        const blocksByDate = new Map(days.map(day => [day.fecha, this.generateTimeBlocks(tournamentId, day)]));
         const all = this.getTournamentMatches(tournamentId).filter(logisticsIsOfficial);
         const occupied = all.filter(match => match.fecha && match.hora && match.cancha);
+        const placed = [...occupied];
         const courtLoads = new Map(courts.map(court => [court.id, occupied.filter(match => logisticsCourtKey(match) === court.id || match.cancha === court.name).length]));
         const pending = all.filter(match => match.estado !== 'finalizado' && (!match.fecha || !match.hora || !match.cancha))
             // Todos los partidos ya están reunidos en `all`. La capacidad se
@@ -249,23 +254,25 @@ export const LogisticsService = {
                 || String(left.id).localeCompare(String(right.id)));
         const updates = [];
         const failures = [];
+        const slotInterval = settings.slotInterval || settings.blockDuration;
 
         for (const match of pending) {
             const dates = logisticsAllowedDates(tournamentId, match);
             const preferred = match.fecha && dates.includes(match.fecha) ? [match.fecha, ...dates.filter(date => date !== match.fecha)] : dates;
             let assignment = null;
             const candidates = [];
+            const sortedCourts = [...courts].sort((left, right) => courtLoads.get(left.id) - courtLoads.get(right.id) || left.name.localeCompare(right.name, 'es', { numeric: true }));
             for (const date of preferred) {
-                const day = days.find(item => item.fecha === date);
-                if (!day) continue;
-                for (const hora of this.generateTimeBlocks(tournamentId, day)) {
-                    for (const court of [...courts].sort((left, right) => courtLoads.get(left.id) - courtLoads.get(right.id) || left.name.localeCompare(right.name, 'es', { numeric: true }))) {
+                const timeBlocks = blocksByDate.get(date);
+                if (!timeBlocks?.length) continue;
+                for (const hora of timeBlocks) {
+                    const startMinutes = logisticsMinutesFromTime(hora);
+                    for (const court of sortedCourts) {
                         const candidate = { ...match, fecha: date, hora, courtId: court.id, cancha: court.name };
-                        if (!logisticsSlotIsValid(candidate, [...occupied, ...updates], settings)) continue;
-                        const slotInterval = settings.slotInterval || settings.blockDuration;
-                        const adjacent = [...occupied, ...updates].some(other => other.fecha === date
+                        if (!logisticsSlotIsValid(candidate, placed, settings, restByCategory)) continue;
+                        const adjacent = placed.some(other => other.fecha === date
                             && logisticsTeamsOverlap(candidate, other)
-                            && Math.abs(logisticsMinutesFromTime(other.hora) - logisticsMinutesFromTime(hora)) === slotInterval);
+                            && Math.abs(logisticsMinutesFromTime(other.hora) - startMinutes) === slotInterval);
                         candidates.push({ assignment: { fecha: date, hora, courtId: court.id, cancha: court.name }, adjacent, load: courtLoads.get(court.id) });
                     }
                 }
@@ -277,13 +284,15 @@ export const LogisticsService = {
                 || left.assignment.cancha.localeCompare(right.assignment.cancha, 'es', { numeric: true }));
             assignment = candidates[0]?.assignment || null;
             if (assignment) {
-                updates.push({ ...match, ...assignment, estado: match.estado === 'borrador' ? 'pendiente' : match.estado, confirmado: true });
+                const assignedMatch = { ...match, ...assignment, estado: match.estado === 'borrador' ? 'pendiente' : match.estado, confirmado: true };
+                updates.push(assignedMatch);
+                placed.push(assignedMatch);
                 courtLoads.set(assignment.courtId, courtLoads.get(assignment.courtId) + 1);
             }
             else failures.push({
                 matchId: match.id,
                 label: this.getMatchLabel(tournamentId, match),
-                reasons: this.explainFailure(tournamentId, match, dates, days, courts, [...occupied, ...updates], settings)
+                reasons: this.explainFailure(tournamentId, match, dates, days, courts, placed, settings)
             });
         }
         if (updates.length) DataManager.updateMatches(updates);

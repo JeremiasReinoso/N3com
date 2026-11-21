@@ -1,105 +1,101 @@
-# N3com / NEWCOM 2026
+# N3com — Plataforma Comercial de Gestión de Torneos de Newcom
 
-N3com puede ejecutarse como aplicación web local o como aplicación de escritorio
-multiplataforma. Ambas variantes usan la misma interfaz, módulos JavaScript,
-rutas y lógica de torneos; Electron no contiene una copia del frontend.
+N3com es un sistema profesional multiplataforma (**Escritorio Electron** y **Web compartida**) para la organización integral de torneos de Newcom de cualquier escala: clubes, asociaciones y federaciones.
 
-## Desarrollo
+Ambas variantes comparten **exactamente la misma interfaz, el mismo motor modular de competición (`js/engine/`) y las mismas reglas deportivas**.
 
-Instalá las dependencias una vez:
+---
 
+## Capacidades principales
+
+- **6 Formatos de competición modulares y extensibles:**
+  - **Formato A — Zonas + Eliminatorias:** clasificación por tabla general (Top 2/4/8/16/personalizado) o por zona (+ mejores terceros), cruces configurables y 3.º puesto opcional.
+  - **Formato B — Todos contra Todos:** tabla única con Método del Círculo (Berger), rondas equilibradas y descansos (*byes*) explícitos para cantidades impares.
+  - **Formato C — Zonas + Zona Final:** clasificación a Zona Final todos contra todos con regla explícita y validada de **arranque en 0 puntos (`reset`)** o **arrastre de resultados entre clasificados (`carry_over`)**, sin generar eliminatorias artificiales.
+  - **Formato D — Eliminación Directa:** cuadro automático para cualquier $N \ge 2$ con seeds estándar, **byes reales** en no-potencias de dos (sin cruces ficticios) y 3.º puesto opcional.
+  - **Formato E — Liga por Rondas:** campeonato por jornadas y rondas completas con tabla acumulativa (puntos FEVA 3-2-1-0 o PG).
+  - **Formato F — Formato Personalizado:** configurador multifase con validación de coherencia que impide combinaciones imposibles.
+- **Categorías independientes dentro de un mismo torneo:** cada categoría conserva su formato, reglas de clasificación, planificación de jornadas y descanso mínimo entre partidos, compartiendo las canchas globales del torneo.
+- **Resultados y posiciones verificables:** carga por **sets reales** (`2-0` o `2-1`) con acumulación exacta de `PJ, PG, PP, SF, SC, PF, PC, DIF` y mini-tabla de desempate directo para empates de 2 o más equipos.
+- **Logística global sin conflictos:** asignación equilibrada de canchas compartidas, bloques horarios con paso efectivo unificado (`blockDuration + intervaloPartidos`), detección y explicación de conflictos, reprogramación manual con conservación de ID y rollback atómico.
+- **Exportación profesional sin dependencias externas:** PDF general, por categoría, por jornada, por cancha y con filtros combinados; PDF y CSV de Tablas de Posiciones y Resultados; libro Excel `.xlsx` con hojas por cancha; hoja de impresión y copias de seguridad `.json`.
+- **Seguridad defensiva:** autenticación administrativa en servidor con `scrypt` + sesiones `HttpOnly`/`SameSite=Strict` + tokens CSRF + rate limiting, allowlist estático estricto, cabeceras CSP sin scripts inline, endurecimiento de Electron y licencias criptográficas **Ed25519 (v2)** retrocompatibles con códigos portátiles v1.
+
+---
+
+## Instalación y ejecución
+
+### Requisitos
+- Node.js `>= 20` (verificado en Node.js `24.x`).
+
+### Instalación
 ```bash
 npm install
 ```
 
-Para abrir la aplicación de escritorio:
-
+### Modo Escritorio (Electron)
 ```bash
-npm run start
+npm start
 ```
+Inicia el servidor local embebido en `127.0.0.1:4174` (configurable con `N3COM_DESKTOP_PORT`) con bloqueo de instancia única y almacenamiento privado en `app.getPath('userData')/private`. Funciona completamente sin conexión a Internet.
 
-Electron inicia el servidor local existente en `127.0.0.1:4174` y carga la
-aplicación desde allí. El puerto es estable para conservar el `localStorage`
-entre aperturas y puede cambiarse si está ocupado con `N3COM_DESKTOP_PORT`.
-No necesita conexión a Internet para abrir la interfaz.
-
-Para usar la versión web local, sin Electron:
-
+### Modo Web local
 ```bash
 npm run web
 ```
+Abrí `http://127.0.0.1:4173` (configurable con `PORT`).
 
-Luego abrí `http://127.0.0.1:4173` en el navegador.
+### Panel Administrativo (`admin.html`)
+Abrí `http://127.0.0.1:4173/admin.html`.
+- En el primer inicio (si no configuraste `N3COM_ADMIN_USER` y `N3COM_ADMIN_PASSWORD` como variables de entorno), el panel solicita crear la cuenta administrativa inicial (mínimo 8 caracteres), que se almacena hasheada con `scrypt` en `private/admin.json` (`0600`).
+- Opcionalmente podés preconfigurar credenciales al iniciar el servidor:
+```bash
+N3COM_ADMIN_USER=admin N3COM_ADMIN_PASSWORD="TuPasswordSegura2026" npm run web
+```
 
-## Datos locales
+---
 
-Los torneos, equipos, zonas, programación, resultados, posiciones y
-eliminatorias continúan almacenándose en el `localStorage` del navegador o del
-perfil de Electron, respectivamente. No se cambió su formato ni su lógica.
-
-Las licencias del modo web se mantienen en `private/licenses.json`, como antes.
-En escritorio se guardan en el directorio de datos de usuario de la aplicación
-(`private/licenses.json` dentro de `app.getPath('userData')`), para que un
-instalador no intente escribir dentro de la carpeta instalada.
-
-## Pruebas
+## Pruebas automatizadas
 
 ```bash
 npm test
 ```
 
-La suite cubre los flujos de licencias, navegación, torneos, zonas, fixture,
-resultados, posiciones y cuadro de eliminación por ranking.
+La suite verifica:
+- Motor de competición (`RoundRobinEngine`, `KnockoutEngine`, `GroupStageEngine`, `FinalStageEngine`, `StandingsEngine`, `QualificationEngine`, `ValidationEngine`, `CompetitionEngine`).
+- Casos de `3, 4, 5, 6, 8, 10, 12, 16 y 20` equipos, cantidades impares, zonas únicas y múltiples, multicategoría, Top 2/4/8/16, Zona Final (`reset` vs `carry_over`), Eliminación Directa con byes y 3.º puesto.
+- Logística global, descansos por categoría, conflictos, reprogramaciones, rollbacks y compatibilidad con datos históricos.
+- Exportaciones PDF (estructura `xref` válida), XLSX y CSV, y respaldos JSON.
+- Seguridad: allowlist estático, cabeceras CSP, autenticación `scrypt` + CSRF + rate limiting, firmas Ed25519 y endurecimiento Electron.
 
-## Instaladores Linux
+---
 
-En Linux x64:
+## Empaquetado comercial
 
-```bash
-npm run dist
-```
-
-El comando deja estos artefactos en `release/`:
-
-```text
-N3com-<versión>-linux-x64.AppImage
-N3com-<versión>-linux-x64.deb
-N3com-<versión>-linux-x64.rpm
-```
-
-También puede usarse el alias explícito:
-
+### Linux x64 (`AppImage`, `deb`, `rpm`)
 ```bash
 npm run dist:linux
 ```
 
-Para validar solamente la aplicación empaquetada, sin generar instaladores:
-
+### Validación empaquetada sin instalador
 ```bash
 npm run pack
 ```
 
-## Instalador Windows
-
-La configuración NSIS x64 ya está declarada. Generalo desde Windows (o desde
-un CI con las herramientas de Windows) con:
-
+### Windows x64 (`NSIS .exe`, desde Windows o CI Windows)
 ```powershell
 npm ci
 npm run dist:win
 ```
 
-El resultado es un instalador `.exe` dentro de `release/`. No se considera
-probado hasta ejecutarlo en Windows; el build cruzado desde Linux depende de
-Wine y de herramientas adicionales del entorno.
+Los artefactos se generan en `release/`. Reemplazá los iconos en `assets/` (`icon.png`, `icon.ico`, `icon.icns`) por la identidad definitiva antes de distribuir.
 
-## Seguridad y mantenimiento
+---
 
-La ventana de Electron usa `contextIsolation: true`, `nodeIntegration: false`
-y sandbox del renderer. No se expone API de Node ni IPC al frontend, porque la
-aplicación no lo necesita. Las DevTools sólo están disponibles en desarrollo.
+## Documentación adicional
 
-Los iconos temporales se encuentran en `assets/` (`icon.png`, `icon.ico` e
-`icon.icns`). Reemplazalos por los iconos finales de N3com conservando esos
-nombres y formatos antes de una distribución comercial. La arquitectura deja
-libre la incorporación futura de un actualizador, sin implementarlo todavía.
+- [Registro de cambios](CHANGELOG.md)
+- [Arquitectura del sistema](docs/ARQUITECTURA.md)
+- [Formatos de competición y reglas deportivas](docs/FORMATOS_Y_REGLAS.md)
+- [Manual del organizador de torneos](docs/MANUAL_ORGANIZADOR.md)
+- [Guía de exportaciones y copias de seguridad](docs/EXPORTACIONES.md)

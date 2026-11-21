@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog } from 'electron';
+import { app, BrowserWindow, Menu, dialog, session } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { startLocalServer } from '../server.js';
@@ -11,6 +11,17 @@ const isDevelopment = !app.isPackaged;
 const desktopPort = Number(process.env.N3COM_DESKTOP_PORT) || 4174;
 let mainWindow;
 let localServer;
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+    app.quit();
+} else {
+    app.on('second-instance', () => {
+        if (!mainWindow) return;
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+    });
+}
 
 const createApplicationMenu = () => {
     const template = [
@@ -49,8 +60,23 @@ const createApplicationMenu = () => {
 
 const createWindow = async () => {
     const privateDirectory = join(app.getPath('userData'), 'private');
-    if (!localServer) localServer = await startLocalServer({ port: desktopPort, privateDirectory });
+    if (!localServer) {
+        try {
+            localServer = await startLocalServer({ port: desktopPort, privateDirectory });
+        } catch (error) {
+            if (error?.code === 'EADDRINUSE') {
+                dialog.showErrorBox('Puerto en uso', `El puerto local ${desktopPort} está ocupado por otro proceso. Cerralo o definí N3COM_DESKTOP_PORT antes de abrir N3com.`);
+            }
+            throw error;
+        }
+    }
     const appOrigin = new URL(localServer.url).origin;
+    const isAllowedNavigation = targetUrl => {
+        try { return new URL(targetUrl).origin === appOrigin; }
+        catch { return false; }
+    };
+
+    session.defaultSession.setPermissionRequestHandler((_, __, callback) => callback(false));
 
     mainWindow = new BrowserWindow({
         width: 1366,
@@ -63,6 +89,8 @@ const createWindow = async () => {
             contextIsolation: true,
             nodeIntegration: false,
             sandbox: true,
+            webSecurity: true,
+            allowRunningInsecureContent: false,
             devTools: isDevelopment
         }
     });
@@ -70,7 +98,10 @@ const createWindow = async () => {
     mainWindow.once('ready-to-show', () => mainWindow.show());
     mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     mainWindow.webContents.on('will-navigate', (event, url) => {
-        if (new URL(url).origin !== appOrigin) event.preventDefault();
+        if (!isAllowedNavigation(url)) event.preventDefault();
+    });
+    mainWindow.webContents.on('will-redirect', (event, url) => {
+        if (!isAllowedNavigation(url)) event.preventDefault();
     });
     await mainWindow.loadURL(localServer.url);
 };

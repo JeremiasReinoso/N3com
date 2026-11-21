@@ -1,4 +1,4 @@
-﻿// Verificación de escritorio (Electron) de la vista Programación y Fixture.
+// Verificación de escritorio (Electron) de la vista Programación y Fixture.
 // Se ejecuta con el binario de Electron de Windows:
 //   electron tests/smoke/app
 // No forma parte de `npm test`; sirve para comprobar la interfaz real
@@ -34,7 +34,11 @@ mark('proceso iniciado');
 const main = async () => {
     mark('app ready');
     const { startLocalServer } = await import(pathToFileURL(resolve(root, 'server.js')).href);
-    const server = await startLocalServer({ port: 0, privateDirectory: resolve(app.getPath('temp'), 'n3com-smoke-private') });
+    const server = await startLocalServer({
+        port: 0,
+        privateDirectory: resolve(app.getPath('temp'), 'n3com-smoke-private'),
+        adminCredentials: { envUsername: 'smoke_admin', envPassword: 'SmokePassword#2026' }
+    });
     mark(`servidor en ${server.url}`);
 
     const window = new BrowserWindow({ show: false, width: 1440, height: 960, webPreferences: { contextIsolation: true, nodeIntegration: false } });
@@ -86,7 +90,9 @@ const main = async () => {
 
         const licenseCode = await evaluate(`(async () => {
             localStorage.clear();
+            const { iniciarSesionAdmin } = await import('/js/core/adminAuth.js');
             const { LicenciaRepo } = await import('/js/data/licenseRepo.js');
+            await iniciarSesionAdmin('smoke_admin', 'SmokePassword#2026');
             const license = await LicenciaRepo.crear({ cliente: 'Cliente Smoke', cupoTotal: 5 });
             await LicenciaRepo.activar(license.codigo);
             return license.codigo;

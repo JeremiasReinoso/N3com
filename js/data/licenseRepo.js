@@ -2,6 +2,7 @@
 // archivo privado; en un sitio estático usa localStorage del mismo navegador.
 // Cada ejecución escoge una sola fuente de verdad, sin servicios externos.
 import { createPortableLicenseCode, parsePortableLicenseCode } from '../core/portableLicense.js';
+import { obtenerCsrfToken } from '../core/adminAuth.js';
 
 const ACTIVE_CODE_KEY = 'newcom_active_license_code_v1';
 const BROWSER_STORE_KEY = 'newcom_local_licenses_v1';
@@ -22,7 +23,15 @@ const numberOrZero = value => Math.max(0, Number(value || 0));
 const apiRequest = async (path, method = 'GET', payload) => {
     let response;
     try {
-        response = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: payload === undefined ? undefined : JSON.stringify(payload) });
+        const headers = { 'Content-Type': 'application/json' };
+        const csrfToken = obtenerCsrfToken();
+        if (csrfToken && method !== 'GET') headers['X-CSRF-Token'] = csrfToken;
+        response = await fetch(path, {
+            method,
+            credentials: 'same-origin',
+            headers,
+            body: payload === undefined ? undefined : JSON.stringify(payload)
+        });
     } catch { throw unavailable(); }
     const body = await response.json().catch(() => ({}));
     if ([404, 405, 501].includes(response.status)) throw unavailable();
@@ -100,7 +109,9 @@ const useSource = async (remoteOperation, localOperation) => {
 };
 const normalize = raw => raw && ({
     id: raw.id,
-    codigo: normalizeCode(raw.code),
+    codigo: clean(raw.code).startsWith('NWC2-') ? clean(raw.code) : normalizeCode(raw.code),
+    signedToken: raw.signedToken || null,
+    edicion: clean(raw.edition || 'club') || 'club',
     cliente: clean(raw.clientName),
     organizacion: clean(raw.organization),
     telefono: clean(raw.phone),
@@ -191,9 +202,9 @@ export const LicenciaRepo = {
         const code = normalizeCode(codigo); if (!code) return null;
         return (await this.obtenerTodas()).find(license => license.codigo === code) || null;
     },
-    async crear({ cliente, organization = '', phone = '', cupoTotal }) {
+    async crear({ cliente, organization = '', phone = '', cupoTotal, edition = 'club' }) {
         if (!clean(cliente)) throw new Error('Ingrese el nombre del cliente.');
-        const payload = { clientName: clean(cliente), organization, phone, tournamentsPurchased: credits(cupoTotal) };
+        const payload = { clientName: clean(cliente), organization, phone, edition, tournamentsPurchased: credits(cupoTotal) };
         return normalize(await useSource(() => apiRequest('/api/licenses', 'POST', payload).then(requireLicense), () => createBrowserLicense(payload)));
     },
     async actualizar(id, changes) {
@@ -217,20 +228,22 @@ export const LicenciaRepo = {
         return deleted;
     },
     async activar(codigo) {
-        const code = normalizeCode(codigo);
+        const raw = clean(codigo);
+        const code = raw.startsWith('NWC2-') ? raw : normalizeCode(raw);
         const license = normalize(await useSource(() => apiRequest('/api/licenses/activate', 'POST', { code }).then(requireLicense), () => activateBrowserLicense(code)));
         localStorage.setItem(ACTIVE_CODE_KEY, license.codigo);
         return license;
     },
     async obtenerActiva() {
-        const code = normalizeCode(localStorage.getItem(ACTIVE_CODE_KEY)); if (!code) return null;
-        try { return await this.activar(code); }
+        const raw = clean(localStorage.getItem(ACTIVE_CODE_KEY)); if (!raw) return null;
+        try { return await this.activar(raw); }
         catch { localStorage.removeItem(ACTIVE_CODE_KEY); return null; }
     },
     cerrarActivacion() { localStorage.removeItem(ACTIVE_CODE_KEY); },
     async consumirTorneo() {
-        const code = normalizeCode(localStorage.getItem(ACTIVE_CODE_KEY));
-        if (!code) throw new Error('Activá una licencia válida para crear torneos.');
+        const raw = clean(localStorage.getItem(ACTIVE_CODE_KEY));
+        if (!raw) throw new Error('Activá una licencia válida para crear torneos.');
+        const code = raw.startsWith('NWC2-') ? raw : normalizeCode(raw);
         return normalize(await useSource(() => apiRequest('/api/licenses/consume', 'POST', { code }).then(requireLicense), () => consumeBrowserLicense(code)));
     },
     aCliente: toClient

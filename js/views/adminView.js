@@ -1,8 +1,9 @@
 import { LicenciaRepo } from '../data/licenseRepo.js';
+import { escapeHtml } from '../core/escapeHtml.js';
+import { cerrarSesionAdmin } from '../core/adminAuth.js';
 
 const container = document.getElementById('admin-list');
 const panel = document.getElementById('admin-license-form');
-const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
 
 const confirmLicenseDeletion = license => new Promise(resolve => {
     const dialog = document.createElement('dialog');
@@ -23,15 +24,15 @@ const confirmLicenseDeletion = license => new Promise(resolve => {
 });
 
 const renderCreateForm = () => {
-    panel.innerHTML = `<form id="form-crear-licencia" class="form-card panel-control"><div class="form-title"><div><h3>Nueva licencia</h3><p>El sistema generará un código único y permanente. Los créditos se pueden ampliar después sin cambiarlo.</p></div></div><div class="form-grid"><label class="form-field">Cliente<input name="cliente" required maxlength="90"></label><label class="form-field">Organización<input name="organizacion" maxlength="120"></label><label class="form-field">Teléfono<input name="telefono" maxlength="40"></label><label class="form-field">Torneos iniciales<input name="creditos" type="number" min="1" max="10000" value="1" required></label></div><div class="form-actions license-create-actions"><button class="btn-primary" type="submit">Crear licencia</button><button class="btn-secondary" type="button" id="cancelar-licencia">Cancelar</button></div><p class="license-error" aria-live="polite"></p></form>`;
+    panel.innerHTML = `<form id="form-crear-licencia" class="form-card panel-control"><div class="form-title"><div><h3>Nueva licencia</h3><p>El sistema generará un código permanente y un token firmado Ed25519 (v2). Los créditos se pueden ampliar después sin cambiar el código.</p></div></div><div class="form-grid"><label class="form-field">Cliente<input name="cliente" required maxlength="90"></label><label class="form-field">Organización<input name="organizacion" maxlength="120"></label><label class="form-field">Teléfono<input name="telefono" maxlength="40"></label><label class="form-field">Edición comercial<select name="edicion"><option value="club">Club</option><option value="asociacion">Asociación</option><option value="federacion">Federación</option></select></label><label class="form-field">Torneos iniciales<input name="creditos" type="number" min="1" max="10000" value="1" required></label></div><div class="form-actions license-create-actions"><button class="btn-primary" type="submit">Crear licencia</button><button class="btn-secondary" type="button" id="cancelar-licencia">Cancelar</button></div><p class="license-error" aria-live="polite"></p></form>`;
     panel.querySelector('#cancelar-licencia').addEventListener('click', () => { panel.innerHTML = ''; });
     panel.querySelector('form').addEventListener('submit', async event => {
         event.preventDefault(); const form = event.currentTarget; const error = form.querySelector('.license-error'); const button = form.querySelector('button[type="submit"]');
         button.disabled = true; error.textContent = '';
         try {
             const values = new FormData(form);
-            const license = await LicenciaRepo.crear({ cliente: values.get('cliente'), organization: values.get('organizacion'), phone: values.get('telefono'), cupoTotal: values.get('creditos') });
-            panel.innerHTML = `<div class="form-card panel-control"><h3>Licencia creada</h3><p>Entregá este código al cliente:</p><p><strong>${escapeHtml(license.codigo)}</strong></p><button class="btn-secondary" type="button" id="cerrar-licencia-creada">Cerrar</button></div>`;
+            const license = await LicenciaRepo.crear({ cliente: values.get('cliente'), organization: values.get('organizacion'), phone: values.get('telefono'), edition: values.get('edicion'), cupoTotal: values.get('creditos') });
+            panel.innerHTML = `<div class="form-card panel-control"><h3>Licencia creada</h3><p>Entregá este código al cliente:</p><p><strong>${escapeHtml(license.codigo)}</strong></p>${license.signedToken ? `<p><small>Token firmado Ed25519 (v2): <code>${escapeHtml(license.signedToken)}</code></small></p>` : ''}<button class="btn-secondary" type="button" id="cerrar-licencia-creada">Cerrar</button></div>`;
             panel.querySelector('#cerrar-licencia-creada').addEventListener('click', () => { panel.innerHTML = ''; });
             await loadLicenses();
         }
@@ -43,7 +44,8 @@ const renderLicenses = licenses => {
     if (!licenses.length) { container.innerHTML = '<div class="empty-state">No hay licencias registradas. Cree el primer cliente para comenzar.</div>'; return; }
     container.innerHTML = licenses.map(license => {
         const available = LicenciaRepo.disponible(license);
-        return `<article class="card license-card"><div class="license-card-head"><span class="match-status ${license.activa ? 'finished' : 'pending'}">${license.activa ? 'ACTIVA' : 'DESHABILITADA'}</span><strong>${escapeHtml(license.codigo)}</strong><button class="delete-license" type="button" data-id="${escapeHtml(license.id)}" data-client="${escapeHtml(license.cliente)}" title="Eliminar licencia" aria-label="Eliminar licencia">🗑️</button></div><h3>${escapeHtml(license.cliente)}</h3><p>${escapeHtml(license.organizacion || license.telefono || 'Sin datos de contacto')}</p><dl class="license-balance"><div><dt>Comprados</dt><dd>${license.cupo_total}</dd></div><div><dt>Usados</dt><dd>${license.cupo_utilizado}</dd></div><div><dt>Disponibles</dt><dd>${available}</dd></div></dl><div class="form-actions"><button class="btn-primary add-credits" type="button" data-id="${license.id}">Agregar torneos</button><button class="btn-secondary edit-license" type="button" data-id="${license.id}">Editar</button></div><details class="license-editor"><summary>Administrar licencia</summary><form class="edit-license-form" data-id="${license.id}"><label class="form-field">Cliente<input name="cliente" value="${escapeHtml(license.cliente)}" required></label><label class="form-field">Organización<input name="organizacion" value="${escapeHtml(license.organizacion)}"></label><label class="form-field">Teléfono<input name="telefono" value="${escapeHtml(license.telefono)}"></label><label class="license-toggle"><input name="activa" type="checkbox" ${license.activa ? 'checked' : ''}> Licencia activa</label><button class="btn-secondary" type="submit">Guardar datos</button><p class="license-error" aria-live="polite"></p></form></details></article>`;
+        const safeId = escapeHtml(license.id);
+        return `<article class="card license-card"><div class="license-card-head"><span class="match-status ${license.activa ? 'finished' : 'pending'}">${license.activa ? 'ACTIVA' : 'DESHABILITADA'}</span><strong>${escapeHtml(license.codigo)}</strong><button class="delete-license" type="button" data-id="${safeId}" data-client="${escapeHtml(license.cliente)}" title="Eliminar licencia" aria-label="Eliminar licencia">🗑️</button></div><h3>${escapeHtml(license.cliente)}</h3><p>${escapeHtml(license.organizacion || license.telefono || 'Sin datos de contacto')} · <small>${escapeHtml((license.edicion || 'club').toUpperCase())}</small></p><dl class="license-balance"><div><dt>Comprados</dt><dd>${license.cupo_total}</dd></div><div><dt>Usados</dt><dd>${license.cupo_utilizado}</dd></div><div><dt>Disponibles</dt><dd>${available}</dd></div></dl><div class="form-actions"><button class="btn-primary add-credits" type="button" data-id="${safeId}">Agregar torneos</button><button class="btn-secondary edit-license" type="button" data-id="${safeId}">Editar</button></div><details class="license-editor"><summary>Administrar licencia</summary><form class="edit-license-form" data-id="${safeId}"><label class="form-field">Cliente<input name="cliente" value="${escapeHtml(license.cliente)}" required></label><label class="form-field">Organización<input name="organizacion" value="${escapeHtml(license.organizacion)}"></label><label class="form-field">Teléfono<input name="telefono" value="${escapeHtml(license.telefono)}"></label><label class="license-toggle"><input name="activa" type="checkbox" ${license.activa ? 'checked' : ''}> Licencia activa</label><button class="btn-secondary" type="submit">Guardar datos</button><p class="license-error" aria-live="polite"></p></form>${license.signedToken ? `<p class="helper-text" style="word-break:break-all;margin-top:8px;"><strong>Token Ed25519:</strong> ${escapeHtml(license.signedToken)}</p>` : ''}</details></article>`;
     }).join('');
     container.querySelectorAll('.add-credits').forEach(button => button.addEventListener('click', async () => {
         const amount = prompt('¿Cuántos torneos desea agregar a esta licencia?'); if (amount === null) return;
@@ -70,4 +72,14 @@ async function loadLicenses() {
 
 document.getElementById('btn-nuevo-cliente').addEventListener('click', renderCreateForm);
 document.getElementById('btn-actualizar-licencias').addEventListener('click', () => { void loadLicenses(); });
+const controlsBar = document.querySelector('#view-admin .panel-control');
+if (controlsBar && !document.getElementById('btn-cerrar-sesion-admin')) {
+    const logoutBtn = document.createElement('button');
+    logoutBtn.id = 'btn-cerrar-sesion-admin';
+    logoutBtn.type = 'button';
+    logoutBtn.className = 'btn-secondary';
+    logoutBtn.textContent = 'Cerrar sesión';
+    logoutBtn.addEventListener('click', async () => { await cerrarSesionAdmin(); location.reload(); });
+    controlsBar.append(logoutBtn);
+}
 void loadLicenses();

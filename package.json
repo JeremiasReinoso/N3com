@@ -1,8 +1,8 @@
 {
   "name": "n3com",
   "productName": "N3com",
-  "version": "1.0.0",
-  "description": "Gestión local de torneos NEWCOM.",
+  "version": "2.0.0",
+  "description": "Plataforma integral de gestión de torneos NEWCOM (Escritorio y Web).",
   "private": true,
   "type": "module",
   "main": "electron/main.js",

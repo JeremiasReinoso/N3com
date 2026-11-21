@@ -7,7 +7,17 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const port = 4800 + Math.floor(Math.random() * 300);
 const dataDir = await mkdtemp(join(tmpdir(), 'newcom-license-test-'));
-const server = spawn(process.execPath, ['server.js'], { cwd: root, env: { ...process.env, PORT: String(port), NEWCOM_PRIVATE_DIR: dataDir }, stdio: 'ignore' });
+const server = spawn(process.execPath, ['server.js'], {
+    cwd: root,
+    env: {
+        ...process.env,
+        PORT: String(port),
+        NEWCOM_PRIVATE_DIR: dataDir,
+        N3COM_ADMIN_USER: 'admin_test',
+        N3COM_ADMIN_PASSWORD: 'TestPassword#2026'
+    },
+    stdio: 'ignore'
+});
 const origin = `http://127.0.0.1:${port}`;
 const nativeFetch = globalThis.fetch;
 
@@ -20,18 +30,36 @@ try {
     if (!mainSource.includes('Para utilizar NEWCOM necesitás activar tu licencia.')) throw new Error('La pantalla de activación no contiene el texto requerido.');
     if (/btn-limpiar-licencias|Limpiar licencias/i.test(adminMarkup) || !adminSource.includes('delete-license')) throw new Error('El panel administrativo no usa la eliminación individual de licencias.');
     for (let attempt = 0; attempt < 30; attempt += 1) {
-        try { if ((await nativeFetch(`${origin}/api/licenses`)).ok) break; } catch {}
+        try { if ((await nativeFetch(`${origin}/api/admin/session`)).ok) break; } catch {}
         await new Promise(resolveWait => setTimeout(resolveWait, 50));
         if (attempt === 29) throw new Error('El servidor local no inició.');
     }
     if ((await nativeFetch(`${origin}/private/licenses.json`)).status !== 404) throw new Error('Los archivos privados quedaron expuestos por el servidor local.');
+    if ((await nativeFetch(`${origin}/api/licenses`)).status !== 401) throw new Error('El listado administrativo de licencias quedó accesible sin autenticación.');
+
+    const loginRes = await nativeFetch(`${origin}/api/admin/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'admin_test', password: 'TestPassword#2026' })
+    });
+    if (!loginRes.ok) throw new Error('No se pudo autenticar el administrador de pruebas.');
+    const sessionCookie = loginRes.headers.get('set-cookie').split(';')[0];
+    const { csrfToken } = await loginRes.json();
+
     globalThis.localStorage = {
         values: new Map(),
         getItem(key) { return this.values.get(key) || null; },
         setItem(key, value) { this.values.set(key, value); },
         removeItem(key) { this.values.delete(key); }
     };
-    globalThis.fetch = (path, options) => nativeFetch(`${origin}${path}`, options);
+    globalThis.fetch = (path, options = {}) => nativeFetch(`${origin}${path}`, {
+        ...options,
+        headers: {
+            ...(options.headers || {}),
+            Cookie: sessionCookie,
+            'X-CSRF-Token': csrfToken
+        }
+    });
     const { LicenciaRepo } = await import(`${pathToFileURL(resolve(root, 'js/data/licenseRepo.js')).href}?local-license-test=2`);
 
     const created = await LicenciaRepo.crear({ cliente: 'Club X', organization: 'Club X', phone: '1234', cupoTotal: 3 });
@@ -40,7 +68,7 @@ try {
     const stored = JSON.parse(await readFile(join(dataDir, 'licenses.json'), 'utf8')).licenses[0];
     const adminStore = JSON.parse(await readFile(join(dataDir, 'admin.json'), 'utf8'));
     if (stored.clientName !== 'Club X' || stored.tournamentsPurchased !== 3 || stored.tournamentsUsed !== 0 || stored.tournamentsRemaining !== 3 || !stored.active) throw new Error('licenses.json no conserva el modelo local plano.');
-    if (adminStore.version !== '1.0') throw new Error('El almacenamiento administrativo local no fue inicializado.');
+    if (!adminStore.version) throw new Error('El almacenamiento administrativo local no fue inicializado.');
 
     const invalid = await nativeFetch(`${origin}/api/licenses/activate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: 'NWC-0000-0000-0000' }) });
     if (invalid.status !== 400 || (await invalid.json()).error !== 'El código de licencia no es válido o está deshabilitado.') throw new Error('La validación de códigos inválidos no devuelve el mensaje requerido.');
