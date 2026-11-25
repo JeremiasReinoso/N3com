@@ -1,4 +1,4 @@
-# N3com — Plataforma Comercial de Gestión de Torneos de Newcom
+ N3com — Plataforma Comercial de Gestión de Torneos de Newcom
 
 N3com es un sistema profesional multiplataforma (**Escritorio Electron** y **Web compartida**) para la organización integral de torneos de Newcom de cualquier escala: clubes, asociaciones y federaciones.
 
