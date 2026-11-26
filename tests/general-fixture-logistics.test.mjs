@@ -83,8 +83,9 @@ test('fixture general: cuatro categorías comparten dos canchas, bloques y desca
     assert.equal(rows.length, scheduled.length);
     assert(dayRows.every(row => row.fecha === '2026-10-09'));
     const pdf = buildFixturePdf(tournament, rows);
-    assert.equal(new TextDecoder('latin1').decode(pdf.slice(0, 8)), '%PDF-1.4');
-    assert(new TextDecoder('latin1').decode(pdf).includes('FIXTURE GENERAL DEL TORNEO'));
+    const decodedPdf = new TextDecoder('latin1').decode(pdf);
+    assert.equal(decodedPdf.slice(0, 8), '%PDF-1.4');
+    assert(decodedPdf.includes('(Cancha 1)') && decodedPdf.includes(tournament.nombre));
 
     const scored = DataManager.getMatchesByTournamentAndCategory(tournament.id, categories[0].id)[0];
     DataManager.updateMatchResult(scored.id, [{ puntosLocal: 21, puntosVisitante: 15 }, { puntosLocal: 21, puntosVisitante: 17 }]);

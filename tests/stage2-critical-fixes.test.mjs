@@ -287,14 +287,11 @@ test('PDF y fixtureRows conservan hora por partido, hora de inicio por cancha y 
     assert.equal(rows.find(r => r.cancha === 'Cancha 1' && r.hora === '08:30').horaInicio, '');
 
     const pdfDefault = decode(buildFixturePdf(tournament, rows));
-    assert(pdfDefault.includes('(08:00)'));
-    assert(pdfDefault.includes('(08:30)'));
-
-    const pdfOnlyStart = decode(buildFixturePdf(tournament, rows, '', { onlyStartTime: true }));
-    const streams = [...pdfOnlyStart.matchAll(/stream\n([\s\S]*?)\nendstream/g)].map(m => m[1]);
-    assert.equal(streams.length, 2);
-    assert(streams[0].includes('(08:00)') && !streams[0].includes('(08:30)'));
-    assert(streams[1].includes('(08:00)'), 'Cancha 2 también debe mostrar su hora de inicio en modo solo hora de inicio.');
+    const streams = [...pdfDefault.matchAll(/stream\n([\s\S]*?)\nendstream/g)].map(m => m[1]);
+    assert.equal(streams.length, 2, 'Cada cancha debe ocupar su propia página.');
+    assert(streams[0].includes('(Cancha 1)') && streams[0].includes('(+40)') && streams[0].includes('(+50)'), 'Cancha 1 mantiene categorías mezcladas en una única tabla.');
+    assert(streams[1].includes('(Cancha 2)') && !streams[1].includes('(+50)'));
+    assert(!pdfDefault.includes('(08:00)') && !pdfDefault.includes('(08:30)') && !pdfDefault.includes('(Confirmado)'), 'El PDF omite horarios y estado según la especificación.');
 
     const filteredByCat = fixtureRows({
         matches: LogisticsService.getTournamentMatches(tournament.id),

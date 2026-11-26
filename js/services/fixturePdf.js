@@ -1,59 +1,467 @@
 import { fixtureCompare } from './logistics.js';
 
-const latin = value => String(value ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\xFF]/g, '?');
-const pdfText = value => latin(value).replace(/([\\()])/g, '\\$1');
-const dayLabel = date => date ? new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(`${date}T12:00:00`)).toUpperCase() : 'SIN FECHA';
-const statusLabel = status => ({ borrador: 'Sin programar', pendiente: 'Confirmado', programado: 'Programado', confirmado: 'Confirmado', en_juego: 'En juego', finalizado: 'Finalizado' }[status] || status || 'Sin programar');
+const WEEKDAYS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+const MONTHS_ES = [
+    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
+];
 
-const line = (x, y, size, value, bold = false) => `BT /${bold ? 'F2' : 'F1'} ${size} Tf ${x} ${y} Td (${pdfText(value)}) Tj ET`;
-// Ninguna columna se desborda del ancho de la hoja: los textos largos se
-// recortan con puntos para que el documento siga siendo legible al imprimir.
-const clip = (value, max) => {
-    const text = String(value ?? '');
-    return text.length > max ? `${text.slice(0, Math.max(1, max - 3))}...` : text;
-};
-const makePage = (tournament, rows, pageNumber, totalPages, subtitle = '', courtName = '', options = {}) => {
-    const onlyStartTime = Boolean(options?.onlyStartTime);
-    const orgLabel = tournament?.branding?.brandName || tournament?.organizacion || '';
-    const periodLabel = tournament?.startDate && tournament?.endDate ? `${tournament.startDate} al ${tournament.endDate}` : '';
-    const titleBanner = orgLabel ? `FIXTURE GENERAL · ${orgLabel.toUpperCase()}` : 'FIXTURE GENERAL DEL TORNEO';
-    const commands = [
-        '0.08 0.12 0.2 rg', '40 543 762 32 re f', '1 1 1 rg', line(52, 554, 15, clip(titleBanner, 66), true),
-        '0.08 0.12 0.2 rg', line(40, 523, 13, clip(`${tournament.nombre}${periodLabel ? ` (${periodLabel})` : ''}`, 64), true),
-        // Los títulos de columna se dibujan en la misma posición X que los datos
-        // para que la impresión quede alineada aunque cambie el idioma.
-        line(42, 507, 8, onlyStartTime ? 'INICIO' : 'HORA', true), line(86, 507, 8, 'CANCHA', true), line(170, 507, 8, 'CATEGORIA / MODALIDAD', true),
-        line(322, 507, 8, 'ETAPA / ZONA', true), line(460, 507, 8, 'PARTIDO', true), line(718, 507, 8, 'ESTADO', true)
-    ];
-    const pageContext = [subtitle, courtName ? `CANCHA: ${courtName}` : ''].filter(Boolean).join(' · ');
-    if (pageContext) commands.push('0.35 0.42 0.55 rg', line(40, 493, 9, clip(pageContext, 78)));
-    commands.push('0.35 0.42 0.55 rg', line(560, 523, 9, clip(`Pagina ${pageNumber} de ${totalPages}`, 34), true));
-    let y = 476;
-    let currentDate = null;
-    rows.forEach((row, rowIndex) => {
-        if (row.fecha !== currentDate) {
-            currentDate = row.fecha;
-            commands.push('0.88 0.91 0.95 rg', `40 ${y - 4} 762 19 re f`, '0.08 0.12 0.2 rg', line(46, y + 1, 11, dayLabel(row.fecha), true));
-            y -= 26;
+// Codificación compatible con WinAnsiEncoding (ISO-8859-1 + signos tipográficos usuales)
+// para conservar tildes, eñes, "Nº", "°" y "·" en PDF-1.4 sin dependencias externas.
+const WIN_ANSI_EXTRAS = new Map([
+    ['\u2013', '\x96'], // –
+    ['\u2014', '\x97'], // —
+    ['\u2018', '\x91'], // ‘
+    ['\u2019', '\x92'], // ’
+    ['\u201C', '\x93'], // “
+    ['\u201D', '\x94'], // ”
+    ['\u2022', '\x95'], // •
+    ['\u2026', '...']
+]);
+
+const toWinAnsi = value => {
+    const str = String(value ?? '').normalize('NFC');
+    let out = '';
+    for (const ch of str) {
+        if (WIN_ANSI_EXTRAS.has(ch)) {
+            out += WIN_ANSI_EXTRAS.get(ch);
+            continue;
         }
-        const category = [row.categoryAge, row.modality].filter(Boolean).join(' · ') || row.categoryName;
-        const stage = `${row.phaseLabel}${row.zoneName ? ` · ${row.zoneName}` : ''}`;
-        const match = `${row.teamA} vs ${row.teamB}`;
-        const score = row.sets?.length ? `${row.sets.map((set, index) => `S${index + 1}: ${set.puntosLocal}-${set.puntosVisitante}`).join('  ')}  Resultado: ${row.score || ''}` : '';
-        const timeValue = onlyStartTime
-            ? (row.horaInicio || (rowIndex === 0 ? row.hora : '') || '')
-            : (row.hora || row.horaInicio || '');
-        commands.push(line(42, y, 9, timeValue ? clip(timeValue, 6) : '', true));
-        commands.push(line(86, y, 9, clip(row.cancha || 'Sin cancha', 15)));
-        commands.push(line(170, y, 9, clip(category, 30)));
-        commands.push(line(322, y, 9, clip(stage, 28)));
-        commands.push(line(460, y, 9, clip(match, 50)));
-        if (score) commands.push(line(460, y - 10, 7, clip(score, 54)));
-        commands.push(line(718, y, 9, clip(row.status, 14)));
-        commands.push('0.82 0.84 0.87 RG', `40 ${y - 5} m 802 ${y - 5} l S`, '0.08 0.12 0.2 rg');
-        y -= score ? 30 : 20;
+        const code = ch.codePointAt(0);
+        if (code >= 0x20 && code <= 0x7E) {
+            out += ch;
+        } else if (code >= 0xA0 && code <= 0xFF) {
+            out += ch;
+        } else {
+            const stripped = ch.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+            for (const sub of stripped) {
+                const sc = sub.codePointAt(0);
+                out += (sc >= 0x20 && sc <= 0xFF) ? sub : ' ';
+            }
+        }
+    }
+    return out;
+};
+
+const asciiSlug = value => String(value ?? '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'torneo';
+
+const pdfEscape = value => toWinAnsi(value).replace(/([\\()])/g, '\\$1');
+const fmtNum = n => Number(n).toFixed(2).replace(/\.00$/, '');
+
+const formatJornadaDate = isoDate => {
+    if (!isoDate || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return '';
+    const [year, month, day] = isoDate.split('-').map(Number);
+    const dt = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    if (Number.isNaN(dt.getTime())) return isoDate;
+    const weekday = WEEKDAYS_ES[dt.getUTCDay()];
+    const monthName = MONTHS_ES[month - 1];
+    return `${weekday} ${String(day).padStart(2, '0')} de ${monthName} de ${year}`;
+};
+
+const statusLabel = status => ({
+    borrador: 'Sin programar',
+    pendiente: 'Confirmado',
+    programado: 'Programado',
+    confirmado: 'Confirmado',
+    en_juego: 'En juego',
+    finalizado: 'Finalizado'
+}[status] || status || 'Sin programar');
+
+const DEFAULT_PHASE_LABELS = {
+    ZONAS: 'Fase de zonas',
+    LIGA: 'Todos contra todos / Liga',
+    TODOS_CONTRA_TODOS: 'Todos contra todos / Liga',
+    ZONA_FINAL: 'Zona Final',
+    TOP_32: 'Top 32',
+    TOP_16: 'Top 16',
+    TOP_8: 'Top 8 / Cuartos',
+    TOP_4: 'Top 4',
+    SEMIFINAL: 'Semifinales · Top 4',
+    THIRD_PLACE: 'Tercer puesto',
+    FINAL: 'Final'
+};
+
+const parseCategoryFields = item => {
+    const rawName = String(item?.nombre || item?.categoryName || 'Sin categoría').trim();
+    const explicitAge = String(item?.edad || item?.categoryAge || '').trim();
+    const explicitModality = String(item?.modalidad || item?.modality || '').trim();
+    if (explicitAge && explicitModality) {
+        return { age: explicitAge, modality: explicitModality, name: rawName };
+    }
+    const ageMatch = rawName.match(/^\+\s*\d+/);
+    const modalityMatch = rawName.match(/\b(femenino|masculino|mixto|libre|recreativo)\b/i);
+    if (ageMatch) {
+        const age = explicitAge || ageMatch[0].replace(/\s+/g, '');
+        const rest = rawName.slice(ageMatch[0].length).trim();
+        const mod = explicitModality || rest || (modalityMatch ? modalityMatch[0] : '');
+        const normalizedMod = mod ? mod.charAt(0).toUpperCase() + mod.slice(1) : '';
+        return { age, modality: normalizedMod, name: rawName };
+    }
+    if (modalityMatch && !explicitModality) {
+        const mod = modalityMatch[0];
+        const normalizedMod = mod.charAt(0).toUpperCase() + mod.slice(1).toLowerCase();
+        const base = rawName.replace(modalityMatch[0], '').trim() || rawName;
+        return { age: explicitAge || base, modality: normalizedMod, name: rawName };
+    }
+    return { age: explicitAge || rawName, modality: explicitModality || '', name: rawName };
+};
+
+// Métrica AFM real (en milésimas de em) para Helvetica y Helvetica-Bold.
+const HELVETICA_REGULAR_WIDTHS = {
+    ' ': 278, '!': 278, '"': 355, '#': 556, '$': 556, '%': 889, '&': 667, "'": 191,
+    '(': 333, ')': 333, '*': 389, '+': 584, ',': 278, '-': 333, '.': 278, '/': 278,
+    '0': 556, '1': 556, '2': 556, '3': 556, '4': 556, '5': 556, '6': 556, '7': 556, '8': 556, '9': 556,
+    ':': 278, ';': 278, '<': 584, '=': 584, '>': 584, '?': 556, '@': 1015,
+    A: 667, B: 667, C: 722, D: 722, E: 667, F: 611, G: 778, H: 722, I: 278, J: 500, K: 667, L: 556, M: 833,
+    N: 722, O: 778, P: 667, Q: 778, R: 722, S: 667, T: 611, U: 722, V: 667, W: 944, X: 667, Y: 667, Z: 611,
+    '[': 278, '\\': 278, ']': 278, '^': 469, '_': 556, '`': 333,
+    a: 556, b: 556, c: 500, d: 556, e: 556, f: 278, g: 556, h: 556, i: 222, j: 222, k: 500, l: 222, m: 833,
+    n: 556, o: 556, p: 556, q: 556, r: 333, s: 500, t: 278, u: 556, v: 500, w: 722, x: 500, y: 500, z: 500,
+    '¡': 333, 'ª': 370, '°': 400, '·': 278, 'º': 365, '¿': 611,
+    Á: 667, É: 667, Í: 278, Ñ: 722, Ó: 778, Ú: 722, Ü: 722,
+    á: 556, é: 556, í: 278, ñ: 556, ó: 556, ú: 556, ü: 556
+};
+
+const HELVETICA_BOLD_WIDTHS = {
+    ' ': 278, '!': 333, '"': 474, '#': 556, '$': 556, '%': 889, '&': 722, "'": 238,
+    '(': 333, ')': 333, '*': 389, '+': 584, ',': 278, '-': 333, '.': 278, '/': 278,
+    '0': 556, '1': 556, '2': 556, '3': 556, '4': 556, '5': 556, '6': 556, '7': 556, '8': 556, '9': 556,
+    ':': 333, ';': 333, '<': 584, '=': 584, '>': 584, '?': 611, '@': 975,
+    A: 722, B: 722, C: 722, D: 722, E: 667, F: 611, G: 778, H: 722, I: 278, J: 556, K: 722, L: 611, M: 833,
+    N: 722, O: 778, P: 667, Q: 778, R: 722, S: 667, T: 611, U: 722, V: 667, W: 944, X: 667, Y: 667, Z: 611,
+    '[': 333, '\\': 278, ']': 333, '^': 584, '_': 556, '`': 333,
+    a: 556, b: 611, c: 556, d: 611, e: 556, f: 333, g: 611, h: 611, i: 278, j: 278, k: 556, l: 278, m: 889,
+    n: 611, o: 611, p: 611, q: 611, r: 389, s: 556, t: 333, u: 611, v: 556, w: 778, x: 556, y: 556, z: 500,
+    '¡': 333, 'ª': 370, '°': 400, '·': 278, 'º': 365, '¿': 611,
+    Á: 722, É: 667, Í: 278, Ñ: 722, Ó: 778, Ú: 722, Ü: 722,
+    á: 556, é: 556, í: 278, ñ: 611, ó: 611, ú: 611, ü: 611
+};
+
+const charUnitWidth = (ch, bold) => {
+    const table = bold ? HELVETICA_BOLD_WIDTHS : HELVETICA_REGULAR_WIDTHS;
+    return table[ch] ?? (bold ? 584 : 556);
+};
+
+const measureTextWidth = (text, fontSize, bold = false) => {
+    const clean = toWinAnsi(text);
+    let units = 0;
+    for (const ch of clean) units += charUnitWidth(ch, bold);
+    return (units / 1000) * fontSize;
+};
+
+// Divide texto en renglones completos respetando palabras, sin truncar jamás con "...".
+const wrapText = (text, maxWidth, fontSize, bold = false) => {
+    const raw = String(text ?? '').replace(/\r\n/g, '\n').trim();
+    if (!raw) return [''];
+    if (measureTextWidth(raw, fontSize, bold) <= maxWidth) return [raw];
+
+    const tokens = raw.split(/(\s+)/).filter(tok => tok.length > 0);
+    const lines = [];
+    let current = '';
+
+    const pushCurrent = () => {
+        const trimmed = current.replace(/\s+$/g, '').replace(/^\s+/g, '');
+        if (trimmed) lines.push(trimmed);
+        current = '';
+    };
+
+    for (const token of tokens) {
+        if (/^\s+$/.test(token)) {
+            if (current) current += token;
+            continue;
+        }
+        const candidate = current + token;
+        if (!current || measureTextWidth(candidate, fontSize, bold) <= maxWidth) {
+            current = candidate;
+            continue;
+        }
+        pushCurrent();
+        if (measureTextWidth(token, fontSize, bold) <= maxWidth) {
+            current = token;
+        } else {
+            let chunk = '';
+            for (const ch of token) {
+                if (chunk && measureTextWidth(chunk + ch, fontSize, bold) > maxWidth) {
+                    lines.push(chunk);
+                    chunk = ch;
+                } else {
+                    chunk += ch;
+                }
+            }
+            current = chunk;
+        }
+    }
+    pushCurrent();
+    return lines.length ? lines : [''];
+};
+
+const drawText = (x, y, size, value, bold = false) =>
+    `BT /${bold ? 'F2' : 'F1'} ${fmtNum(size)} Tf ${fmtNum(x)} ${fmtNum(y)} Td (${pdfEscape(value)}) Tj ET`;
+
+// Colores exactos de la especificación del PDF de referencia:
+//   #1F3A5F -> 0.121569 0.227451 0.372549
+//   #666666 -> 0.400000 0.400000 0.400000
+//   #EEF2F7 -> 0.933333 0.949020 0.968627
+//   #B8C4D6 -> 0.721569 0.768627 0.839216
+const COLOR_NAVY = '0.121569 0.227451 0.372549';
+const COLOR_GRAY = '0.4 0.4 0.4';
+const COLOR_ZEBRA = '0.933333 0.94902 0.968627';
+const COLOR_GRID = '0.721569 0.768627 0.839216';
+const COLOR_BLACK = '0 0 0';
+
+// Anchos base idénticos al PDF de referencia ([36, 80, 80, 210, 380] = 786 pt)
+// con adaptación automática si una categoría, modalidad o partido necesita más espacio.
+const computeColumnWidths = (rows, totalWidth, fontSize) => {
+    const padCenter = 12;
+    const padLeft = 12;
+    const wNum = rows.length >= 100 ? 40 : 36;
+
+    let maxCat = measureTextWidth('Categoría', 10, true) + padCenter;
+    let maxMod = measureTextWidth('Modalidad', 10, true) + padCenter;
+    let maxStage = measureTextWidth('Etapa / Zona', 10, true) + padLeft;
+    let maxMatch = measureTextWidth('Partido', 10, true) + padLeft;
+
+    rows.forEach(r => {
+        maxCat = Math.max(maxCat, measureTextWidth(r.catDisplay, fontSize, true) + padCenter);
+        maxMod = Math.max(maxMod, measureTextWidth(r.modDisplay, fontSize, false) + padCenter);
+        maxStage = Math.max(maxStage, measureTextWidth(r.stageDisplay, fontSize, false) + padLeft);
+        maxMatch = Math.max(maxMatch, measureTextWidth(r.matchDisplay, fontSize, false) + padLeft);
     });
-    commands.push(line(40, 24, 8, `Generado desde la programacion vigente - Pagina ${pageNumber} de ${totalPages}`));
+
+    const wCat = Math.min(120, Math.max(80, Math.ceil(maxCat)));
+    const wMod = Math.min(116, Math.max(80, Math.ceil(maxMod)));
+    const remaining = totalWidth - wNum - wCat - wMod;
+
+    // Base de referencia: Etapa/Zona = 210 pt, Partido = 380 pt (cuando remaining = 590 pt)
+    let wStage = Math.min(250, Math.max(210, Math.ceil(maxStage)));
+    if (maxMatch > remaining - wStage) {
+        const minStageNeeded = Math.max(145, Math.min(210, Math.ceil(maxStage)));
+        wStage = Math.max(minStageNeeded, remaining - Math.ceil(maxMatch));
+    }
+    const wMatch = remaining - wStage;
+
+    return [wNum, wCat, wMod, wStage, wMatch];
+};
+
+const prepareCourtRowCells = row => {
+    const parsed = parseCategoryFields({
+        nombre: row.categoryName,
+        edad: row.categoryAge,
+        modalidad: row.modality
+    });
+    const catDisplay = parsed.age || row.categoryName || '—';
+    const modDisplay = parsed.modality || '—';
+    const basePhase = row.phaseLabel || DEFAULT_PHASE_LABELS[row.phase] || 'Fase de zonas';
+    let stageDisplay = basePhase;
+    if (row.zoneName) {
+        if (row.zoneName === basePhase || (row.phase === 'ZONA_FINAL' && String(row.zoneName).toLowerCase().includes('zona'))) {
+            stageDisplay = row.zoneName;
+        } else {
+            stageDisplay = `${basePhase} · ${row.zoneName}`;
+        }
+    }
+    const matchDisplay = `${row.teamA || 'Por definir'}  vs  ${row.teamB || 'Por definir'}`;
+    return {
+        ...row,
+        catDisplay,
+        modDisplay,
+        stageDisplay,
+        matchDisplay
+    };
+};
+
+const buildSubtitleText = (tournament, pageDate, rows) => {
+    const name = String(tournament?.nombre || 'Torneo').trim();
+    const club = String(
+        tournament?.organizacion
+        || tournament?.branding?.brandName
+        || tournament?.club
+        || tournament?.sede
+        || ''
+    ).trim();
+
+    let dateLabel = '';
+    if (pageDate) {
+        dateLabel = formatJornadaDate(pageDate);
+    } else {
+        const distinctDates = [...new Set(rows.map(r => r.fecha).filter(Boolean))].sort();
+        if (distinctDates.length === 1) {
+            dateLabel = formatJornadaDate(distinctDates[0]);
+        } else if (distinctDates.length > 1) {
+            dateLabel = `${formatJornadaDate(distinctDates[0])} al ${formatJornadaDate(distinctDates.at(-1))}`;
+        } else if (tournament?.startDate) {
+            dateLabel = tournament.endDate && tournament.endDate !== tournament.startDate
+                ? `${formatJornadaDate(tournament.startDate)} al ${formatJornadaDate(tournament.endDate)}`
+                : formatJornadaDate(tournament.startDate);
+        }
+    }
+
+    return [name, club, dateLabel].filter(Boolean).join(' · ');
+};
+
+const makeCourtPage = ({ tournament, courtName, date, rows, pageNumber, totalPages }) => {
+    // A4 Horizontal exacto (297 mm x 210 mm = 841.89 x 595.28 pt), márgenes laterales ~1 cm (27.94 pt)
+    const pageW = 841.89;
+    const tableWidth = 786;
+    const tableLeft = (pageW - tableWidth) / 2; // 27.945 pt
+    const tableRight = tableLeft + tableWidth;  // 813.945 pt
+
+    const titleX = 34;
+    const titleY = 541.28;
+    const subtitleY = 527.28;
+    const tableTop = 514.28;
+    const tableBottom = 61;
+    const totalTableHeight = tableTop - tableBottom; // 453.28 pt
+    const footerY = 16;
+    const cellPadLeft = 6;
+
+    const prepared = rows.map(prepareCourtRowCells);
+    const count = Math.max(1, prepared.length);
+
+    // Con 16+ partidos de 1 línea, la altura del encabezado es exactamente igual a la fila (como en el PDF de referencia).
+    // Si una cancha tiene pocos partidos (<16), se limita el encabezado a 25 pt para que las filas absorban la altura útil.
+    const headerHeight = Math.max(15.5, Math.min(25, totalTableHeight / (count + 1)));
+    const bodyTop = tableTop - headerHeight;
+    const availableBodyHeight = bodyTop - tableBottom;
+
+    // Tamaño de texto en filas: 9.5 pt estándar (rango 9-10 pt; escala suavemente solo si hay gran densidad o saltos de línea)
+    let fontSize = count <= 14 ? 10 : (count <= 25 ? 9.5 : 9);
+    let colWidths = computeColumnWidths(prepared, tableWidth, fontSize);
+    let wrappedRows = [];
+    let weights = [];
+
+    for (let attempt = 0; attempt < 9; attempt += 1) {
+        colWidths = computeColumnWidths(prepared, tableWidth, fontSize);
+        wrappedRows = prepared.map((r, idx) => {
+            const c0 = [String(idx + 1)];
+            const c1 = wrapText(r.catDisplay, colWidths[1] - 8, fontSize, true);
+            const c2 = wrapText(r.modDisplay, colWidths[2] - 8, fontSize, false);
+            const c3 = wrapText(r.stageDisplay, colWidths[3] - cellPadLeft * 2, fontSize, false);
+            const c4 = wrapText(r.matchDisplay, colWidths[4] - cellPadLeft * 2, fontSize, false);
+            const maxLines = Math.max(c0.length, c1.length, c2.length, c3.length, c4.length);
+            return { cells: [c0, c1, c2, c3, c4], maxLines };
+        });
+        weights = wrappedRows.length
+            ? wrappedRows.map(item => 1 + (item.maxLines - 1) * 0.72)
+            : [1];
+        const totalWeight = weights.reduce((acc, w) => acc + w, 0);
+        const unitHeight = availableBodyHeight / totalWeight;
+        const fitsAll = wrappedRows.every((item, idx) => {
+            const rowH = unitHeight * weights[idx];
+            const needed = item.maxLines * (fontSize * 1.15) + 2.8;
+            return needed <= rowH;
+        });
+        if (fitsAll || fontSize <= 6.0) break;
+        fontSize = Math.max(6.0, Number((fontSize - 0.5).toFixed(2)));
+    }
+
+    const colX = [tableLeft];
+    colWidths.forEach(w => colX.push(colX.at(-1) + w));
+
+    const totalWeight = weights.reduce((acc, w) => acc + w, 0);
+    const rowHeights = weights.map(w => (availableBodyHeight * w) / totalWeight);
+
+    const commands = [];
+
+    // 1. Título "Cancha N" (20 pt, negrita, #1F3A5F) y subtítulo dinámico (10 pt, #666666)
+    const headingTitle = courtName || 'Cancha 1';
+    const subtitleText = buildSubtitleText(tournament, date, prepared);
+    commands.push(`${COLOR_NAVY} rg`, drawText(titleX, titleY, 20, headingTitle, true));
+    commands.push(`${COLOR_GRAY} rg`, drawText(titleX, subtitleY, 10, subtitleText, false));
+
+    // 2. Fondo del encabezado (#1F3A5F)
+    commands.push(`${COLOR_NAVY} rg`, `${fmtNum(tableLeft)} ${fmtNum(bodyTop)} ${fmtNum(tableWidth)} ${fmtNum(headerHeight)} re f`);
+
+    // 3. Fondos de filas alternadas: blanco y #EEF2F7
+    let cursorY = bodyTop;
+    rowHeights.forEach((rowH, idx) => {
+        const yBottom = cursorY - rowH;
+        const fill = idx % 2 === 1 ? COLOR_ZEBRA : '1 1 1';
+        commands.push(`${fill} rg`, `${fmtNum(tableLeft)} ${fmtNum(yBottom)} ${fmtNum(tableWidth)} ${fmtNum(rowH)} re f`);
+        cursorY = yBottom;
+    });
+
+    // 4. Texto del encabezado (10 pt blanco en negrita, centrado verticalmente)
+    const headerFontSize = Math.min(10, Math.max(8.5, headerHeight * 0.55));
+    const headerBaselineY = bodyTop + (headerHeight - headerFontSize * 0.8) / 2;
+    const headers = [
+        { label: 'Nº', align: 'center' },
+        { label: 'Categoría', align: 'center' },
+        { label: 'Modalidad', align: 'center' },
+        { label: 'Etapa / Zona', align: 'left' },
+        { label: 'Partido', align: 'left' }
+    ];
+    commands.push('1 1 1 rg');
+    headers.forEach((h, cIdx) => {
+        const w = colWidths[cIdx];
+        const x = h.align === 'center'
+            ? colX[cIdx] + (w - measureTextWidth(h.label, headerFontSize, true)) / 2
+            : colX[cIdx] + cellPadLeft;
+        commands.push(drawText(x, headerBaselineY, headerFontSize, h.label, true));
+    });
+
+    // 5. Texto de las filas (centrado vertical exacto en cada celda)
+    const drawCellLines = (lines, cIdx, yTop, rowH, { align = 'left', bold = false, color = COLOR_BLACK } = {}) => {
+        const visualCap = fontSize * 0.8;
+        const lineStep = fontSize * 1.15;
+        const yBottom = yTop - rowH;
+        const totalTextHeight = visualCap + (lines.length - 1) * lineStep;
+        const firstBaseline = yBottom + (rowH + totalTextHeight) / 2 - visualCap;
+
+        commands.push(`${color} rg`);
+        lines.forEach((txt, lineIdx) => {
+            const y = firstBaseline - lineIdx * lineStep;
+            const x = align === 'center'
+                ? colX[cIdx] + (colWidths[cIdx] - measureTextWidth(txt, fontSize, bold)) / 2
+                : colX[cIdx] + cellPadLeft;
+            commands.push(drawText(x, y, fontSize, txt, bold));
+        });
+    };
+
+    if (!wrappedRows.length) {
+        const emptyText = 'Sin partidos programados para esta cancha';
+        const midY = tableBottom + (availableBodyHeight - 10 * 0.8) / 2;
+        const emptyX = tableLeft + (tableWidth - measureTextWidth(emptyText, 10, false)) / 2;
+        commands.push(`${COLOR_GRAY} rg`, drawText(emptyX, midY, 10, emptyText, false));
+    } else {
+        let rowTop = bodyTop;
+        wrappedRows.forEach((item, idx) => {
+            const rowH = rowHeights[idx];
+            drawCellLines(item.cells[0], 0, rowTop, rowH, { align: 'center', bold: false, color: COLOR_BLACK });
+            drawCellLines(item.cells[1], 1, rowTop, rowH, { align: 'center', bold: true, color: COLOR_BLACK });
+            drawCellLines(item.cells[2], 2, rowTop, rowH, { align: 'center', bold: false, color: COLOR_BLACK });
+            drawCellLines(item.cells[3], 3, rowTop, rowH, { align: 'left', bold: false, color: COLOR_GRAY });
+            drawCellLines(item.cells[4], 4, rowTop, rowH, { align: 'left', bold: false, color: COLOR_BLACK });
+            rowTop -= rowH;
+        });
+    }
+
+    // 6. Bordes dibujados sobre los fondos para máxima nitidez:
+    //    - Líneas internas #B8C4D6 de 0.3 pt
+    //    - Contorno exterior #1F3A5F de 0.8 pt
+    commands.push('q', '1 J', '1 j', `${COLOR_GRID} RG`, '0.3 w');
+    let lineY = bodyTop;
+    commands.push(`${fmtNum(tableLeft)} ${fmtNum(lineY)} m ${fmtNum(tableRight)} ${fmtNum(lineY)} l S`);
+    for (let i = 0; i < rowHeights.length - 1; i += 1) {
+        lineY -= rowHeights[i];
+        commands.push(`${fmtNum(tableLeft)} ${fmtNum(lineY)} m ${fmtNum(tableRight)} ${fmtNum(lineY)} l S`);
+    }
+    for (let c = 1; c < colX.length - 1; c += 1) {
+        commands.push(`${fmtNum(colX[c])} ${fmtNum(tableBottom)} m ${fmtNum(colX[c])} ${fmtNum(tableTop)} l S`);
+    }
+    commands.push(`${COLOR_NAVY} RG`, '0.8 w');
+    commands.push(`${fmtNum(tableLeft)} ${fmtNum(tableBottom)} ${fmtNum(tableWidth)} ${fmtNum(totalTableHeight)} re S`, 'Q');
+
+    // 7. Pie de página abajo a la derecha (gris #666666, 8 pt): "Página X de Y"
+    const footerText = `Página ${pageNumber} de ${totalPages}`;
+    const footerX = tableRight - measureTextWidth(footerText, 8, false);
+    commands.push(`${COLOR_GRAY} rg`, drawText(footerX, footerY, 8, footerText, false));
+
     return commands.join('\n');
 };
 
@@ -63,77 +471,103 @@ export const fixtureRows = ({ matches, categories, teams, zones, phaseLabels, fi
     const zone = id => zones.find(item => item.id === id)?.nombre || '';
     const sorted = matches.filter(match => {
         const cat = category(match.categoriaId);
+        const parsedCat = parseCategoryFields(cat);
         return (!filters.date || match.fecha === filters.date)
             && (!filters.categoryId || match.categoriaId === filters.categoryId)
-            && (!filters.modality || (cat?.modalidad || cat?.modality) === filters.modality)
+            && (!filters.modality || parsedCat.modality === filters.modality)
             && (!filters.phase || (match.phase || 'ZONAS') === filters.phase)
             && (!filters.zoneId || match.zonaId === filters.zoneId)
             && (!filters.status || match.estado === filters.status)
             && (!filters.courtId || match.courtId === filters.courtId || match.cancha === filters.courtName);
     }).sort(fixtureCompare);
+
     const firstByDateAndCourt = new Set();
     return sorted.map(match => {
         const item = category(match.categoriaId) || {};
+        const parsedCat = parseCategoryFields(item);
         const dateCourtKey = `${match.fecha || ''}|${match.courtId || match.cancha || ''}`;
         const horaInicio = firstByDateAndCourt.has(dateCourtKey) ? '' : match.hora || '';
         firstByDateAndCourt.add(dateCourtKey);
+        const resolvedZoneName = zone(match.zonaId) || match.subZoneName || '';
+        const matchPhase = match.phase || 'ZONAS';
         return {
-            id: match.id, fecha: match.fecha, hora: match.hora, horaInicio, cancha: match.cancha, orden: match.orden,
-            categoryId: match.categoriaId, categoryName: item.nombre || 'Sin categoría', categoryAge: item.edad || '', modality: item.modalidad || '',
-            phase: match.phase || 'ZONAS', phaseLabel: phaseLabels[match.phase || 'ZONAS'] || match.phase || 'Fase de zonas', zoneName: zone(match.zonaId),
-            teamA: team(match.equipoLocalId), teamB: team(match.equipoVisitanteId), status: statusLabel(match.estado),
-            sets: Array.isArray(match.sets) ? match.sets : [], score: match.score || ''
+            id: match.id,
+            fecha: match.fecha,
+            hora: match.hora,
+            horaInicio,
+            cancha: match.cancha,
+            orden: match.orden,
+            categoryId: match.categoriaId,
+            categoryName: item.nombre || 'Sin categoría',
+            categoryAge: parsedCat.age,
+            modality: parsedCat.modality,
+            phase: matchPhase,
+            phaseLabel: match.interzonal
+                ? (match.nombreEtapa || 'Interzonal')
+                : (phaseLabels?.[matchPhase] || DEFAULT_PHASE_LABELS[matchPhase] || matchPhase || 'Fase de zonas'),
+            zoneName: resolvedZoneName,
+            teamA: team(match.equipoLocalId),
+            teamB: team(match.equipoVisitanteId),
+            status: statusLabel(match.estado),
+            sets: Array.isArray(match.sets) ? match.sets : [],
+            score: match.score || ''
         };
     });
 };
 
-export const buildFixturePdf = (tournament, rows, subtitle = '', options = {}) => {
-    // Cada página representa una única cancha y una única jornada. Así la
-    // exportación sigue siendo una proyección del fixture general, pero nunca
-    // mezcla canchas en la misma hoja.
-    const sortedRows = [...rows].sort(fixtureCompare);
-    const courts = [...new Set(sortedRows.map(row => row.cancha || 'Sin cancha'))]
+export const buildFixturePdf = (tournament, rows, _subtitle = '', _options = {}) => {
+    // Se conserva intacto el orden de partidos provisto por el sistema (fixtureCompare),
+    // manteniendo las categorías mezcladas dentro de cada cancha y generando una página
+    // completa por cancha (por jornada cuando hay múltiples fechas en el conjunto exportado).
+    const sortedRows = [...(rows || [])].sort(fixtureCompare);
+    const courts = [...new Set(sortedRows.map(row => row.cancha || 'Cancha 1'))]
         .sort((left, right) => left.localeCompare(right, 'es', { numeric: true }));
-    const budget = 476 - 46;
+
     const pages = [];
     courts.forEach(courtName => {
-        const courtRows = sortedRows.filter(row => (row.cancha || 'Sin cancha') === courtName);
-        const dates = [...new Set(courtRows.map(row => row.fecha || ''))].sort((left, right) => left.localeCompare(right));
-        dates.forEach(date => {
-            const dateRows = courtRows.filter(row => (row.fecha || '') === date);
-            let current = [];
-            let used = 0;
-            dateRows.forEach(row => {
-                const rowHeight = row.sets?.length ? 30 : 20;
-                if (current.length && used + rowHeight > budget) {
-                    pages.push({ courtName, rows: current });
-                    current = [];
-                    used = 0;
-                }
-                used += rowHeight + (current.length ? 0 : 26);
-                current.push(row);
+        const courtRows = sortedRows.filter(row => (row.cancha || 'Cancha 1') === courtName);
+        const distinctDates = [...new Set(courtRows.map(row => row.fecha || ''))].sort((left, right) => left.localeCompare(right));
+        if (distinctDates.length <= 1) {
+            pages.push({ courtName, date: distinctDates[0] || '', rows: courtRows });
+        } else {
+            distinctDates.forEach(date => {
+                const dateRows = courtRows.filter(row => (row.fecha || '') === date);
+                if (dateRows.length) pages.push({ courtName, date, rows: dateRows });
             });
-            if (current.length) pages.push({ courtName, rows: current });
-        });
+        }
     });
-    if (!pages.length) pages.push({ courtName: '', rows: [] });
+    if (!pages.length) pages.push({ courtName: 'Cancha 1', date: '', rows: [] });
+
     const objects = [];
     const add = value => { objects.push(value); return objects.length; };
     const catalogId = add('');
     const pagesId = add('');
-    const fontId = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
-    const boldId = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
+    const fontId = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+    const boldId = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
     const pageIds = [];
+
     pages.forEach((page, index) => {
-        const stream = makePage(tournament, page.rows, index + 1, pages.length, subtitle, page.courtName, options);
+        const stream = makeCourtPage({
+            tournament,
+            courtName: page.courtName,
+            date: page.date,
+            rows: page.rows,
+            pageNumber: index + 1,
+            totalPages: pages.length
+        });
         const contentId = add(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
-        pageIds.push(add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldId} 0 R >> >> /Contents ${contentId} 0 R >>`));
+        pageIds.push(add(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 841.89 595.28] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldId} 0 R >> >> /Contents ${contentId} 0 R >>`));
     });
+
     objects[catalogId - 1] = `<< /Type /Catalog /Pages ${pagesId} 0 R >>`;
     objects[pagesId - 1] = `<< /Type /Pages /Kids [${pageIds.map(id => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`;
+
     let pdf = '%PDF-1.4\n';
     const offsets = [0];
-    objects.forEach((object, index) => { offsets.push(pdf.length); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+    objects.forEach((object, index) => {
+        offsets.push(pdf.length);
+        pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    });
     const xref = pdf.length;
     pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\n`;
     pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xref}\n%%EOF`;
@@ -145,7 +579,7 @@ export const downloadFixturePdf = (tournament, rows, suffix = 'completo', subtit
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `fixture-${latin(tournament.nombre).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${suffix}.pdf`;
+    link.download = `fixture-${asciiSlug(tournament?.nombre)}-${suffix}.pdf`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
@@ -162,7 +596,7 @@ export const downloadFixtureCsv = (tournament, rows, suffix = 'completo') => {
     const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `fixture-${latin(tournament.nombre).toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${suffix}.csv`;
+    link.download = `fixture-${asciiSlug(tournament?.nombre)}-${suffix}.csv`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
@@ -309,7 +743,7 @@ export const buildFixtureXlsx = ({ tournament, rows, courts, options = {} }) => 
         { name: '[Content_Types].xml', content: `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">${contentTypes}</Types>` },
         { name: '_rels/.rels', content: '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>' },
         { name: 'docProps/core.xml', content: core },
-        { name: 'xl/workbook.xml', content: `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets>${workbookSheets}</sheets></workbook>` },
+        { name: 'xl/workbook.xml', content: `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/package/2006/relationships"><bookViews><workbookView/></bookViews><sheets>${workbookSheets}</sheets></workbook>` },
         { name: 'xl/_rels/workbook.xml.rels', content: `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relationships}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
         { name: 'xl/styles.xml', content: styles },
         ...sheets.map((sheet, index) => ({ name: `xl/worksheets/sheet${index + 1}.xml`, content: sheet }))
@@ -318,7 +752,7 @@ export const buildFixtureXlsx = ({ tournament, rows, courts, options = {} }) => 
 
 export const downloadFixtureSpreadsheet = (tournament, rows, courts, options = {}) => {
     const xlsx = buildFixtureXlsx({ tournament, rows, courts, options });
-    const safeName = latin(tournament.nombre).toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const safeName = asciiSlug(tournament?.nombre);
     const link = document.createElement('a');
     link.href = URL.createObjectURL(new Blob([xlsx], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     link.download = `fixture-${safeName}.xlsx`;

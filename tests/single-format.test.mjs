@@ -71,7 +71,8 @@ test('formato único: sets reales, tabla global y Top 16', () => {
 
     const rows = fixtureRows({ matches: stored, categories: [category], teams, zones, phaseLabels: { ZONAS: 'Fase de zonas', TOP_16: 'Top 16' } });
     assert.equal(rows.find(row => row.id === created[0].id).sets[0].puntosLocal, 15);
-    const pdf = new TextDecoder().decode(buildFixturePdf(tournament, rows));
-    assert.match(pdf, /15-12/);
-    assert.match(pdf, /15-5/);
+    const pdf = new TextDecoder('latin1').decode(buildFixturePdf(tournament, rows));
+    assert.match(pdf, /\(Cancha 1\)/);
+    assert.match(pdf, /Página 1 de 2/);
+    assert.match(pdf, /Equipo 1  vs  Equipo 2/);
 });

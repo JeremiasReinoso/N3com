@@ -158,11 +158,12 @@ test('el PDF completo, el PDF de una jornada y el de una cancha reflejan el fixt
     assertPdfStructure(fullPdf);
     assert.equal(rows.length, created.length, 'El PDF no debe crear ni duplicar partidos.');
     assert(fullPdf.startsWith('%PDF-1.4'));
-    assert(fullPdf.includes('FIXTURE GENERAL DEL TORNEO'));
     assert(fullPdf.includes(tournament.nombre));
-    assert(fullPdf.includes('TODAS LAS JORNADAS DEL TORNEO'));
-    rows.forEach(row => assert(fullPdf.includes(`${row.teamA} vs ${row.teamB}`), `El PDF debe incluir ${row.teamA} vs ${row.teamB}`));
-    assert.equal((fullPdf.match(/ vs /g) || []).length, rows.length, 'El PDF debe tener exactamente un renglón por partido.');
+    assert(fullPdf.includes('(Nº)') && fullPdf.includes('(Categoría)') && fullPdf.includes('(Modalidad)') && fullPdf.includes('(Etapa / Zona)') && fullPdf.includes('(Partido)'));
+    assert(!fullPdf.includes('(Confirmado)') && !fullPdf.includes('(Programado)'), 'El PDF no debe mostrar el estado del partido.');
+    rows.forEach(row => assert(!fullPdf.includes(`(${row.hora})`), 'El PDF no debe mostrar la hora del partido.'));
+    rows.forEach(row => assert(fullPdf.includes(`${row.teamA}  vs  ${row.teamB}`), `El PDF debe incluir ${row.teamA}  vs  ${row.teamB}`));
+    assert.equal((fullPdf.match(/  vs  /g) || []).length, rows.length, 'El PDF debe tener exactamente un renglón por partido.');
     rows.forEach(row => assert(fullPdf.includes(row.cancha), 'El PDF debe mostrar la cancha de cada partido.'));
     rows.forEach(row => assert(fullPdf.includes(row.categoryAge), 'El PDF debe mostrar la edad de la categoría.'));
     assert.equal((fullPdf.match(/\/Type \/Page \/Parent/g) || []).length, 4, 'El PDF completo debe separar cada cancha y jornada en su propia página.');
@@ -176,33 +177,35 @@ test('el PDF completo, el PDF de una jornada y el de una cancha reflejan el fixt
     const dayRows = rowsFor(tournament.id, categories, { date: '2026-10-09' });
     const dayPdf = decode(buildFixturePdf(tournament, dayRows, 'JORNADA: VIERNES 09 DE OCTUBRE DE 2026'));
     assert(dayRows.length > 0 && dayRows.every(row => row.fecha === '2026-10-09'));
-    assert(dayPdf.includes('JORNADA: VIERNES 09 DE OCTUBRE DE 2026'));
-    assert.equal((dayPdf.match(/ vs /g) || []).length, dayRows.length, 'El PDF de la jornada contiene sólo sus partidos.');
-    rows.filter(row => row.fecha !== '2026-10-09').forEach(row => assert(!dayPdf.includes(`${row.teamA} vs ${row.teamB}`), 'El PDF de una jornada no debe mezclar otra jornada.'));
+    assert(dayPdf.includes('Viernes 09 de octubre de 2026'));
+    assert.equal((dayPdf.match(/  vs  /g) || []).length, dayRows.length, 'El PDF de la jornada contiene sólo sus partidos.');
+    rows.filter(row => row.fecha !== '2026-10-09').forEach(row => assert(!dayPdf.includes(`${row.teamA}  vs  ${row.teamB}`), 'El PDF de una jornada no debe mezclar otra jornada.'));
 
     const courtRows = rowsFor(tournament.id, categories, { courtId: 'court_1', courtName: 'Cancha 1' });
     const courtPdf = decode(buildFixturePdf(tournament, courtRows, 'CANCHA: CANCHA 1'));
     assert(courtRows.length > 0 && courtRows.every(row => row.cancha === 'Cancha 1'));
-    assert.equal((courtPdf.match(/ vs /g) || []).length, courtRows.length, 'El PDF de la cancha contiene sólo sus partidos.');
+    assert.equal((courtPdf.match(/  vs  /g) || []).length, courtRows.length, 'El PDF de la cancha contiene sólo sus partidos.');
     assert(!courtPdf.includes('Cancha 2'), 'El PDF de una cancha no debe incluir la otra.');
 
     const many = Array.from({ length: 45 }, (_, index) => ({
         fecha: `2026-10-${String(9 + Math.floor(index / 18)).padStart(2, '0')}`,
         hora: '08:00',
         cancha: 'Cancha 1',
-        categoryAge: '+40',
-        modality: 'Femenino',
-        categoryName: '+40 Femenino',
-        phaseLabel: 'Fase de zonas',
-        zoneName: 'Zona A',
-        teamA: `Local ${index}`,
-        teamB: `Visitante ${index}`,
-        status: 'Programado'
+        categoryAge: index % 2 === 0 ? '+50' : '+60',
+        modality: 'Mixto',
+        categoryName: index % 2 === 0 ? '+50 Mixto' : '+60 Mixto',
+        phaseLabel: 'Todos contra todos / Liga',
+        zoneName: '',
+        teamA: `Escuela Municipal General José de San Martín ${index}`,
+        teamB: `Asociación Deportiva Águilas Doradas del Sur ${index}`,
+        status: 'Confirmado'
     }));
     const multipage = decode(buildFixturePdf(tournament, many, 'TODAS LAS JORNADAS DEL TORNEO'));
     assertPdfStructure(multipage);
-    assert.match(multipage, /Pagina 1 de \d+/, 'El documento debe indicar el número de página.');
-    assert.match(multipage, /Pagina 2 de [2-9]/, 'Los partidos deben repartirse en varias páginas.');
+    assert.match(multipage, /Página 1 de \d+/, 'El documento debe indicar el número de página.');
+    assert.match(multipage, /Página 2 de [2-9]/, 'Cada jornada de la cancha ocupa su propia página.');
+    assert(!multipage.includes('...'), 'Los nombres largos jamás deben truncarse con puntos suspensivos.');
+    assert(multipage.includes('0.121569 0.227451 0.372549') && multipage.includes('0.933333 0.94902 0.968627') && multipage.includes('0.721569 0.768627 0.839216'));
 });
 
 test('cada categoría conserva su propio descanso mínimo entre partidos', () => {

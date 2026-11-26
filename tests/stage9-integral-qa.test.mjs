@@ -190,13 +190,15 @@ test('QA integral: torneo multicategoría con 4 formatos distintos compartiendo 
     const updatedAll = SchedulingEngine.getGeneralFixture(tournament.id);
     const fullRows = fixtureRows({ matches: updatedAll, categories, teams: allTeams, zones: allZones, phaseLabels });
     const fullPdf = assertValidPdf(buildFixturePdf(tournament, fullRows, 'TODAS LAS JORNADAS'));
-    assert(fullPdf.includes('FAN OFICIAL'));
-    assert(fullPdf.includes('2026-11-10 al 2026-11-13'));
+    assert(fullPdf.includes('Abierto Nacional Newcom'));
+    assert(fullPdf.includes('Federación Argentina de Newcom'));
+    assert(fullPdf.includes('de noviembre de 2026'));
 
     const catBRows = fixtureRows({ matches: updatedAll, categories, teams: allTeams, zones: allZones, phaseLabels, filters: { categoryId: catB.id } });
     assert.equal(catBRows.length, catBMatches.length);
     const catBPdf = assertValidPdf(buildFixturePdf(tournament, catBRows, 'CATEGORIA: +50 FEMENINO'));
-    assert(catBPdf.includes('15-12') && catBPdf.includes('15-5'));
+    assert(catBPdf.includes('(+50)') && catBPdf.includes('(Femenino)') && catBPdf.includes('(Todos contra todos)'));
+    catBRows.forEach(r => assert(catBPdf.includes(`${r.teamA}  vs  ${r.teamB}`)));
 
     const xlsx = buildFixtureXlsx({ tournament, rows: fullRows, courts: DataManager.getTournamentCourts(tournament.id) });
     assert(xlsx.length > 500 && xlsx[0] === 0x50 && xlsx[1] === 0x4b, 'XLSX debe ser un archivo ZIP válido');
