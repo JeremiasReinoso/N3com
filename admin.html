@@ -1,36 +1,45 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="dark">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NEWCOM - Administración de Clientes</title>
+    <title>NEWCOM — Administración de Clientes y Licencias</title>
     <script src="js/core/themeInit.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
     <link rel="stylesheet" href="css/tokens.css" />
     <link rel="stylesheet" href="css/components.css" />
     <link rel="stylesheet" href="css/main.css" />
     <link rel="stylesheet" href="css/layout.css" />
 </head>
-<body>
-    <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="true" aria-label="Activar tema claro">☀ Tema claro</button>
-    <header id="admin-header" class="app-header" hidden>
-        <div class="logo">🏐 NEWCOM · Administración</div>
-        <nav aria-label="Navegación de administración">
-            <a href="index.html" class="nav-btn">← Volver al inicio</a>
-            <span class="nav-btn active" style="cursor: default;">Gestión de Clientes</span>
-        </nav>
+<body class="admin-body">
+    <header id="admin-header" class="admin-topbar" hidden>
+        <div class="n3-brand">
+            <span class="n3-brand-mark" aria-hidden="true">N</span>
+            <span class="n3-brand-text">
+                <span class="n3-brand-name">NEWCOM</span>
+                <span class="n3-brand-sub">ADMINISTRACIÓN</span>
+            </span>
+        </div>
+        <div class="admin-topbar-actions">
+            <button id="btn-actualizar-licencias" class="btn-secondary" type="button">Actualizar licencias</button>
+            <button id="btn-nuevo-cliente" class="btn-primary" type="button">+ Nuevo cliente</button>
+        </div>
     </header>
 
-    <main id="admin-container" class="container" hidden>
+    <main id="admin-container" class="admin-main" hidden>
         <section id="view-admin" class="view-section active">
-            <h2>Gestión de Clientes / Licencias</h2>
-            <div class="panel-control">
-                <button id="btn-nuevo-cliente" class="btn-primary">+ Nuevo Cliente</button>
-                <button id="btn-actualizar-licencias" class="btn-secondary">Actualizar Licencias</button>
+            <div class="page-header">
+                <div class="page-header-main">
+                    <span class="page-eyebrow">CLIENTES</span>
+                    <h1>Clientes y licencias</h1>
+                    <p id="admin-summary">Cargando resumen de licencias…</p>
+                </div>
             </div>
             <div id="admin-license-form"></div>
-            <div id="admin-list" class="grid-cards">
-                <!-- Las licencias se cargan aquí -->
-                <p>Cargando clientes...</p>
+            <div id="admin-list" class="admin-license-grid">
+                <div class="empty-state">Cargando clientes…</div>
             </div>
         </section>
     </main>

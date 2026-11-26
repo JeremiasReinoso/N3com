@@ -3,18 +3,18 @@ import { icon } from '../ui/icons.js';
 
 const SIDEBAR_STORAGE_KEY = 'n3com_sidebar_collapsed';
 
-// Secciones principales de la sidebar + acceso directo protegido a Planificación.
+// Secciones de la barra lateral del torneo + subitem Planificación debajo de Programación.
 export const SIDEBAR_SECTIONS = Object.freeze([
-    { id: 'inicio', label: 'Inicio', iconName: 'layoutDashboard', group: 'principal' },
-    { id: 'equipos', label: 'Equipos', iconName: 'users', group: 'competicion' },
-    { id: 'zonas', label: 'Zonas', iconName: 'layers', group: 'competicion' },
-    { id: 'programacion', label: 'Programación', iconName: 'calendarClock', group: 'operacion' },
-    { id: 'planificacion', label: 'Planificación', iconName: 'calendarRange', group: 'operacion', isSubItem: true },
-    { id: 'resultados', label: 'Resultados', iconName: 'clipboardCheck', group: 'operacion' },
-    { id: 'posiciones', label: 'Posiciones', iconName: 'trophy', group: 'analisis' },
-    { id: 'eliminatorias', label: 'Eliminatorias', iconName: 'gitBranch', group: 'analisis' },
-    { id: 'exportaciones', label: 'Exportaciones e informes', iconName: 'fileDown', group: 'sistema' },
-    { id: 'configuracion', label: 'Configuración', iconName: 'settings', group: 'sistema' }
+    { id: 'inicio', label: 'Inicio' },
+    { id: 'equipos', label: 'Equipos' },
+    { id: 'zonas', label: 'Zonas' },
+    { id: 'programacion', label: 'Programación' },
+    { id: 'planificacion', label: '↳ Planificación', isSubItem: true },
+    { id: 'resultados', label: 'Resultados' },
+    { id: 'posiciones', label: 'Posiciones' },
+    { id: 'eliminatorias', label: 'Eliminatorias' },
+    { id: 'exportaciones', label: 'Exportaciones' },
+    { id: 'configuracion', label: 'Configuración' }
 ]);
 
 export const getSidebarCollapsed = () => {
@@ -96,15 +96,16 @@ const activateView = viewId => {
 
 const renderTournamentNavigation = (section, onSectionChange, tournamentName = '') => {
     const nav = globalThis.document?.getElementById?.('main-nav');
+    const listNav = globalThis.document?.getElementById?.('list-nav');
     const header = globalThis.document?.querySelector?.('.app-header');
     const shell = globalThis.document?.getElementById?.('app-shell');
     const contextBadge = globalThis.document?.getElementById?.('sidebar-tournament-context');
     const footerActions = globalThis.document?.getElementById?.('sidebar-tournament-footer');
     if (!nav) return;
 
-    // Si se navega a #/torneo/:id/calendario por ruta directa, se resalta Configuración en la sidebar.
     const activeSection = section === 'calendario' ? 'configuracion' : section;
 
+    if (listNav) listNav.hidden = true;
     nav.hidden = false;
     header?.classList?.add?.('tournament-open');
     shell?.classList?.add?.('has-sidebar');
@@ -115,10 +116,10 @@ const renderTournamentNavigation = (section, onSectionChange, tournamentName = '
     }
     if (footerActions) footerActions.hidden = false;
 
-    nav.innerHTML = SIDEBAR_SECTIONS.map(({ id, label, iconName, isSubItem }) => {
+    nav.innerHTML = SIDEBAR_SECTIONS.map(({ id, label, isSubItem }) => {
         const isActive = id === activeSection;
         const subClass = isSubItem ? ' nav-btn-sub' : '';
-        return `<button type="button" id="btn-nav-${id}" class="nav-btn${isActive ? ' active' : ''}${subClass}" data-section="${id}" data-tooltip="${label}" aria-current="${isActive ? 'page' : 'false'}"><span class="nav-btn-icon">${icon(iconName, { size: isSubItem ? 16 : 18 })}</span><span class="nav-btn-label">${label}</span></button>`;
+        return `<button type="button" id="btn-nav-${id}" class="nav-btn${isActive ? ' active' : ''}${subClass}" data-section="${id}" data-tooltip="${label}" aria-current="${isActive ? 'page' : 'false'}"><span class="nav-btn-label">${label}</span></button>`;
     }).join('');
 
     nav.querySelectorAll('[data-section]').forEach(button => button.addEventListener('click', () => {
@@ -132,6 +133,7 @@ const renderTournamentNavigation = (section, onSectionChange, tournamentName = '
 
 const renderTournamentListNavigation = () => {
     const nav = globalThis.document?.getElementById?.('main-nav');
+    const listNav = globalThis.document?.getElementById?.('list-nav');
     const header = globalThis.document?.querySelector?.('.app-header');
     const shell = globalThis.document?.getElementById?.('app-shell');
     const contextBadge = globalThis.document?.getElementById?.('sidebar-tournament-context');
@@ -140,6 +142,7 @@ const renderTournamentListNavigation = () => {
         nav.innerHTML = '';
         nav.hidden = true;
     }
+    if (listNav) listNav.hidden = false;
     header?.classList?.remove?.('tournament-open');
     header?.classList?.remove?.('is-mobile-open');
     shell?.classList?.remove?.('has-sidebar');

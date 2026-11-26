@@ -1,6 +1,8 @@
 import { AppState } from '../core/state.js';
 import { escapeHtml } from '../core/escapeHtml.js';
 import { DataManager } from '../data/dataManager.js';
+import { goToTournament } from '../core/tournamentRoute.js';
+import { showToast } from '../ui/feedback.js';
 
 let disposePeriodPicker = () => {};
 
@@ -23,14 +25,14 @@ const selectedDays = (fechaInicio, fechaFin) => {
 const periodSummary = (fechaInicio, fechaFin) => {
     if (fechaInicio && fechaFin) {
         const total = selectedDays(fechaInicio, fechaFin);
-        return `${total} ${total === 1 ? 'día seleccionado' : 'días seleccionados'}`;
+        return `${total} ${total === 1 ? 'jornada seleccionada' : 'jornadas seleccionadas'}`;
     }
-    if (fechaInicio) return `Inicio seleccionado: ${formatPeriodDate(fechaInicio)}. Ahora seleccioná el día de finalización.`;
+    if (fechaInicio) return `Inicio elegido: ${formatPeriodDate(fechaInicio)}. Ahora elegí el día de finalización.`;
     return '';
 };
 
 const periodFieldText = (fechaInicio, fechaFin) => (
-    fechaInicio && fechaFin ? `${formatPeriodDate(fechaInicio)} → ${formatPeriodDate(fechaFin)}` : 'Seleccionar período del torneo'
+    fechaInicio && fechaFin ? `${formatPeriodDate(fechaInicio)} → ${formatPeriodDate(fechaFin)}` : 'Elegí el período del torneo'
 );
 
 const calendarDaysMarkup = (year, month, fechaInicio, fechaFin) => {
@@ -60,7 +62,7 @@ export function initCalendarView() {
     disposePeriodPicker();
     disposePeriodPicker = () => {};
     if (!tournamentId) {
-        view.innerHTML = '<h2>Calendario</h2><div class="empty-state">Seleccione un torneo desde Torneos para configurar las fechas de juego.</div>';
+        view.innerHTML = '<div class="empty-state"><strong>Elegí un torneo</strong><p>Seleccioná un torneo desde Mis torneos para configurar las fechas de juego.</p></div>';
         return;
     }
     const tournament = DataManager.getTournament(tournamentId);
@@ -74,44 +76,67 @@ export function initCalendarView() {
     const initialMonth = fechaInicio ? new Date(`${fechaInicio}T12:00:00`) : new Date();
     let visibleYear = initialMonth.getFullYear();
     let visibleMonth = initialMonth.getMonth();
+
     view.innerHTML = `
-        <h2>Calendario del torneo</h2>
+        <div class="page-header">
+            <div class="page-header-main">
+                <span class="page-eyebrow">AJUSTES DEL TORNEO</span>
+                <h1>Calendario y horarios</h1>
+                <p>Definí el período de juego, la duración de los bloques y el horario de cada jornada.</p>
+            </div>
+            <div class="page-header-actions">
+                <button type="button" id="btn-back-to-config" class="btn-secondary">← Volver a configuración</button>
+            </div>
+        </div>
+
         <section class="form-card panel-control">
-            <div class="form-title"><div><h3>Disponibilidad general</h3><p>Definí el período; cada fecha tendrá su propio horario editable.</p></div><span class="calendar-chip">${escapeHtml(tournament.nombre)}</span></div>
             <form id="form-calendario" class="calendar-settings-form">
                 <div class="form-grid calendar-settings-grid">
-                <div class="form-field tournament-period-field">
-                    <span id="periodo-torneo-label" class="calendar-settings-label">Período del torneo</span>
-                    <button id="periodo-torneo" class="tournament-period-picker" type="button" aria-labelledby="periodo-torneo-label periodo-torneo-value" aria-haspopup="dialog" aria-expanded="false">
-                        <span id="periodo-torneo-value" class="tournament-period-value">${periodFieldText(fechaInicio, fechaFin)}</span><span class="tournament-period-icon" aria-hidden="true">📅</span>
-                    </button>
-                    <section id="selector-periodo" class="range-calendar" role="dialog" aria-label="Selector de período del torneo" hidden>
-                        <div class="range-calendar-header"><button id="mes-anterior" class="range-calendar-nav" type="button" aria-label="Mes anterior">‹</button><strong id="mes-periodo"></strong><button id="mes-siguiente" class="range-calendar-nav" type="button" aria-label="Mes siguiente">›</button></div>
-                        <div class="range-calendar-weekdays" aria-hidden="true">${weekDays.map(day => `<span>${day}</span>`).join('')}</div>
-                        <div id="dias-periodo" class="range-calendar-days"></div>
-                        <p id="estado-selector-periodo" class="range-calendar-selection" aria-live="polite"></p>
-                        <p class="range-calendar-legend"><span><i class="range-calendar-legend-boundary" aria-hidden="true"></i>Inicio / final</span><span><i class="range-calendar-legend-range" aria-hidden="true"></i>Días incluidos</span></p>
-                        <div class="range-calendar-actions"><button id="borrar-periodo" class="btn-secondary range-calendar-clear" type="button">Borrar selección</button></div>
-                    </section>
-                </div>
-                <label class="form-field"><span class="calendar-settings-label">Horario predeterminado · desde</span><input id="hora-inicio" type="time" value="${defaultStart}" required></label>
-                <label class="form-field"><span class="calendar-settings-label">Hasta</span><input id="hora-fin" type="time" value="${defaultEnd}" required></label>
-                <label class="form-field"><span class="calendar-settings-label">Duración del bloque (min)</span><input id="duracion-bloque" type="number" min="5" max="240" step="5" value="${settings.blockDuration}" required></label>
-                <label class="form-field"><span class="calendar-settings-label">Intervalo entre partidos (min)</span><input id="intervalo-partidos" type="number" min="0" max="120" value="${settings.intervaloPartidos}" required></label>
+                    <div class="form-field tournament-period-field">
+                        <span id="periodo-torneo-label">Período del torneo</span>
+                        <button id="periodo-torneo" class="tournament-period-picker" type="button" aria-labelledby="periodo-torneo-label periodo-torneo-value" aria-haspopup="dialog" aria-expanded="false">
+                            <span id="periodo-torneo-value" class="tournament-period-value">${periodFieldText(fechaInicio, fechaFin)}</span>
+                            <span aria-hidden="true" style="color:var(--text-eyebrow);font-size:12px;">▾</span>
+                        </button>
+                        <section id="selector-periodo" class="range-calendar" role="dialog" aria-label="Selector de período del torneo" hidden>
+                            <div class="range-calendar-header"><button id="mes-anterior" class="range-calendar-nav" type="button" aria-label="Mes anterior">‹</button><strong id="mes-periodo"></strong><button id="mes-siguiente" class="range-calendar-nav" type="button" aria-label="Mes siguiente">›</button></div>
+                            <div class="range-calendar-weekdays" aria-hidden="true">${weekDays.map(day => `<span>${day}</span>`).join('')}</div>
+                            <div id="dias-periodo" class="range-calendar-days"></div>
+                            <p id="estado-selector-periodo" class="range-calendar-selection" aria-live="polite"></p>
+                            <p class="range-calendar-legend"><span><i class="range-calendar-legend-boundary" aria-hidden="true"></i>Inicio / final</span><span><i class="range-calendar-legend-range" aria-hidden="true"></i>Días incluidos</span></p>
+                            <div class="range-calendar-actions"><button id="borrar-periodo" class="btn-secondary btn-sm range-calendar-clear" type="button">Borrar selección</button></div>
+                        </section>
+                    </div>
+                    <label class="form-field"><span>Horario desde</span><input id="hora-inicio" type="time" value="${defaultStart}" required></label>
+                    <label class="form-field"><span>Hasta</span><input id="hora-fin" type="time" value="${defaultEnd}" required></label>
+                    <label class="form-field"><span>Bloque (min)</span><input id="duracion-bloque" type="number" min="5" max="240" step="5" value="${settings.blockDuration}" required></label>
+                    <label class="form-field"><span>Intervalo (min)</span><input id="intervalo-partidos" type="number" min="0" max="120" value="${settings.intervaloPartidos}" required></label>
                 </div>
                 <p id="periodo-torneo-resumen" class="tournament-period-summary" aria-live="polite">${periodSummary(fechaInicio, fechaFin)}</p>
-                <div class="form-actions calendar-settings-actions"><button class="btn-primary" type="submit">Guardar calendario</button></div>
+                <div class="form-actions" style="margin-top: 16px;">
+                    <button class="btn-primary" type="submit">Guardar calendario</button>
+                </div>
             </form>
         </section>
-        <div class="calendar-intro"><span class="calendar-chip">${daySchedules.length} DÍAS</span><p>Personalizá el horario de cada jornada. Al confirmar el fixture, NEWCOM asignará automáticamente hora y cancha.</p></div>
+
+        <div class="calendar-intro">
+            <span class="chip-pill chip-blue">${daySchedules.length} JORNADA${daySchedules.length === 1 ? '' : 'S'}</span>
+            <p>Ajustá opcionalmente el horario particular de cada día.</p>
+        </div>
+
         <div id="calendario-grid" class="calendar-grid">${daySchedules.length ? daySchedules.map(({ fecha, inicio, fin }) => `
             <article class="calendar-day" aria-label="Disponibilidad del ${displayDate(fecha)}">
                 <div class="calendar-day-header"><div><span>${fecha}</span><strong>${displayDate(fecha)}</strong></div><span class="calendar-day-status">JORNADA</span></div>
-                <div class="calendar-day-content"><div class="calendar-time-summary"><span>Disponibilidad</span><strong>${inicio} — ${fin}</strong></div><div class="calendar-hours">
-                    <label>Desde<input class="horario-dia-inicio" data-fecha="${fecha}" type="time" value="${inicio}" required></label>
-                    <label>Hasta<input class="horario-dia-fin" data-fecha="${fecha}" type="time" value="${fin}" required></label>
-                </div></div>
-            </article>`).join('') : '<div class="empty-state">Guardá las fechas de inicio y finalización para ver los días disponibles.</div>'}</div>`;
+                <div class="calendar-day-content">
+                    <div class="calendar-time-summary"><span>Disponibilidad</span><strong>${inicio} — ${fin}</strong></div>
+                    <div class="calendar-hours">
+                        <label>Desde<input class="horario-dia-inicio" data-fecha="${fecha}" type="time" value="${inicio}" required></label>
+                        <label>Hasta<input class="horario-dia-fin" data-fecha="${fecha}" type="time" value="${fin}" required></label>
+                    </div>
+                </div>
+            </article>`).join('') : '<div class="empty-state" style="grid-column:1/-1;"><strong>Sin fechas cargadas</strong><p>Elegí el primer y último día del torneo y presioná "Guardar calendario".</p></div>'}</div>`;
+
+    view.querySelector('#btn-back-to-config')?.addEventListener('click', () => goToTournament(tournamentId, 'configuracion'));
 
     const periodPicker = view.querySelector('#periodo-torneo');
     const periodDialog = view.querySelector('#selector-periodo');
@@ -121,12 +146,13 @@ export function initCalendarView() {
     const daysContainer = view.querySelector('#dias-periodo');
     const selectionStatus = view.querySelector('#estado-selector-periodo');
     const periodField = periodPicker.closest('.tournament-period-field');
+
     const renderPeriodPicker = () => {
         periodValue.textContent = periodFieldText(fechaInicio, fechaFin);
         periodSummaryElement.textContent = periodSummary(fechaInicio, fechaFin);
         monthTitle.textContent = monthLabel(visibleYear, visibleMonth);
         daysContainer.innerHTML = calendarDaysMarkup(visibleYear, visibleMonth, fechaInicio, fechaFin);
-        selectionStatus.textContent = `Inicio: ${fechaInicio ? formatPeriodDate(fechaInicio) : '—'} · Fin: ${fechaFin ? formatPeriodDate(fechaFin) : 'seleccioná la fecha final'}`;
+        selectionStatus.textContent = `Inicio: ${fechaInicio ? formatPeriodDate(fechaInicio) : '—'} · Fin: ${fechaFin ? formatPeriodDate(fechaFin) : 'elegí la fecha final'}`;
     };
     const positionPicker = () => {
         if (periodDialog.hidden) return;
@@ -200,12 +226,8 @@ export function initCalendarView() {
             [fechaInicio, fechaFin] = selectedDate < fechaInicio ? [selectedDate, fechaInicio] : [fechaInicio, selectedDate];
         }
         renderPeriodPicker();
-        if (fechaInicio && fechaFin) {
-            // La selección queda en borrador hasta Guardar. De este modo una
-            // reducción del calendario nunca deja fuera partidos o jornadas
-            // planificadas sin una confirmación explícita.
-            setPickerOpen(false);
-        } else positionPicker();
+        if (fechaInicio && fechaFin) setPickerOpen(false);
+        else positionPicker();
     });
     view.querySelector('#borrar-periodo').addEventListener('click', () => {
         fechaInicio = '';
@@ -225,7 +247,7 @@ export function initCalendarView() {
             fin: view.querySelector(`.horario-dia-fin[data-fecha="${fecha}"]`)?.value
         })).filter(schedule => schedule.inicio && schedule.fin);
         try {
-            if (!fechaInicio || !fechaFin) throw new Error('Seleccioná el primer y último día del torneo antes de guardar.');
+            if (!fechaInicio || !fechaFin) throw new Error('Elegí el primer y último día del torneo antes de guardar.');
             const saveCalendar = allowUsedDateRemoval => DataManager.setTournamentCalendar(
                 tournamentId, fechaInicio, fechaFin,
                 view.querySelector('#hora-inicio').value,
@@ -241,9 +263,10 @@ export function initCalendarView() {
                 saveCalendar(true);
             }
             DataManager.setTournamentSchedulingSettings(tournamentId, settings.duracionPartido, view.querySelector('#intervalo-partidos').value, view.querySelector('#duracion-bloque').value);
-            // Guardar disponibilidad no mueve partidos reales. La nueva
-            // distribución se solicita desde Programación, con contexto.
+            showToast('Calendario y horarios guardados.', { type: 'success' });
             initCalendarView();
-        } catch (error) { alert(error.message); }
+        } catch (error) {
+            alert(error.message);
+        }
     });
 }

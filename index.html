@@ -1,10 +1,13 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-theme="dark">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>N3com — Gestión de Torneos</title>
+    <title>N3com Torneos</title>
     <script src="js/core/themeInit.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
     <link rel="stylesheet" href="css/tokens.css" />
     <link rel="stylesheet" href="css/components.css" />
     <link rel="stylesheet" href="css/main.css" />
@@ -12,60 +15,65 @@
     <script type="module" src="js/main.js"></script>
 </head>
 <body>
-    <div id="app-shell" class="app-shell">
-        <header class="app-header app-sidebar" aria-label="Barra lateral de navegación">
+    <div id="app-shell" class="app-shell has-sidebar">
+        <aside class="app-header app-sidebar" aria-label="Barra lateral de navegación">
             <div class="sidebar-top">
-                <a id="newcom-home" class="logo logo-home n3-brand" href="#/torneos" aria-label="Volver a Mis Torneos">
-                    <span class="n3-brand-mark" aria-hidden="true">
-                        <svg class="ui-icon" width="18" height="18" viewBox="0 0 24 24" fill="none">
-                            <circle cx="12" cy="12" r="9.5" stroke="currentColor" stroke-width="1.8" opacity="0.9"/>
-                            <path d="M5.2 9.4c4.2-2.2 9.4-2.2 13.6 0M5.2 14.6c4.2 2.2 9.4 2.2 13.6 0" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.55"/>
-                            <path d="M8.5 15.2V8.8l5 6.4V8.8" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                    </span>
+                <a id="newcom-home" class="logo logo-home n3-brand" href="#/torneos" aria-label="Volver a Mis torneos">
+                    <span class="n3-brand-mark" aria-hidden="true">N</span>
                     <span class="n3-brand-text">
                         <span class="n3-brand-name">N3com</span>
-                        <span class="n3-brand-sub">Torneos</span>
+                        <span class="n3-brand-sub">TORNEOS</span>
                     </span>
                 </a>
-                <button id="sidebar-toggle" class="btn-icon sidebar-toggle-btn" type="button" aria-expanded="true" aria-label="Plegar barra lateral" data-tooltip="Plegar menú">
+                <button id="sidebar-toggle" class="btn-icon sidebar-toggle-btn" type="button" aria-expanded="true" aria-label="Plegar barra lateral" data-tooltip="Plegar menú" hidden>
                     <span class="sidebar-toggle-icon" aria-hidden="true"></span>
                 </button>
             </div>
 
             <div id="sidebar-tournament-context" class="sidebar-tournament-context" hidden>
-                <span class="sidebar-context-eyebrow">Torneo activo</span>
+                <span class="sidebar-context-eyebrow">TORNEO ACTIVO</span>
                 <strong class="sidebar-tournament-name">Torneo</strong>
             </div>
+
+            <!-- Navegación global cuando se está en Mis torneos -->
+            <nav id="list-nav" class="sidebar-nav" aria-label="Navegación principal">
+                <button type="button" id="btn-list-torneos" class="nav-btn active" aria-current="page">
+                    <span class="nav-btn-label">Mis torneos</span>
+                </button>
+                <button type="button" id="btn-list-licencias" class="nav-btn">
+                    <span class="nav-btn-label">Clubes y licencias</span>
+                </button>
+                <button type="button" id="btn-list-ajustes" class="nav-btn">
+                    <span class="nav-btn-label">Ajustes</span>
+                </button>
+            </nav>
 
             <!-- Se completa únicamente al entrar al contexto de un torneo. -->
             <nav id="main-nav" class="sidebar-nav" aria-label="Navegación del torneo" hidden></nav>
 
             <div class="sidebar-footer">
                 <div id="sidebar-tournament-footer" class="sidebar-footer-group" hidden>
-                    <button id="sidebar-back-tournaments" class="nav-btn sidebar-back-btn" type="button" data-tooltip="Mis torneos">
-                        <span class="nav-btn-icon" aria-hidden="true">
-                            <svg class="ui-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>
-                            </svg>
-                        </span>
-                        <span class="nav-btn-label">Mis torneos</span>
-                    </button>
+                    <a id="sidebar-back-tournaments" class="sidebar-back-link" href="#/torneos">← Mis torneos</a>
                 </div>
-                <button id="theme-toggle" class="nav-btn sidebar-theme-btn" type="button" aria-pressed="true" aria-label="Activar tema claro" data-tooltip="Cambiar tema">Tema claro</button>
             </div>
-        </header>
+        </aside>
 
         <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
 
         <div class="app-main-area">
             <div class="mobile-topbar">
-                <button id="mobile-sidebar-toggle" class="btn-icon" type="button" aria-label="Abrir menú de navegación">
-                    <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <button id="mobile-sidebar-toggle" class="btn-icon mobile-menu-btn" type="button" aria-label="Abrir menú de navegación">
+                    <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>
                     </svg>
                 </button>
-                <span class="mobile-topbar-brand">N3com</span>
+                <a class="n3-brand mobile-brand" href="#/torneos">
+                    <span class="n3-brand-mark n3-brand-mark-sm" aria-hidden="true">N</span>
+                    <span class="n3-brand-text">
+                        <span class="n3-brand-name">N3com</span>
+                        <span class="n3-brand-sub">TORNEOS</span>
+                    </span>
+                </a>
             </div>
 
             <main id="app-container" class="container">
@@ -73,11 +81,7 @@
 
                 <!-- Vista Torneos -->
                 <section id="view-torneos" class="view-section active">
-                    <h2>Mis Torneos</h2>
-                    <div id="torneos-list" class="grid-cards">
-                        <p>Cargando torneos...</p>
-                    </div>
-                    <button id="btn-nuevo-torneo" class="btn-primary btn-large">+ Crear Nuevo Torneo</button>
+                    <div class="empty-state">Cargando torneos…</div>
                 </section>
 
                 <!-- Inicio del torneo seleccionado -->
@@ -88,8 +92,8 @@
 
                 <!-- Vista Zonas -->
                 <section id="view-zonas" class="view-section">
-                    <div id="alerta-zonas" class="panel-control">
-                        <p>Seleccione una categoría activa desde la pestaña "Equipos" para gestionar sus zonas.</p>
+                    <div id="alerta-zonas" class="empty-state">
+                        <p>Elegí una categoría desde Equipos para distribuir sus zonas.</p>
                     </div>
                     <div id="panel-zonas-activo" style="display: none;"></div>
                 </section>
@@ -97,7 +101,7 @@
                 <!-- Vista Calendario -->
                 <section id="view-calendario" class="view-section"></section>
 
-                <!-- Planificación independiente de la categoría activa (INTANGIBLE) -->
+                <!-- Planificación independiente de la categoría activa -->
                 <section id="view-planificacion" class="view-section"></section>
 
                 <!-- Vista Programación -->
@@ -108,16 +112,12 @@
 
                 <!-- Vista Posiciones -->
                 <section id="view-posiciones" class="view-section">
-                    <h2>Tabla de Posiciones</h2>
                     <div id="posiciones-list"></div>
                 </section>
 
                 <!-- Vista Eliminatorias -->
                 <section id="view-eliminatorias" class="view-section">
-                    <h2>Eliminatorias</h2>
-                    <div class="panel-control">
-                        <button id="btn-generar-eliminatorias" class="btn-primary btn-large">Generar Cruces</button>
-                    </div>
+                    <div class="panel-control eliminatorias-header-panel"></div>
                     <div id="eliminatorias-list"></div>
                 </section>
 

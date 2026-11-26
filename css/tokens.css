@@ -1,81 +1,90 @@
 /* ==========================================================================
-   N3com — Design System Tokens (Fase 1)
-   Estética: Dark Minimalista · Mesa de Control Deportiva
+   N3com Torneos — Sistema de Diseño (Tokens Oficiales)
    ========================================================================== */
 
 :root,
-:root[data-theme="dark"] {
+:root[data-theme="dark"],
+:root[data-theme="light"] {
     color-scheme: dark;
 
-    /* Superficies (profundidad tonal sobria, sin brillos ni neones) */
-    --bg-canvas: #0B0E14;
-    --bg-sidebar: #0F131C;
-    --bg-surface: #131924;
-    --bg-elevated: #192231;
-    --bg-subtle: #151D2B;
-    --bg-hover: #1E293B;
-    --bg-input: #0D121B;
+    /* Superficies */
+    --bg-canvas: #0B0F17;
+    --bg-sidebar: #0B0F17;
+    --bg-surface: #121A28;
+    --bg-secondary: #0F1622;
+    --bg-subtle: #0F1622;
+    --bg-input: #0F1622;
+    --bg-elevated: #152035;
+    --bg-hover: #18243B;
+    --bg-nav-active: #152035;
+    --bg-chip-blue: #15233D;
 
-    /* Bordes */
-    --border-subtle: #1E2738;
-    --border-default: #28354B;
-    --border-strong: #374866;
-    --border-focus: #3B82F6;
+    /* Bordes (1px, separación sin sombras) */
+    --border-subtle: #1C2433;
+    --border-default: #2A3650;
+    --border-strong: #3B4C6E;
+    --border-focus: #6F9BFF;
 
-    /* Tipografía y contraste WCAG AA+ (optimizado también para adultos mayores) */
-    --text-primary: #F8FAFC;
-    --text-secondary: #B0C0D4;
-    --text-muted: #7C8EA6;
+    /* Tipografía (contraste >= 4.5:1 sobre #0B0F17 y #121A28) */
+    --text-primary: #E8EDF5;
+    --text-secondary: #8A96AB;
+    --text-muted: #8A96AB;
+    --text-eyebrow: #6F9BFF;
     --text-inverse: #FFFFFF;
 
-    /* Acentos azules sobrios (Identidad N3com) */
-    --accent-primary: #2563EB;
-    --accent-hover: #3B82F6;
-    --accent-active: #1D4ED8;
-    --accent-soft: rgba(59, 130, 246, 0.14);
-    --accent-border: rgba(59, 130, 246, 0.36);
-    --accent-text: #60A5FA;
+    /* Acción principal y etiquetas azules */
+    --accent-primary: #3B6CF6;
+    --accent-hover: #4D7BF7;
+    --accent-active: #2D5BE3;
+    --accent-soft: #15233D;
+    --accent-border: #2B4C8C;
+    --accent-text: #6F9BFF;
 
     /* Estados semánticos */
-    --status-success: #22C55E;
-    --status-success-bg: rgba(34, 197, 94, 0.12);
-    --status-success-border: rgba(34, 197, 94, 0.30);
+    --status-success: #4ADE80;
+    --status-success-bg: #0F2A22;
+    --status-success-border: #17493A;
     --status-success-text: #4ADE80;
 
-    --status-warning: #F59E0B;
-    --status-warning-bg: rgba(245, 158, 11, 0.12);
-    --status-warning-border: rgba(245, 158, 11, 0.30);
+    --status-warning: #FBBF24;
+    --status-warning-bg: #2A230F;
+    --status-warning-border: #554316;
     --status-warning-text: #FBBF24;
 
-    --status-danger: #EF4444;
-    --status-danger-bg: rgba(239, 68, 68, 0.12);
-    --status-danger-border: rgba(239, 68, 68, 0.34);
+    --status-danger: #F87171;
+    --status-danger-bg: #2A1419;
+    --status-danger-border: #5B242E;
     --status-danger-text: #F87171;
 
-    --status-info: #3B82F6;
-    --status-info-bg: rgba(59, 130, 246, 0.12);
-    --status-info-border: rgba(59, 130, 246, 0.30);
-    --status-info-text: #93C5FD;
+    --status-info: #3B6CF6;
+    --status-info-bg: #15233D;
+    --status-info-border: #2B4C8C;
+    --status-info-text: #6F9BFF;
 
     /* Podio deportivo */
-    --podium-gold-bg: rgba(234, 179, 8, 0.10);
-    --podium-gold-border: rgba(234, 179, 8, 0.34);
-    --podium-silver-bg: rgba(148, 163, 184, 0.10);
-    --podium-silver-border: rgba(148, 163, 184, 0.32);
-    --podium-bronze-bg: rgba(217, 119, 6, 0.10);
-    --podium-bronze-border: rgba(217, 119, 6, 0.32);
+    --podium-gold-text: #FBBF24;
+    --podium-gold-bg: #1F1B0E;
+    --podium-gold-border: #5E4A18;
 
-    /* Escala tipográfica (Inter + fallback nativo limpio) */
+    --podium-silver-text: #C7D0DE;
+    --podium-silver-bg: #121A28;
+    --podium-silver-border: #2A3650;
+
+    --podium-bronze-text: #FB923C;
+    --podium-bronze-bg: #22160F;
+    --podium-bronze-border: #5E3519;
+
+    /* Tipografía Inter (400, 500, 600, 700) */
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
     --font-mono: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace;
 
-    --text-xs: 0.78rem;      /* ~12.5px */
-    --text-sm: 0.85rem;      /* ~13.6px */
-    --text-base: 0.9375rem;  /* 15px — lectura cómoda */
+    --text-xs: 0.75rem;      /* 12px */
+    --text-sm: 0.875rem;     /* 14px */
+    --text-base: 0.9375rem;  /* 15px */
     --text-md: 1rem;         /* 16px */
-    --text-lg: 1.125rem;     /* 18px */
-    --text-xl: 1.35rem;      /* ~21.5px */
-    --text-2xl: 1.6rem;      /* ~25.5px */
+    --text-lg: 1.1875rem;    /* 19px */
+    --text-xl: 1.375rem;     /* 22px */
+    --text-2xl: 1.625rem;    /* 26px */
 
     /* Escala de espaciado */
     --space-1: 4px;
@@ -87,20 +96,27 @@
     --space-8: 32px;
     --space-10: 40px;
 
-    /* Radios */
-    --radius-xs: 4px;
-    --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 14px;
+    /* Radios oficiales */
+    --radius-xs: 6px;
+    --radius-sm: 10px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-card: 16px;
+    --radius-panel: 16px;
+    --radius-control: 10px;
     --radius-full: 999px;
 
-    /* Elevación y foco */
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
-    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.36);
-    --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.52);
-    --focus-ring: 0 0 0 3px rgba(59, 130, 246, 0.34);
+    /* Alturas de controles */
+    --control-height: 42px;
 
-    /* Movimiento discreto */
+    /* Sombras desactivadas: separación estricta por bordes */
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: none;
+    --shadow-card: none;
+    --focus-ring: 0 0 0 2px #6F9BFF;
+
+    /* Movimiento */
     --ease-standard: cubic-bezier(0.2, 0, 0, 1);
     --dur-fast: 140ms;
     --dur-normal: 200ms;
@@ -113,19 +129,19 @@
     --z-modal: 200;
     --z-toast: 300;
 
-    /* Dimensiones de App Shell */
-    --sidebar-width: 248px;
+    /* Dimensiones de estructura general */
+    --sidebar-width: 232px;
     --sidebar-collapsed-width: 68px;
     --topbar-height: 56px;
-    --content-max-width: 1320px;
+    --content-max-width: 1440px;
 
-    /* Puente de compatibilidad para vistas heredadas y Planificación (intangible) */
+    /* Alias de compatibilidad interna */
     --primary-color: var(--accent-primary);
     --primary-hover: var(--accent-hover);
     --bg-color: var(--bg-canvas);
     --bg-card: var(--bg-surface);
-    --bg-soft: var(--bg-subtle);
-    --surface-soft: var(--bg-subtle);
+    --bg-soft: var(--bg-secondary);
+    --surface-soft: var(--bg-secondary);
     --line-soft: var(--border-subtle);
     --border-color: var(--border-default);
     --ink: var(--text-primary);
@@ -135,72 +151,9 @@
     --success-soft: var(--status-success-bg);
     --warning-soft: var(--status-warning-bg);
     --danger: var(--status-danger);
-    --shadow-card: var(--shadow-sm);
-    --radius: var(--radius-md);
+    --radius: var(--radius-control);
     --spacing-sm: 10px;
-    --spacing-md: 18px;
+    --spacing-md: 20px;
     --spacing-lg: 24px;
     --font-base: 14px;
-}
-
-/* Tema claro opcional coherente con el mismo sistema de tokens */
-:root[data-theme="light"] {
-    color-scheme: light;
-
-    --bg-canvas: #F8FAFC;
-    --bg-sidebar: #FFFFFF;
-    --bg-surface: #FFFFFF;
-    --bg-elevated: #F1F5F9;
-    --bg-subtle: #F1F5F9;
-    --bg-hover: #E2E8F0;
-    --bg-input: #FFFFFF;
-
-    --border-subtle: #E2E8F0;
-    --border-default: #CBD5E1;
-    --border-strong: #94A3B8;
-    --border-focus: #2563EB;
-
-    --text-primary: #0F172A;
-    --text-secondary: #475569;
-    --text-muted: #64748B;
-    --text-inverse: #FFFFFF;
-
-    --accent-primary: #2563EB;
-    --accent-hover: #1D4ED8;
-    --accent-active: #1E40AF;
-    --accent-soft: rgba(37, 99, 235, 0.10);
-    --accent-border: rgba(37, 99, 235, 0.28);
-    --accent-text: #1D4ED8;
-
-    --status-success: #16A34A;
-    --status-success-bg: #ECFDF5;
-    --status-success-border: #A7F3D0;
-    --status-success-text: #15803D;
-
-    --status-warning: #D97706;
-    --status-warning-bg: #FFFBEB;
-    --status-warning-border: #FDE68A;
-    --status-warning-text: #B45309;
-
-    --status-danger: #DC2626;
-    --status-danger-bg: #FEF2F2;
-    --status-danger-border: #FECACA;
-    --status-danger-text: #B91C1C;
-
-    --status-info: #2563EB;
-    --status-info-bg: #EFF6FF;
-    --status-info-border: #BFDBFE;
-    --status-info-text: #1D4ED8;
-
-    --podium-gold-bg: #FFFBEB;
-    --podium-gold-border: #FCD34D;
-    --podium-silver-bg: #F8FAFC;
-    --podium-silver-border: #CBD5E1;
-    --podium-bronze-bg: #FFF7ED;
-    --podium-bronze-border: #FDBA74;
-
-    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-    --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.08);
-    --shadow-lg: 0 20px 48px rgba(15, 23, 42, 0.14);
-    --focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.20);
 }

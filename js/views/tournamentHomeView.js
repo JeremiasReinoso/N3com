@@ -4,15 +4,30 @@ import { goToTournament } from '../core/tournamentRoute.js';
 import { DataManager } from '../data/dataManager.js';
 import { CompetitionEngine, SchedulingEngine } from '../engine/index.js';
 import { formatLabelFor } from './formatConfigurator.js';
-import { icon } from '../ui/icons.js';
+
+const formatLongDateRange = dates => {
+    if (!dates.length) return 'Fechas aún sin definir';
+    try {
+        const first = new Date(`${dates[0]}T12:00:00`);
+        const last = new Date(`${dates.at(-1)}T12:00:00`);
+        const sameMonth = first.getMonth() === last.getMonth() && first.getFullYear() === last.getFullYear();
+        const monthYear = new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric' }).format(last);
+        if (dates.length === 1) return `${first.getDate()} de ${monthYear}`;
+        if (sameMonth) return `${first.getDate()} al ${last.getDate()} de ${monthYear}`;
+        const fmt = new Intl.DateTimeFormat('es-AR', { day: 'numeric', month: 'long' });
+        return `${fmt.format(first)} al ${fmt.format(last)} de ${last.getFullYear()}`;
+    } catch {
+        return `${dates[0]} al ${dates.at(-1)}`;
+    }
+};
 
 const nextActionForCategory = ({ teams, zones, needsZones, status }) => {
-    if (teams < 2) return { label: 'Inscribir equipos', section: 'equipos' };
-    if (needsZones && zones < 1) return { label: 'Armar zonas', section: 'zonas' };
-    if (status.officialMatches === 0) return { label: 'Generar partidos', section: 'programacion' };
-    if (status.finishedMatches < status.officialMatches) return { label: 'Cargar resultados', section: 'resultados' };
-    if (!status.completed) return { label: 'Avanzar etapa final', section: 'eliminatorias' };
-    return { label: 'Ver posiciones finales', section: 'posiciones' };
+    if (teams < 2) return { label: 'Cargar equipos', section: 'equipos', priority: true };
+    if (needsZones && zones < 1) return { label: 'Definir zonas', section: 'zonas', priority: true };
+    if (status.officialMatches === 0) return { label: 'Generar partidos', section: 'programacion', priority: true };
+    if (status.finishedMatches < status.officialMatches) return { label: 'Cargar resultados', section: 'resultados', priority: false };
+    if (!status.completed) return { label: 'Definir eliminatorias', section: 'eliminatorias', priority: false };
+    return { label: 'Ver posiciones', section: 'posiciones', priority: false };
 };
 
 export function initTournamentHomeView() {
@@ -21,7 +36,7 @@ export function initTournamentHomeView() {
     try { tournamentId = AppState.getTournament(); } catch { tournamentId = null; }
     const tournament = tournamentId ? DataManager.getTournament(tournamentId) : null;
     if (!tournament) {
-        view.innerHTML = '<div class="empty-state"><strong>Seleccioná un torneo</strong><p>Elegí un torneo desde Mis Torneos para ver su panel general.</p></div>';
+        view.innerHTML = '<div class="empty-state"><strong>Elegí un torneo</strong><p>Seleccioná un torneo desde Mis torneos para ver su panel general.</p></div>';
         return;
     }
 
@@ -35,7 +50,6 @@ export function initTournamentHomeView() {
     const scheduledMatches = officialMatches.filter(m => m.fecha && m.hora && m.cancha);
     const finishedMatches = officialMatches.filter(match => match.estado === 'finalizado');
 
-    // Estado real de los 6 pasos guiados para el organizador
     const zonesReady = categories.length > 0 && categories.every(cat => {
         const fmt = CompetitionEngine.getCategoryFormat(tournamentId, cat.id);
         const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, cat.id);
@@ -47,106 +61,121 @@ export function initTournamentHomeView() {
 
     const steps = [
         {
-            num: 'Paso 1',
             title: 'Calendario y canchas',
+            promptTitle: 'Configurá el calendario y las canchas',
+            promptDesc: 'Definí los días de juego, bloques horarios y canchas disponibles del torneo.',
             done: dates.length > 0 && courts.length > 0,
-            detail: dates.length ? `${dates.length} jornada${dates.length === 1 ? '' : 's'} · ${courts.length} cancha${courts.length === 1 ? '' : 's'}` : 'Definir fechas y horarios de juego',
+            detail: dates.length ? `${dates.length} jornada${dates.length === 1 ? '' : 's'} · ${courts.length} cancha${courts.length === 1 ? '' : 's'}` : 'Definí fechas y horarios',
             section: 'calendario'
         },
         {
-            num: 'Paso 2',
             title: 'Categorías y equipos',
+            promptTitle: 'Cargá las categorías y los equipos',
+            promptDesc: 'Elegí las categorías participantes e inscribí los equipos de cada una.',
             done: categories.length > 0 && totalTeams >= 2,
-            detail: categories.length ? `${categories.length} cat. · ${totalTeams} equipo${totalTeams === 1 ? '' : 's'}` : 'Crear categorías e inscribir equipos',
+            detail: categories.length ? `${categories.length} categoría${categories.length === 1 ? '' : 's'} · ${totalTeams} equipo${totalTeams === 1 ? '' : 's'}` : 'Creá categorías e inscribí equipos',
             section: 'equipos'
         },
         {
-            num: 'Paso 3',
             title: 'Modalidad y zonas',
+            promptTitle: 'Definí la modalidad y las zonas',
+            promptDesc: 'Formato por categoría, sorteo de zonas y clasificación a eliminatorias.',
             done: zonesReady,
-            detail: zonesReady ? 'Formatos y zonas completos' : 'Configurar formato o sortear zonas',
+            detail: zonesReady ? 'Formatos y zonas completos' : 'Formato o sorteo de zonas',
             section: categories.length ? 'zonas' : 'equipos'
         },
         {
-            num: 'Paso 4',
             title: 'Generar partidos',
+            promptTitle: 'Generá y confirmá los partidos',
+            promptDesc: 'Armá los emparejamientos de cada categoría y confirmalos en el fixture.',
             done: officialMatches.length > 0,
-            detail: officialMatches.length ? `${officialMatches.length} partido${officialMatches.length === 1 ? '' : 's'} confirmado${officialMatches.length === 1 ? '' : 's'}` : 'Armar y confirmar emparejamientos',
+            detail: officialMatches.length ? `${officialMatches.length} partido${officialMatches.length === 1 ? '' : 's'} confirmado${officialMatches.length === 1 ? '' : 's'}` : 'Armá y confirmá emparejamientos',
             section: 'programacion'
         },
         {
-            num: 'Paso 5',
             title: 'Horarios y canchas',
+            promptTitle: 'Asigná horarios y canchas',
+            promptDesc: 'Distribuí automáticamente los partidos confirmados en las canchas sin conflictos.',
             done: officialMatches.length > 0 && scheduledMatches.length === officialMatches.length && conflicts.length === 0,
-            detail: conflicts.length ? `${conflicts.length} alerta${conflicts.length === 1 ? '' : 's'} por revisar` : (scheduledMatches.length ? 'Fixture programado sin conflictos' : 'Asignar días, horas y canchas'),
+            detail: conflicts.length ? `${conflicts.length} alerta${conflicts.length === 1 ? '' : 's'} por revisar` : (scheduledMatches.length ? 'Fixture sin conflictos' : 'Asigná días, horas y canchas'),
             section: 'programacion'
         },
         {
-            num: 'Paso 6',
             title: 'Resultados y finales',
+            promptTitle: 'Cargá los resultados y definí las llaves',
+            promptDesc: 'Ingresá los sets de cada partido para actualizar posiciones y eliminatorias.',
             done: officialMatches.length > 0 && finishedMatches.length === officialMatches.length,
-            detail: officialMatches.length ? `${finishedMatches.length} de ${officialMatches.length} jugados` : 'Cargar sets, tablas y eliminatorias',
+            detail: officialMatches.length ? `${finishedMatches.length} de ${officialMatches.length} jugados` : 'Cargá sets, tablas y finales',
             section: 'resultados'
         }
     ];
+
     const nextStepIndex = steps.findIndex(step => !step.done);
-    const primaryStep = steps[nextStepIndex >= 0 ? nextStepIndex : 5];
+    const activeStepIdx = nextStepIndex >= 0 ? nextStepIndex : 5;
+    const primaryStep = steps[activeStepIdx];
+
+    let categoryBlueAssigned = false;
 
     view.innerHTML = `
         <div class="page-header">
             <div class="page-header-main">
-                <span class="page-eyebrow">${escapeHtml(tournament.organizacion || 'Torneo activo')}</span>
-                <h2>${escapeHtml(tournament.nombre)}</h2>
-                <p>
-                    Modalidad base: <strong>${escapeHtml(formatLabelFor(tournament.defaultFormatConfig))}</strong> ·
-                    ${dates.length ? `${dates[0]} → ${dates.at(-1)} (${dates.length} jornada${dates.length === 1 ? '' : 's'})` : 'Fechas aún sin definir'}
-                </p>
+                <span class="page-eyebrow">${escapeHtml((tournament.organizacion || 'TORNEO ACTIVO').toUpperCase())}</span>
+                <h1>${escapeHtml(tournament.nombre)}</h1>
+                <p>${escapeHtml(formatLabelFor(tournament.defaultFormatConfig))} · ${escapeHtml(formatLongDateRange(dates))}</p>
             </div>
             <div class="page-header-actions">
-                <button type="button" id="btn-home-settings" class="btn-secondary">
-                    ${icon('settings', { size: 16 })}
-                    <span>Configuración</span>
-                </button>
-                <button type="button" id="btn-home-exports" class="btn-secondary">
-                    ${icon('fileDown', { size: 16 })}
-                    <span>Exportaciones</span>
-                </button>
-                <button type="button" id="btn-home-primary" class="btn-primary" data-target-section="${escapeHtml(primaryStep.section)}">
-                    <span>${nextStepIndex >= 0 ? `Continuar: ${escapeHtml(primaryStep.title)}` : 'Ver posiciones y cierre'}</span>
-                    ${icon('arrowRight', { size: 16 })}
-                </button>
+                <button type="button" id="btn-home-settings" class="btn-secondary">Configuración</button>
+                <button type="button" id="btn-home-exports" class="btn-secondary">Exportar</button>
             </div>
         </div>
 
-        <div class="kpi-grid" style="margin-bottom: var(--space-5);" aria-label="Indicadores del torneo">
-            <div class="kpi-card"><span class="kpi-label">Categorías</span><strong class="kpi-value">${categories.length}</strong></div>
-            <div class="kpi-card"><span class="kpi-label">Equipos</span><strong class="kpi-value">${totalTeams}</strong></div>
-            <div class="kpi-card"><span class="kpi-label">Canchas</span><strong class="kpi-value">${courts.length}</strong></div>
-            <div class="kpi-card"><span class="kpi-label">Partidos jugados</span><strong class="kpi-value">${finishedMatches.length} / ${officialMatches.length}</strong></div>
+        <div class="kpi-grid kpi-grid-5" aria-label="Métricas del torneo">
             <div class="kpi-card">
+                <span class="kpi-label">Categorías</span>
+                <strong class="kpi-value">${categories.length}</strong>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">Equipos</span>
+                <strong class="kpi-value">${totalTeams}</strong>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">Canchas</span>
+                <strong class="kpi-value">${courts.length}</strong>
+            </div>
+            <div class="kpi-card">
+                <span class="kpi-label">Partidos jugados</span>
+                <strong class="kpi-value">${finishedMatches.length}<span class="kpi-inline-sub">/ ${officialMatches.length}</span></strong>
+            </div>
+            <div class="kpi-card ${conflicts.length ? 'is-warning' : 'is-optimal'}">
                 <span class="kpi-label">Estado logístico</span>
-                <strong class="kpi-value" style="color:${conflicts.length ? 'var(--status-warning-text)' : 'var(--status-success-text)'};">${conflicts.length ? `${conflicts.length} alerta${conflicts.length === 1 ? '' : 's'}` : 'Óptimo'}</strong>
+                <strong class="kpi-value">${conflicts.length ? `${conflicts.length} alerta${conflicts.length === 1 ? '' : 's'}` : 'Óptimo'}</strong>
             </div>
         </div>
 
-        <section class="section-card" aria-label="Guía paso a paso del torneo">
-            <div class="section-card-head">
-                <div>
-                    <h3>Guía rápida de organización</h3>
-                    <p>Hacé clic en cualquier paso para ir directamente a esa pantalla.</p>
+        <section class="section-block" aria-label="Siguiente paso">
+            <div class="section-block-head">
+                <h3>Siguiente paso</h3>
+                <span>Paso ${activeStepIdx + 1} de 6</span>
+            </div>
+            <div class="next-step-banner">
+                <div class="next-step-banner-text">
+                    <strong>${escapeHtml(nextStepIndex >= 0 ? primaryStep.promptTitle : 'Torneo completado · Revisá posiciones e informes')}</strong>
+                    <p>${escapeHtml(nextStepIndex >= 0 ? primaryStep.promptDesc : 'Todos los partidos confirmados finalizaron. Podés consultar el podio o exportar reportes oficiales.')}</p>
                 </div>
+                <button type="button" id="btn-home-primary" class="btn-primary" data-target-section="${escapeHtml(nextStepIndex >= 0 ? primaryStep.section : 'posiciones')}">Continuar →</button>
+            </div>
+        </section>
+
+        <section class="section-block" aria-label="Progreso del torneo">
+            <div class="section-block-head">
+                <h3>Progreso del torneo</h3>
             </div>
             <div class="workflow-stepper">
                 ${steps.map((step, idx) => {
                     const stateClass = step.done ? 'is-done' : (idx === nextStepIndex ? 'is-next' : '');
-                    const badge = step.done
-                        ? `<span class="badge badge-success">${icon('check', { size: 12 })} Listo</span>`
-                        : (idx === nextStepIndex ? '<span class="badge badge-neutral">Siguiente</span>' : '<span class="badge badge-muted">Pendiente</span>');
+                    const stateText = step.done ? '✓ Listo' : (idx === nextStepIndex ? 'Siguiente' : 'Pendiente');
                     return `<button type="button" class="workflow-step ${stateClass}" data-step-section="${escapeHtml(step.section)}">
-                        <div class="workflow-step-head">
-                            <span class="workflow-step-num">${escapeHtml(step.num)}</span>
-                            ${badge}
-                        </div>
+                        <span class="workflow-step-state">${stateText}</span>
                         <strong>${escapeHtml(step.title)}</strong>
                         <small>${escapeHtml(step.detail)}</small>
                     </button>`;
@@ -154,16 +183,10 @@ export function initTournamentHomeView() {
             </div>
         </section>
 
-        <section class="section-card">
-            <div class="section-card-head">
-                <div>
-                    <h3>Categorías del torneo</h3>
-                    <p>Cada categoría mantiene su formato, zonas, fixture y clasificación independientes.</p>
-                </div>
-                <button id="btn-ir-equipos" type="button" class="btn-secondary">
-                    ${icon('plus', { size: 16 })}
-                    <span>Gestionar categorías</span>
-                </button>
+        <section class="section-block" aria-label="Categorías">
+            <div class="section-block-head">
+                <h3>Categorías</h3>
+                ${categories.length ? '<button id="btn-ir-equipos" type="button" class="btn-ghost btn-sm">Gestionar categorías →</button>' : ''}
             </div>
             <div class="grid-cards">
                 ${categories.length ? categories.map(category => {
@@ -174,34 +197,31 @@ export function initTournamentHomeView() {
                     const needsZones = format.definition.requiresZones || format.config.stages?.[0]?.type === 'ZONAS';
                     const pct = status.officialMatches ? Math.round((status.finishedMatches / status.officialMatches) * 100) : 0;
                     const nextAct = nextActionForCategory({ teams, zones, needsZones, status });
+                    const useBlueBtn = !status.champion && nextAct.priority && !categoryBlueAssigned;
+                    if (useBlueBtn) categoryBlueAssigned = true;
 
                     return `<article class="card category-dashboard-card">
-                        <div class="section-card-head" style="margin-bottom: 4px;">
-                            <span class="calendar-chip">${escapeHtml(category.nombre)}</span>
-                            <div class="ui-dropdown" data-dropdown>
-                                <button type="button" class="btn-icon" data-dropdown-trigger aria-label="Ir a sección de ${escapeHtml(category.nombre)}" aria-expanded="false">${icon('moreHorizontal', { size: 18 })}</button>
-                                <div class="ui-dropdown-menu" data-dropdown-menu hidden>
-                                    <button type="button" class="ui-dropdown-item jump-cat" data-cat="${escapeHtml(category.id)}" data-section="equipos">${icon('users', { size: 15 })}<span>Equipos y modalidad</span></button>
-                                    <button type="button" class="ui-dropdown-item jump-cat" data-cat="${escapeHtml(category.id)}" data-section="zonas">${icon('layers', { size: 15 })}<span>Zonas y sorteo</span></button>
-                                    <button type="button" class="ui-dropdown-item jump-cat" data-cat="${escapeHtml(category.id)}" data-section="programacion">${icon('calendarClock', { size: 15 })}<span>Programación y fixture</span></button>
-                                    <button type="button" class="ui-dropdown-item jump-cat" data-cat="${escapeHtml(category.id)}" data-section="resultados">${icon('clipboardCheck', { size: 15 })}<span>Cargar resultados</span></button>
-                                    <button type="button" class="ui-dropdown-item jump-cat" data-cat="${escapeHtml(category.id)}" data-section="posiciones">${icon('trophy', { size: 15 })}<span>Tabla de posiciones</span></button>
-                                    <button type="button" class="ui-dropdown-item jump-cat" data-cat="${escapeHtml(category.id)}" data-section="eliminatorias">${icon('gitBranch', { size: 15 })}<span>Sub-zonas / Eliminatorias</span></button>
-                                </div>
-                            </div>
+                        <div class="category-dashboard-card-head">
+                            <span class="chip-pill chip-blue">${escapeHtml(category.nombre)}</span>
                         </div>
-                        <strong style="font-size: var(--text-base); color: var(--text-primary);">${escapeHtml(formatLabelFor(format.config))}</strong>
-                        <small class="helper-text">${teams} equipo${teams === 1 ? '' : 's'}${needsZones ? ` · ${zones} zona${zones === 1 ? '' : 's'}` : ''} · ${status.finishedMatches}/${status.officialMatches} partidos jugados</small>
-                        <div class="progress-track" aria-hidden="true"><div class="progress-fill ${status.completed ? 'is-complete' : ''}" style="width: ${pct}%;"></div></div>
-                        ${status.champion ? `<span class="badge badge-success">${icon('trophy', { size: 13 })} Campeón: ${escapeHtml(status.champion.nombre)}</span>` : ''}
-                        <div class="card-actions" style="margin-top: 8px;">
-                            <button type="button" class="btn-primary jump-cat" data-cat="${escapeHtml(category.id)}" data-section="${escapeHtml(nextAct.section)}">
-                                <span>${escapeHtml(nextAct.label)}</span>
-                                ${icon('arrowRight', { size: 15 })}
-                            </button>
+                        <h4 class="category-dashboard-title">${escapeHtml(formatLabelFor(format.config))}</h4>
+                        <p class="category-dashboard-meta">${teams} equipo${teams === 1 ? '' : 's'}${needsZones ? ` · ${zones} zona${zones === 1 ? '' : 's'}` : ''} · ${status.finishedMatches} de ${status.officialMatches} partidos</p>
+                        <div class="progress-track" aria-hidden="true">
+                            <div class="progress-fill ${status.completed ? 'is-complete' : ''}" style="width: ${pct}%;"></div>
                         </div>
+                        ${status.champion
+                            ? `<p class="category-dashboard-champion">Campeón: ${escapeHtml(status.champion.nombre)}</p>`
+                            : `<div class="category-dashboard-action">
+                                <button type="button" class="${useBlueBtn ? 'btn-primary' : 'btn-secondary'} jump-cat" data-cat="${escapeHtml(category.id)}" data-section="${escapeHtml(nextAct.section)}">${escapeHtml(nextAct.label)}</button>
+                            </div>`}
                     </article>`;
-                }).join('') : `<div class="empty-state"><span class="empty-state-icon">${icon('users', { size: 22 })}</span><strong>Aún no creaste categorías</strong><p>Comenzá creando las categorías del torneo (+40, +50, +60, +68 o personalizada) e inscribiendo los equipos.</p><button type="button" class="btn-primary" id="btn-empty-add-cats">${icon('plus', { size: 16 })}<span>Crear categorías</span></button></div>`}
+                }).join('') : `
+                    <div class="empty-state" style="grid-column: 1 / -1;">
+                        <strong>Todavía no creaste categorías</strong>
+                        <p>Definí las categorías (+40, +50, +60, +68 o libre) para empezar a cargar equipos.</p>
+                        <button type="button" class="btn-primary" id="btn-empty-add-cats">+ Crear categorías</button>
+                    </div>
+                `}
             </div>
         </section>`;
 

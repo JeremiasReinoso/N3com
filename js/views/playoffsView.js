@@ -6,13 +6,13 @@ import { CompetitionEngine, KnockoutEngine, QualificationEngine } from '../engin
 import { formatLabelFor } from './formatConfigurator.js';
 
 const PHASE_LABELS = {
-    ZONA_FINAL: 'Zona Final (Todos contra todos)',
-    TOP_32: 'Top 32 · Dieciseisavos',
-    TOP_16: 'Top 16 · Octavos',
-    TOP_8: 'Top 8 · Cuartos de final',
-    SEMIFINAL: 'Semifinales',
-    THIRD_PLACE: 'Tercer puesto',
-    FINAL: 'Final'
+    ZONA_FINAL: 'ZONA FINAL',
+    TOP_32: 'DIECISEISAVOS DE FINAL',
+    TOP_16: 'OCTAVOS DE FINAL',
+    TOP_8: 'CUARTOS DE FINAL',
+    SEMIFINAL: 'SEMIFINALES',
+    THIRD_PLACE: 'TERCER PUESTO',
+    FINAL: 'FINAL'
 };
 const ORDERED_STAGE_PHASES = ['ZONA_FINAL', 'TOP_32', 'TOP_16', 'TOP_8', 'SEMIFINAL', 'THIRD_PLACE', 'FINAL'];
 
@@ -21,7 +21,7 @@ const sourceLabel = (sourceId, matches, isLoser = false) => {
     if (!sourceId) return 'Por definir';
     const sourceMatch = matches.find(item => item.id === sourceId);
     if (!sourceMatch) return 'Por definir';
-    const stage = { TOP_32: 'Top 32', TOP_16: 'Top 16', TOP_8: 'Cuartos', SEMIFINAL: 'Semifinal' }[sourceMatch.phase] || sourceMatch.phase;
+    const stage = { TOP_32: 'Top 32', TOP_16: 'Octavos', TOP_8: 'Cuartos', SEMIFINAL: 'Semifinal' }[sourceMatch.phase] || sourceMatch.phase;
     return `${isLoser ? 'Perdedor' : 'Ganador'} ${stage} ${sourceMatch.orden || 1}`;
 };
 const participant = (match, side, teams, matches) => {
@@ -30,46 +30,64 @@ const participant = (match, side, teams, matches) => {
     if (match.sourceLoserMatchIds?.[slot]) return sourceLabel(match.sourceLoserMatchIds[slot], matches, true);
     return sourceLabel(match.sourceMatchIds?.[slot], matches, false);
 };
-const renderMatch = (match, teams, matches) => `
-    <article class="schedule-match bracket-match-card ${match.estado === 'finalizado' ? 'is-finished' : ''}">
-        <div class="schedule-match-time">
-            <strong>${escapeHtml(match.hora || 'Horario pendiente')}</strong>
-            <span>${escapeHtml(match.fecha || 'Fecha pendiente')}${match.cancha ? ` · ${escapeHtml(match.cancha)}` : ''}</span>
-        </div>
-        <div class="schedule-match-main">
-            <div>
-                <span class="schedule-stage">${escapeHtml(match.nombreEtapa || PHASE_LABELS[match.phase] || match.phase)}</span>
-                <strong>${escapeHtml(participant(match, 'equipoLocalId', teams, matches))} <b>vs</b> ${escapeHtml(participant(match, 'equipoVisitanteId', teams, matches))}</strong>
-                ${match.estado === 'finalizado' ? `<small>${(match.sets || []).map((set, index) => `S${index + 1}: ${set.puntosLocal}-${set.puntosVisitante}`).join(' · ')}</small>` : ''}
+
+const formatScoreDash = score => String(score || '').replace('-', '–');
+
+const renderMatchMeta = match => {
+    const bits = [match.hora || match.fecha || 'Horario a definir', match.cancha || ''].filter(Boolean);
+    return bits.join(' · ');
+};
+
+const renderBracketCard = (match, teams, matches, isFinal = false) => {
+    const finished = match.estado === 'finalizado';
+    return `
+        <article class="bracket-card ${isFinal ? 'is-final-card' : ''}">
+            <span class="bracket-card-meta">${escapeHtml(renderMatchMeta(match))}</span>
+            <div class="bracket-card-teams">
+                <strong>${escapeHtml(participant(match, 'equipoLocalId', teams, matches))}</strong>
+                <span class="vs-sep">vs</span>
+                <strong>${escapeHtml(participant(match, 'equipoVisitanteId', teams, matches))}</strong>
             </div>
-            ${match.estado === 'finalizado' ? `<span class="schedule-score">${escapeHtml(match.score)}</span>` : '<span class="match-status pending">PENDIENTE</span>'}
-        </div>
-    </article>`;
+            <span class="bracket-card-score ${finished ? '' : 'is-pending'}">${finished ? escapeHtml(formatScoreDash(match.score)) : 'Pendiente'}</span>
+        </article>`;
+};
 
 export function initPlayoffsView() {
-    let tournamentId; try { tournamentId = AppState.getTournament(); } catch { tournamentId = null; }
+    let tournamentId;
+    try { tournamentId = AppState.getTournament(); } catch { tournamentId = null; }
     const container = document.getElementById('eliminatorias-list');
     const controls = document.querySelector('#view-eliminatorias .panel-control');
     const categoryId = AppState.getCategory();
-    if (!tournamentId || !categoryId) { controls.innerHTML = '<p>Seleccione un torneo y una categoría desde Equipos.</p>'; container.innerHTML = ''; return; }
+    if (!tournamentId || !categoryId) {
+        controls.innerHTML = '';
+        container.innerHTML = '<div class="empty-state"><strong>Elegí una categoría</strong><p>Seleccioná un torneo y una categoría desde Equipos para ver sus eliminatorias.</p></div>';
+        return;
+    }
 
-    const tournament = DataManager.getTournament(tournamentId);
     const category = DataManager.getCategory(categoryId);
     const teams = DataManager.getTeamsByTournamentAndCategory(tournamentId, categoryId);
-    const { definition, config } = CompetitionEngine.getCategoryFormat(tournamentId, categoryId);
+    const { config } = CompetitionEngine.getCategoryFormat(tournamentId, categoryId);
+    const catStatus = CompetitionEngine.getCategoryStatus(tournamentId, categoryId);
     const allMatches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId);
 
-    // Formatos sin eliminatorias ni Zona Final (ej. Todos contra Todos o Liga sin playoffs)
     const noFinalStage = ['TODOS_CONTRA_TODOS', 'LIGA_RONDAS'].includes(config.formatId) && !config.includePlayoffs;
     if (noFinalStage) {
-        controls.innerHTML = `<div class="form-title"><div><h3>${escapeHtml(tournament.nombre)} · ${escapeHtml(category.nombre)}</h3><p>Formato configurado: <strong>${escapeHtml(formatLabelFor(config))}</strong>. Este formato define la clasificación directamente por tabla general sin instancias eliminatorias.</p></div><span class="calendar-chip">FORMATO ${escapeHtml(definition.code || '')}</span></div>`;
-        container.innerHTML = '<div class="empty-state">No se generan eliminatorias para este formato. Consultá la tabla en la pestaña <strong>Posiciones</strong>.</div>';
+        controls.innerHTML = `
+            <div class="page-header" style="margin-bottom:0;">
+                <div class="page-header-main">
+                    <span class="page-eyebrow">ELIMINATORIAS · ${escapeHtml(category.nombre.toUpperCase())}</span>
+                    <h1>Cuadro final</h1>
+                    <p>${escapeHtml(formatLabelFor(config))} · Definición directa por tabla general.</p>
+                </div>
+                ${catStatus.champion ? `<div class="page-header-actions"><span class="chip-pill chip-green">Campeón: ${escapeHtml(catStatus.champion.nombre)}</span></div>` : ''}
+            </div>`;
+        container.innerHTML = '<div class="empty-state"><strong>Modalidad sin cruces eliminatorios</strong><p>Esta categoría define el campeón directamente en la pestaña Posiciones.</p></div>';
         return;
     }
 
     const sourcePhases = config.formatId === 'LIGA_RONDAS' || config.formatId === 'TODOS_CONTRA_TODOS' ? ['LIGA'] : ['ZONAS'];
     const sourceProgress = config.formatId === 'ELIMINACION_DIRECTA'
-        ? { ok: teams.length >= 2, mensaje: teams.length >= 2 ? `${teams.length} equipos listos para eliminación directa.` : 'Agregá al menos 2 equipos.' }
+        ? { ok: teams.length >= 2, mensaje: teams.length >= 2 ? `${teams.length} equipos listos para eliminación directa` : 'Cargá al menos 2 equipos' }
         : QualificationEngine.isSourceStageCompleted(tournamentId, categoryId, sourcePhases);
 
     let generationWarning = '';
@@ -78,7 +96,6 @@ export function initPlayoffsView() {
     const hasFinalGroup = stageMatches.some(match => match.phase === 'ZONA_FINAL');
     const isFinalGroupOnly = config.formatId === 'ZONAS_ZONA_FINAL';
 
-    // Conserva avance automático progresivo únicamente para el flujo legado Top 16 si ya fue iniciado.
     const isLegacyTop16 = config.formatId === 'ZONAS_ELIMINATORIAS'
         && (config.qualificationMode || 'general_top_n') === 'general_top_n'
         && Number(config.qualifiersTotal || 16) === 16
@@ -99,49 +116,103 @@ export function initPlayoffsView() {
     }
 
     const updatedMatches = DataManager.getMatchesByTournamentAndCategory(tournamentId, categoryId).filter(match => ORDERED_STAGE_PHASES.includes(match.phase));
-    const groups = ORDERED_STAGE_PHASES.map(phase => ({ phase, items: updatedMatches.filter(match => match.phase === phase) })).filter(group => group.items.length);
 
     let actionLabel = '';
     if (isFinalGroupOnly && !hasFinalGroup) actionLabel = 'Generar Zona Final';
-    else if (!hasKnockout && !isFinalGroupOnly) actionLabel = config.formatId === 'ELIMINACION_DIRECTA' ? 'Generar cuadro de Eliminación Directa' : 'Generar cuadro eliminatorio';
+    else if (!hasKnockout && !isFinalGroupOnly) actionLabel = config.formatId === 'ELIMINACION_DIRECTA' ? 'Generar cuadro' : 'Generar eliminatorias';
     else if (hasKnockout && !updatedMatches.some(m => m.phase === 'FINAL')) actionLabel = 'Generar siguiente ronda';
 
     const semisFinished = updatedMatches.filter(m => m.phase === 'SEMIFINAL').length === 2
         && updatedMatches.filter(m => m.phase === 'SEMIFINAL').every(m => m.estado === 'finalizado');
     const canGenerateThird = !isFinalGroupOnly && semisFinished && !updatedMatches.some(m => m.phase === 'THIRD_PLACE');
 
-    const warningMarkup = generationWarning ? `<div class="planning-warning" role="alert"><strong>Aviso:</strong> ${escapeHtml(generationWarning)}</div>` : '';
-    const carryBadge = isFinalGroupOnly
-        ? `<p class="helper-text">Política de Zona Final: <strong>${config.carryOverMode === 'carry_over' ? 'Conserva resultados previos entre clasificados' : 'Arranque en 0 puntos'}</strong>.</p>`
-        : '';
+    const subtitleStatus = sourceProgress.ok ? 'Fase clasificatoria completada' : sourceProgress.mensaje;
 
     controls.innerHTML = `
-        <div class="form-title">
-            <div>
-                <h3>${escapeHtml(tournament.nombre)} · ${escapeHtml(category.nombre)}</h3>
-                <p>Formato: <strong>${escapeHtml(formatLabelFor(config))}</strong></p>
-                <p>${escapeHtml(sourceProgress.mensaje)}</p>
-                ${carryBadge}
+        <div class="page-header" style="margin-bottom:0;">
+            <div class="page-header-main">
+                <span class="page-eyebrow">ELIMINATORIAS · ${escapeHtml(category.nombre.toUpperCase())}</span>
+                <h1>Cuadro final</h1>
+                <p>${escapeHtml(formatLabelFor(config))} · ${escapeHtml(subtitleStatus)}</p>
             </div>
-            <span class="calendar-chip">${sourceProgress.ok ? 'LISTO PARA AVANZAR' : 'FASE EN CURSO'}</span>
+            <div class="page-header-actions">
+                ${catStatus.champion ? `<span class="chip-pill chip-green">Campeón: ${escapeHtml(catStatus.champion.nombre)}</span>` : ''}
+                ${canGenerateThird ? '<button id="btn-generar-tercer-puesto" class="btn-secondary" type="button">+ Tercer puesto</button>' : ''}
+                ${actionLabel ? `<button id="btn-avanzar-etapa" class="btn-primary" type="button" ${sourceProgress.ok ? '' : 'disabled'}>${escapeHtml(actionLabel)}</button>` : ''}
+            </div>
         </div>
-        ${warningMarkup}
-        <div class="form-actions">
-            ${actionLabel ? `<button id="btn-avanzar-etapa" class="btn-primary btn-large" type="button" ${sourceProgress.ok ? '' : 'disabled'}>${escapeHtml(actionLabel)}</button>` : ''}
-            ${canGenerateThird ? '<button id="btn-generar-tercer-puesto" class="btn-secondary" type="button">+ Generar partido por Tercer Puesto</button>' : ''}
-        </div>`;
+        ${generationWarning ? `<div class="planning-warning" role="alert" style="margin-top:16px;">${escapeHtml(generationWarning)}</div>` : ''}`;
 
-    const isBracketLayout = groups.some(group => KnockoutEngine.ALL_KNOCKOUT_PHASES.includes(group.phase));
-    container.innerHTML = groups.length
-        ? `<div class="${isBracketLayout ? 'bracket-board' : 'stage-groups-stack'}">${groups.map(group => `
-            <section class="schedule-day bracket-column">
-                <header>
-                    <div><span class="calendar-chip">${escapeHtml(PHASE_LABELS[group.phase].toUpperCase())}</span><h4>${escapeHtml(PHASE_LABELS[group.phase])}</h4></div>
-                    <strong>${group.items.length} partido${group.items.length === 1 ? '' : 's'}</strong>
-                </header>
-                <div class="schedule-match-list">${group.items.map(match => renderMatch(match, teams, updatedMatches)).join('')}</div>
-            </section>`).join('')}</div>`
-        : `<div class="empty-state">${isFinalGroupOnly ? 'Cuando finalice la fase de zonas, presioná "Generar Zona Final" para crear los enfrentamientos entre clasificados.' : 'Cuando finalice la fase clasificatoria (o desde el inicio en Eliminación Directa), generá el cuadro aquí.'}</div>`;
+    if (!updatedMatches.length) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <strong>Todavía no se generaron los cruces finales</strong>
+                <p>${isFinalGroupOnly ? 'Cuando finalice la fase de zonas, presioná "Generar Zona Final" para armar los enfrentamientos entre clasificados.' : 'Completá la fase clasificatoria y presioná "Generar eliminatorias" para armar el cuadro.'}</p>
+            </div>`;
+    } else if (isFinalGroupOnly) {
+        const finalZoneMatches = updatedMatches.filter(m => m.phase === 'ZONA_FINAL');
+        container.innerHTML = `
+            <div class="bracket-cards-stack">
+                ${finalZoneMatches.map(m => renderBracketCard(m, teams, updatedMatches, false)).join('')}
+            </div>`;
+    } else {
+        // Arma columnas de llaves apilando TERCER PUESTO debajo de SEMIFINALES y destacando FINAL en dorado.
+        const earlyPhases = ['TOP_32', 'TOP_16', 'TOP_8'].filter(phase => updatedMatches.some(m => m.phase === phase));
+        const semis = updatedMatches.filter(m => m.phase === 'SEMIFINAL');
+        const third = updatedMatches.filter(m => m.phase === 'THIRD_PLACE');
+        const finals = updatedMatches.filter(m => m.phase === 'FINAL');
+
+        const columnsMarkup = [];
+        earlyPhases.forEach(phase => {
+            const items = updatedMatches.filter(m => m.phase === phase);
+            columnsMarkup.push(`
+                <section class="bracket-col" aria-label="${escapeHtml(PHASE_LABELS[phase])}">
+                    <div class="bracket-col-block">
+                        <h3 class="bracket-col-title">${escapeHtml(PHASE_LABELS[phase])}</h3>
+                        <div class="bracket-cards-stack">
+                            ${items.map(m => renderBracketCard(m, teams, updatedMatches, false)).join('')}
+                        </div>
+                    </div>
+                </section>`);
+        });
+
+        if (semis.length || third.length) {
+            columnsMarkup.push(`
+                <section class="bracket-col" aria-label="Semifinales y Tercer puesto">
+                    ${semis.length ? `
+                        <div class="bracket-col-block">
+                            <h3 class="bracket-col-title">SEMIFINALES</h3>
+                            <div class="bracket-cards-stack">
+                                ${semis.map(m => renderBracketCard(m, teams, updatedMatches, false)).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                    ${third.length ? `
+                        <div class="bracket-col-block">
+                            <h3 class="bracket-col-title">TERCER PUESTO</h3>
+                            <div class="bracket-cards-stack">
+                                ${third.map(m => renderBracketCard(m, teams, updatedMatches, false)).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                </section>`);
+        }
+
+        if (finals.length) {
+            columnsMarkup.push(`
+                <section class="bracket-col" aria-label="Final">
+                    <div class="bracket-col-block">
+                        <h3 class="bracket-col-title is-final">FINAL</h3>
+                        <div class="bracket-cards-stack">
+                            ${finals.map(m => renderBracketCard(m, teams, updatedMatches, true)).join('')}
+                        </div>
+                    </div>
+                </section>`);
+        }
+
+        const boardClass = columnsMarkup.length >= 4 ? 'bracket-board cols-4' : 'bracket-board';
+        container.innerHTML = `<div class="${boardClass}">${columnsMarkup.join('')}</div>`;
+    }
 
     controls.querySelector('#btn-avanzar-etapa')?.addEventListener('click', () => {
         try {
