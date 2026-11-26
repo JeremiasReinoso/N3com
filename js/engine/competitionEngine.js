@@ -12,6 +12,7 @@ import { ResultsEngine, isMatchFinished, isOfficialMatch } from './resultsEngine
 import { QualificationEngine } from './qualificationEngine.js';
 import { KnockoutEngine } from './knockoutEngine.js';
 import { FinalStageEngine } from './finalStageEngine.js';
+import { ReclassificationEngine } from './reclassificationEngine.js';
 
 const resolveStagesForConfig = config => {
     if (config.formatId === 'PERSONALIZADO' && Array.isArray(config.stages)) {
@@ -65,6 +66,13 @@ const resolveStagesForConfig = config => {
     if (config.formatId === 'ELIMINACION_DIRECTA') {
         return [{ type: 'ELIMINATORIAS', thirdPlace: Boolean(config.thirdPlace), bracketStyle: 'standard' }];
     }
+    if (config.formatId === 'ZONAS_SUBZONAS') {
+        return [
+            { type: 'ZONAS', groupMode: config.groupMode || 'round_robin', qualifiersPerZone: config.qualifiersPerZone || 2 },
+            { type: 'SUBZONAS', subZoneScheme: config.subZoneScheme || 'auto' },
+            { type: 'ELIMINATORIAS', thirdPlace: config.thirdPlace !== false, placementCrosses: config.placementCrosses !== false }
+        ];
+    }
     return [];
 };
 
@@ -78,6 +86,7 @@ export const CompetitionEngine = {
     QualificationEngine,
     KnockoutEngine,
     FinalStageEngine,
+    ReclassificationEngine,
 
     listFormats() {
         return FormatRegistry.list();
@@ -152,7 +161,8 @@ export const CompetitionEngine = {
         const general = StandingsEngine.calculateGeneralTable(torneoId, categoriaId, options);
         const byZone = StandingsEngine.calculateZoneTables(torneoId, categoriaId, options);
         const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
-        const hasFinalGroup = matches.some(match => match.phase === 'ZONA_FINAL');
+        const hasSubZones = matches.some(match => match.phase === 'ZONA_FINAL' && match.subZoneId);
+        const hasFinalGroup = matches.some(match => match.phase === 'ZONA_FINAL' && !match.subZoneId);
         let finalGroup = null;
         if (hasFinalGroup) {
             const stages = resolveStagesForConfig(config);
@@ -160,8 +170,9 @@ export const CompetitionEngine = {
             const carryOverMode = finalStage?.carryOverMode || config.carryOverMode || 'reset';
             finalGroup = FinalStageEngine.getFinalGroupStandings(torneoId, categoriaId, { carryOverMode });
         }
+        const subZones = hasSubZones ? ReclassificationEngine.getSubZoneStandings(torneoId, categoriaId) : [];
         const finalClassification = StandingsEngine.calculateFinalClassification(torneoId, categoriaId);
-        return { general, byZone, finalGroup, finalClassification, formatId: config.formatId };
+        return { general, byZone, finalGroup, subZones, finalClassification, formatId: config.formatId };
     },
 
     getQualifiedTeams(torneoId, categoriaId, options = {}) {
@@ -194,8 +205,44 @@ export const CompetitionEngine = {
         const stages = resolveStagesForConfig(config);
         const matches = DataManager.getMatchesByTournamentAndCategory(torneoId, categoriaId);
 
-        const hasFinalGroup = matches.some(match => match.phase === 'ZONA_FINAL');
+        const hasSubZones = matches.some(match => match.phase === 'ZONA_FINAL' && match.subZoneId);
+        const hasFinalGroup = matches.some(match => match.phase === 'ZONA_FINAL' && !match.subZoneId);
         const hasKnockout = matches.some(match => KnockoutEngine.ALL_KNOCKOUT_PHASES.includes(match.phase));
+
+        if (config.formatId === 'ZONAS_SUBZONAS') {
+            if (!hasSubZones) {
+                const result = ReclassificationEngine.generateSubZoneMatches(torneoId, categoriaId, {
+                    subZoneScheme: config.subZoneScheme || 'auto',
+                    qualifiersPerZone: config.qualifiersPerZone || 2,
+                    confirmImmediately: options.confirmImmediately !== false
+                });
+                if (options.schedule && result.created.length) {
+                    try {
+                        SchedulingEngine.scheduleTournament(torneoId);
+                    } catch (error) {
+                        result.created.forEach(m => { try { DataManager.removeMatch(m.id); } catch { /* noop */ } });
+                        throw error;
+                    }
+                }
+                return { stage: 'SUBZONAS', ...result };
+            }
+            if (!hasKnockout) {
+                const result = ReclassificationEngine.generateChampionshipFinals(torneoId, categoriaId, {
+                    thirdPlace: options.thirdPlace ?? config.thirdPlace !== false,
+                    placementCrosses: options.placementCrosses ?? config.placementCrosses !== false
+                });
+                if (options.schedule && result.created.length) {
+                    try {
+                        SchedulingEngine.scheduleTournament(torneoId);
+                    } catch (error) {
+                        result.created.forEach(m => { try { DataManager.removeMatch(m.id); } catch { /* noop */ } });
+                        throw error;
+                    }
+                }
+                return { stage: 'ELIMINATORIAS', ...result };
+            }
+            return { stage: 'FINAL', created: [], alreadyExists: true };
+        }
 
         const finalGroupStageIndex = stages.findIndex(stage => stage.type === 'ZONA_FINAL');
         const knockoutStageIndex = stages.findIndex(stage => stage.type === 'ELIMINATORIAS');

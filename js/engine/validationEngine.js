@@ -9,7 +9,8 @@ export const SUPPORTED_FORMATS = Object.freeze([
     'ZONAS_ZONA_FINAL',
     'ELIMINACION_DIRECTA',
     'LIGA_RONDAS',
-    'PERSONALIZADO'
+    'PERSONALIZADO',
+    'ZONAS_SUBZONAS'
 ]);
 
 export const SUPPORTED_STANDINGS_MODES = Object.freeze(['wins', 'points_table', 'legacy_pf']);
@@ -145,6 +146,15 @@ export const validateFormatConfig = (config, context = {}) => {
         }
         if (config.thirdPlace && teamCount !== null && teamCount < 4) {
             warnings.push('El partido por el tercer puesto sólo se disputará si participan al menos 4 equipos.');
+        }
+    }
+
+    if (formatId === 'ZONAS_SUBZONAS') {
+        if (zoneCount !== null && zoneCount < 2) {
+            errors.push('El formato con Ronda Campeonato y Estímulo requiere crear al menos 2 zonas iniciales.');
+        }
+        if (teamCount !== null && teamCount < 4) {
+            errors.push('Se necesitan al menos 4 equipos para disputar Zonas + Campeonato y Estímulo.');
         }
     }
 

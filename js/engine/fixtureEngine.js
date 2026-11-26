@@ -85,11 +85,11 @@ export const FixtureEngine = {
         const customFirst = getInitialStageDefinition(config);
         const effectiveType = customFirst ? customFirst.type : config.formatId;
 
-        if (effectiveType === 'ZONAS_ELIMINATORIAS' || effectiveType === 'ZONAS_ZONA_FINAL' || effectiveType === 'ZONAS') {
+        if (effectiveType === 'ZONAS_ELIMINATORIAS' || effectiveType === 'ZONAS_ZONA_FINAL' || effectiveType === 'ZONAS_SUBZONAS' || effectiveType === 'ZONAS') {
             const groupMode = options.groupMode
                 || customFirst?.groupMode
                 || config.groupMode
-                || (effectiveType === 'ZONAS_ZONA_FINAL' ? 'round_robin' : 'guaranteed');
+                || (effectiveType === 'ZONAS_ZONA_FINAL' || effectiveType === 'ZONAS_SUBZONAS' ? 'round_robin' : 'guaranteed');
             const guaranteedMatches = options.guaranteedMatches
                 ?? customFirst?.guaranteedMatches
                 ?? config.guaranteedMatches

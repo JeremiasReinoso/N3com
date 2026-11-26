@@ -22,10 +22,10 @@
     --border-strong: #374866;
     --border-focus: #3B82F6;
 
-    /* Tipografía y contraste WCAG AA+ */
-    --text-primary: #F1F5F9;
-    --text-secondary: #94A3B8;
-    --text-muted: #64748B;
+    /* Tipografía y contraste WCAG AA+ (optimizado también para adultos mayores) */
+    --text-primary: #F8FAFC;
+    --text-secondary: #B0C0D4;
+    --text-muted: #7C8EA6;
     --text-inverse: #FFFFFF;
 
     /* Acentos azules sobrios (Identidad N3com) */
@@ -69,13 +69,13 @@
     --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
     --font-mono: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace;
 
-    --text-xs: 0.75rem;      /* 12px */
-    --text-sm: 0.8125rem;    /* 13px */
-    --text-base: 0.875rem;   /* 14px */
-    --text-md: 0.9375rem;    /* 15px */
-    --text-lg: 1.0625rem;    /* 17px */
-    --text-xl: 1.25rem;      /* 20px */
-    --text-2xl: 1.5rem;      /* 24px */
+    --text-xs: 0.78rem;      /* ~12.5px */
+    --text-sm: 0.85rem;      /* ~13.6px */
+    --text-base: 0.9375rem;  /* 15px — lectura cómoda */
+    --text-md: 1rem;         /* 16px */
+    --text-lg: 1.125rem;     /* 18px */
+    --text-xl: 1.35rem;      /* ~21.5px */
+    --text-2xl: 1.6rem;      /* ~25.5px */
 
     /* Escala de espaciado */
     --space-1: 4px;

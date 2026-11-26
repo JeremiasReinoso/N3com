@@ -10,3 +10,4 @@ export { StandingsEngine, calculateTable, DEFAULT_POINTS_SYSTEM } from './standi
 export { ResultsEngine, evaluateMatchSets, applyMatchSets, normalizeSets, isMatchFinished, isOfficialMatch } from './resultsEngine.js';
 export { QualificationEngine } from './qualificationEngine.js';
 export { ValidationEngine } from './validationEngine.js';
+export { ReclassificationEngine, buildSubZonesPlan } from './reclassificationEngine.js';

@@ -47,31 +47,37 @@ const accumulateRows = (teams, matches, pointsSystem) => {
     (matches || []).filter(isMatchFinished).forEach(match => {
         const local = rows.get(match.equipoLocalId);
         const visitante = rows.get(match.equipoVisitanteId);
-        if (!local || !visitante) return;
+        const allowPartialInterzonal = Boolean(match.interzonal || match.tipo === 'cruce_especial');
+        if ((!local || !visitante) && !allowPartialInterzonal) return;
+        if (!local && !visitante) return;
 
-        local.jugados += 1;
-        visitante.jugados += 1;
-        local.setsFavor += Number(match.setsLocal || 0);
-        local.setsContra += Number(match.setsVisitante || 0);
-        visitante.setsFavor += Number(match.setsVisitante || 0);
-        visitante.setsContra += Number(match.setsLocal || 0);
-
+        let localPts = 0;
+        let awayPts = 0;
         match.sets.forEach(set => {
-            local.puntosFavor += set.puntosLocal;
-            local.puntosContra += set.puntosVisitante;
-            visitante.puntosFavor += set.puntosVisitante;
-            visitante.puntosContra += set.puntosLocal;
+            localPts += set.puntosLocal;
+            awayPts += set.puntosVisitante;
         });
 
-        local.puntosTabla += computeMatchTablePoints(match.setsLocal, match.setsVisitante, pointsSystem);
-        visitante.puntosTabla += computeMatchTablePoints(match.setsVisitante, match.setsLocal, pointsSystem);
+        if (local) {
+            local.jugados += 1;
+            local.setsFavor += Number(match.setsLocal || 0);
+            local.setsContra += Number(match.setsVisitante || 0);
+            local.puntosFavor += localPts;
+            local.puntosContra += awayPts;
+            local.puntosTabla += computeMatchTablePoints(match.setsLocal, match.setsVisitante, pointsSystem);
+            if (match.ganadorId === local.id) local.ganados += 1;
+            else local.perdidos += 1;
+        }
 
-        if (match.ganadorId === local.id) {
-            local.ganados += 1;
-            visitante.perdidos += 1;
-        } else {
-            visitante.ganados += 1;
-            local.perdidos += 1;
+        if (visitante) {
+            visitante.jugados += 1;
+            visitante.setsFavor += Number(match.setsVisitante || 0);
+            visitante.setsContra += Number(match.setsLocal || 0);
+            visitante.puntosFavor += awayPts;
+            visitante.puntosContra += localPts;
+            visitante.puntosTabla += computeMatchTablePoints(match.setsVisitante, match.setsLocal, pointsSystem);
+            if (match.ganadorId === visitante.id) visitante.ganados += 1;
+            else visitante.perdidos += 1;
         }
     });
 
@@ -206,10 +212,12 @@ export const StandingsEngine = {
         return zones.map(zone => {
             const zoneTeams = teams.filter(team => team.zonaId === zone.id);
             const zoneTeamIds = new Set(zoneTeams.map(team => team.id));
-            // Incluye partidos dentro de la zona y cruces especiales si corresponden al equipo de esta zona.
+            // Incluye partidos dentro de la zona y cruces interzonales/especiales de sus equipos.
             const zoneMatches = matches.filter(match => (
                 match.zonaId === zone.id
                 || (zoneTeamIds.has(match.equipoLocalId) && zoneTeamIds.has(match.equipoVisitanteId))
+                || ((match.interzonal || match.tipo === 'cruce_especial')
+                    && (zoneTeamIds.has(match.equipoLocalId) || zoneTeamIds.has(match.equipoVisitanteId)))
             ));
             return {
                 zone,
@@ -275,7 +283,11 @@ export const StandingsEngine = {
             append(final.ganadorId);
             append(loserOf(final));
 
-            const thirdPlace = matches.find(match => match.phase === 'THIRD_PLACE' && isMatchFinished(match));
+            const thirdPlace = matches.find(match => (
+                match.phase === 'THIRD_PLACE'
+                && (!match.placementRank || match.placementRank === 3)
+                && isMatchFinished(match)
+            ));
             if (thirdPlace) {
                 append(thirdPlace.ganadorId);
                 append(loserOf(thirdPlace));
@@ -285,6 +297,49 @@ export const StandingsEngine = {
                 .filter(match => match.phase === 'SEMIFINAL' && isMatchFinished(match))
                 .map(loserOf);
             sortByGeneralRank(semifinalLosers).forEach(append);
+
+            // Cruces por puestos adicionales (ej. 5.º/6.º puesto y 7.º/8.º puesto en Ronda Campeonato)
+            const extraPlacementMatches = matches
+                .filter(match => match.phase === 'THIRD_PLACE' && Number(match.placementRank) >= 5 && isMatchFinished(match))
+                .sort((a, b) => Number(a.placementRank) - Number(b.placementRank));
+            extraPlacementMatches.forEach(pm => {
+                append(pm.ganadorId);
+                append(loserOf(pm));
+            });
+
+            // Sub-zonas de reclasificación / Estímulo / Triangulares por puestos (ej. Zona 3 a Zona 6)
+            const subZoneMatches = matches.filter(match => match.phase === 'ZONA_FINAL' && match.subZoneId);
+            if (subZoneMatches.length) {
+                const allTeams = DataManager.getTeamsByTournamentAndCategory(torneoId, categoriaId);
+                const byTeam = new Map(allTeams.map(t => [t.id, t]));
+                const rules = {
+                    mode: formatConfig?.standingsMode || category?.standingsMode || 'wins',
+                    tiebreakers: formatConfig?.tiebreakers,
+                    pointsSystem: formatConfig?.pointsSystem
+                };
+                const subGroups = new Map();
+                subZoneMatches.forEach(m => {
+                    const g = subGroups.get(m.subZoneId) || {
+                        tier: m.subZoneTier || 'campeonato',
+                        rankStart: Number(m.rankStart || 999),
+                        code: m.subZoneCode || m.subZoneId,
+                        matches: [],
+                        teamIds: new Set()
+                    };
+                    g.matches.push(m);
+                    if (m.equipoLocalId) g.teamIds.add(m.equipoLocalId);
+                    if (m.equipoVisitanteId) g.teamIds.add(m.equipoVisitanteId);
+                    subGroups.set(m.subZoneId, g);
+                });
+                [...subGroups.values()]
+                    .sort((a, b) => (a.tier === b.tier ? 0 : (a.tier === 'campeonato' ? -1 : 1))
+                        || a.rankStart - b.rankStart
+                        || String(a.code).localeCompare(String(b.code), 'es', { numeric: true }))
+                    .forEach(group => {
+                        const groupTeams = [...group.teamIds].map(id => byTeam.get(id)).filter(Boolean);
+                        calculateTable(groupTeams, group.matches, rules).forEach(row => append(row.id));
+                    });
+            }
 
             for (const phase of ['TOP_8', 'TOP_16', 'TOP_32']) {
                 const losers = matches
@@ -300,8 +355,8 @@ export const StandingsEngine = {
             ];
         }
 
-        // 2. Si el formato es Zonas + Zona Final y todos los partidos de Zona Final concluyeron.
-        const finalGroupMatches = matches.filter(match => match.phase === 'ZONA_FINAL');
+        // 2. Si el formato es Zonas + Zona Final única y todos los partidos de Zona Final concluyeron.
+        const finalGroupMatches = matches.filter(match => match.phase === 'ZONA_FINAL' && !match.subZoneId);
         if (finalGroupMatches.length && finalGroupMatches.every(isMatchFinished)) {
             const carryOverMode = formatConfig?.carryOverMode
                 || formatConfig?.stages?.find(stage => stage.type === 'ZONA_FINAL')?.carryOverMode

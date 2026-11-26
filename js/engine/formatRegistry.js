@@ -11,7 +11,8 @@ export const BUILTIN_FORMATS = Object.freeze({
     ZONAS_ZONA_FINAL: 'ZONAS_ZONA_FINAL',
     ELIMINACION_DIRECTA: 'ELIMINACION_DIRECTA',
     LIGA_RONDAS: 'LIGA_RONDAS',
-    PERSONALIZADO: 'PERSONALIZADO'
+    PERSONALIZADO: 'PERSONALIZADO',
+    ZONAS_SUBZONAS: 'ZONAS_SUBZONAS'
 });
 
 const DEFAULT_DEFINITIONS = [
@@ -122,6 +123,25 @@ const DEFAULT_DEFINITIONS = [
                 { type: 'ZONAS', groupMode: 'round_robin', zonesCount: 2, qualifiersPerZone: 2, bestOthers: 0 },
                 { type: 'ELIMINATORIAS', thirdPlace: true }
             ]
+        }
+    },
+    {
+        id: BUILTIN_FORMATS.ZONAS_SUBZONAS,
+        code: 'G',
+        name: 'Zonas + Ronda Campeonato y Estímulo',
+        shortDescription: 'Fase de zonas seguida de sub-zonas por puestos (Campeonato Z1-Z2 y Estímulo / Triangulares) y cruces finales.',
+        requiresZones: true,
+        supportsPlayoffs: true,
+        supportsFinalGroup: true,
+        initialPhase: 'ZONAS',
+        defaultConfig: {
+            formatId: BUILTIN_FORMATS.ZONAS_SUBZONAS,
+            groupMode: 'round_robin',
+            subZoneScheme: 'auto',
+            qualifiersPerZone: 2,
+            thirdPlace: true,
+            placementCrosses: true,
+            standingsMode: 'wins'
         }
     }
 ];
